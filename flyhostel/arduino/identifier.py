@@ -5,11 +5,12 @@ import logging
 import serial
 import serial.tools.list_ports
 import ipdb
-#logging.basicConfig(level=logging.DEBUG)
+
+# logging.basicConfig(level=logging.DEBUG)
 from .utils import identify_ports, list_ports
 
-class Identifier:
 
+class Identifier:
     @classmethod
     def identify(cls):
         return identify_ports(list_ports())
@@ -17,8 +18,8 @@ class Identifier:
     @classmethod
     def report(cls):
         ids = cls.identify()
-        return {v: k for k,v in ids.items()}
-        
+        return {v: k for k, v in ids.items()}
+
 
 if __name__ == "__main__":
 
