@@ -1,4 +1,5 @@
 import logging
+import itertools
 
 import imgstore
 
