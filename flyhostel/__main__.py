@@ -11,6 +11,7 @@ def get_parser():
         description="FlyHostel manages and monitors a behavioral experiment with Drosophila melanogaster"
     )
     subparsers = ap.add_subparsers()  # help=argparse.SUPPRESS)
+
     sensor_parser = subparsers.add_parser(
         "sensor",
         parents=[flyhostel.sensors.get_parser()],
@@ -32,6 +33,15 @@ def get_parser():
         help="Sensor IO",
     )
     sensor_io_parser.set_defaults(func=flyhostel.sensors.io.main)
+
+    quantification_parser = subparsers.add_parser(
+        "quant",
+        parents=[flyhostel.quantification_parser.get_parser()],
+        add_help=False,
+        help="Quantification",
+    )
+    quantification_parser.set_defaults(func=flyhostel.quantification.main)   
+
     return ap
 
 
