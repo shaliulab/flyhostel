@@ -240,14 +240,11 @@ def tidy_dataset_all(velocities, **kwargs):
 
     n_animals = velocities.shape[1]
     data = init_data_frame()
+    output = []
 
     if N_JOBS == 1:
         for i in tqdm(range(n_animals), desc="Generating dataset for animal "):
-            d = tidy_dataset(velocities[:, i], **kwargs)
-            d["id"] = [
-                i,
-            ] * d.shape[0]
-            data = pd.concat([data, d])
+            output.append(tidy_dataset(velocities[:, i], **kwargs))
 
     else:
         output = joblib.Parallel(n_jobs=N_JOBS)(
@@ -255,7 +252,12 @@ def tidy_dataset_all(velocities, **kwargs):
             for i in range(n_animals)
         )
 
-        data = pd.concat([data, *output])
+    for i in range(n_animals):
+        d = output[i]
+        d["id"] = [
+            i,
+        ] * d.shape[0]
+        data = pd.concat([data, d])
 
     return data
 
@@ -266,14 +268,19 @@ def main(args=None, ap=None):
         ap = get_parser(ap)
         args = ap.parse_args()
 
-    experiment_name = os.path.basename(args.input.rstrip("/"))
+    if args.input == ".":
+        input = os.getcwd()
+    else:
+        input = args.input
+
+    experiment_name = os.path.basename(input.rstrip("/"))
 
     # load trajectories
-    status, chunks, tr = load_trajectories(args.input)
+    status, chunks, tr = load_trajectories(input)
 
     # load metadata
     store_metadata, chunk_metadata = read_store_metadata(
-        args.input, chunk_numbers=chunks
+        input, chunk_numbers=chunks
     )
     analysis_params = get_analysis_params(store_metadata)
     frame_number = list(
@@ -292,7 +299,7 @@ def main(args=None, ap=None):
     velocities = np.abs(tr.v).sum(axis=2)
 
     # initialized data_frame
-    logger.info("Loading dataset")
+    logger.info("Tidying dataset")
     data = tidy_dataset_all(
         velocities,
         chunk_metadata=(frame_number, frame_time),
