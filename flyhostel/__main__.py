@@ -36,7 +36,7 @@ def get_parser():
 
     quantification_parser = subparsers.add_parser(
         "quant",
-        parents=[flyhostel.quantification_parser.get_parser()],
+        parents=[flyhostel.quantification.get_parser()],
         add_help=False,
         help="Quantification",
     )
