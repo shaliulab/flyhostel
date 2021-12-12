@@ -37,7 +37,8 @@ def get_parser(ap=None):
 
     if ap is None:
         argparse.add_argument("--experiment-folder", "--input", dest="input", required=True, type=str)
-
+    
+    return ap
 
 def sleep_annotation(data, analysis_params):
     data["moving"] = data["velocity"] > analysis_params.velocity_correction_coef
@@ -120,15 +121,27 @@ def sleep_plot(dt):
         int_str = f"{nrow}{ncol}{i+1}"
         ax = fig.add_subplot(int(int_str))
         axes.append(ax)
+
+        # take one fly     
         dt_one_fly = dt.loc[dt["id"] == ident]
+        
+        # plot the data
         ax.plot(dt_one_fly["t"] / 3600, dt_one_fly["asleep"], linewidth=1, c="blue")
         ax.set_ylim([0, 1])
-        geom_ld_annotations(dt, ax, yrange=[0,1])
+
+        # plot the phases (LD)
+        
+        geom_ld_annotations(dt_one_fly, ax, yrange=[0,1])
     # fig.subplots_adjust(bottom=0.0, right=0.8, top=1.0)
     return fig
 
 
 def main(ap=None, args=None):
+
+
+    if args is None:
+        ap = get_parser(ap)
+        args = ap.parse_args()
 
 
     # load trajectories
@@ -186,7 +199,6 @@ def main(ap=None, args=None):
   
 
 if __name__ == "__main__":
-    args = argparse.Namespace(experiment_folder = "/Dropbox/FlySleepLab_Dropbox/Data/flyhostel_data/videos/2021-11-27_12-02-38/")
-    main(args=args)
-
-
+    # args = argparse.Namespace(experiment_folder = "/Dropbox/FlySleepLab_Dropbox/Data/flyhostel_data/videos/2021-11-27_12-02-38/")
+    # main(args=args)
+    main()
