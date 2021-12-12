@@ -63,12 +63,12 @@ def compute_zt0_offset(store, reference_hour):
     Return ms passed from zt0 to experiment start
     """
     experiment_name = os.path.basename(os.path.dirname(store.full_path))
-    datetime_str = re.match("^([0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}).*", experiment_name).group(1)
+    datetime_str = re.match(
+        "^([0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}).*",
+        experiment_name,
+    ).group(1)
 
-    start_time = zeitgeber.seconds_since_midnight(
-        datetime_str
-
-    )
+    start_time = zeitgeber.seconds_since_midnight(datetime_str)
 
     zt0 = reference_hour * 3600
     offset = start_time - zt0
