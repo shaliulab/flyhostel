@@ -37,9 +37,10 @@ def get_parser(ap=None):
 
     if ap is None:
         ap = argparse.ArgumentParser()
+
     ap.add_argument("--experiment-folder", "--input", dest="input", required=True, type=str)
-    
     return ap
+
 
 def sleep_annotation(data, analysis_params):
     data["moving"] = data["velocity"] > analysis_params.velocity_correction_coef
@@ -139,17 +140,16 @@ def sleep_plot(dt):
 
 def main(ap=None, args=None):
 
-
     if args is None:
         ap = get_parser(ap)
         args = ap.parse_args()
 
 
     # load trajectories
-    status, tr = load_trajectories(args.input)
+    status, chunks, tr = load_trajectories(args.input)
 
     # load metadata
-    store_metadata, chunk_metadata = read_store_metadata(args.input)    
+    store_metadata, chunk_metadata = read_store_metadata(args.input, chunk_numbers=chunks)
     analysis_params = get_analysis_params(store_metadata)
     frame_number = list(itertools.chain(*[m["frame_number"] for m in chunk_metadata.values()]))
     frame_time = list(itertools.chain(*[m["frame_time"] for m in chunk_metadata.values()]))
