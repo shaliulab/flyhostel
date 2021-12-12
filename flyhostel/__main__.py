@@ -4,6 +4,7 @@ import argparse
 import flyhostel.sensors
 import flyhostel.sensors.io
 import flyhostel.ldriver
+import flyhostel.quantification
 
 
 def get_parser():
