@@ -7,7 +7,7 @@ from .sensor import Sensor
 
 class Server(threading.Thread):
 
-    _SERVER_HOST = '0.0.0.0'
+    _SERVER_HOST = "0.0.0.0"
     _html = """
         <!DOCTYPE HTML><html>
         <head>
@@ -48,10 +48,10 @@ class Server(threading.Thread):
         </html>
         """
 
-    def __init__(self, sensor, server_type='html', port=80, *args, **kwargs):
+    def __init__(self, sensor, server_type="html", port=80, *args, **kwargs):
 
         with open("/etc/hostname", "r") as fh:
-            self._hostname = fh.read().strip('\n')
+            self._hostname = fh.read().strip("\n")
 
         self._server_type = server_type
         self._port = port
@@ -60,21 +60,26 @@ class Server(threading.Thread):
 
         # Create socket
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server_socket.setsockopt(
+            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1
+        )
         self._server_socket.bind((self._SERVER_HOST, self._port))
         self._server_socket.listen(1)
 
-        print('Listening on port %s ...' % self._port)
+        print("Listening on port %s ..." % self._port)
         super().__init__(*args, **kwargs)
 
     def _fill_html(self, src=""):
         response = self._html % (
-            self._hostname, self._hostname,
-            self._sensor.temperature, self._sensor.humidity,
-            self._sensor.light, self._sensor.pressure, src
+            self._hostname,
+            self._hostname,
+            self._sensor.temperature,
+            self._sensor.humidity,
+            self._sensor.light,
+            self._sensor.pressure,
+            src,
         )
         return response
-
 
     def run(self):
         # Define socket host and port
@@ -84,11 +89,15 @@ class Server(threading.Thread):
 
             if self._server_type == "html":
                 # Wait for client connections
-                
+
                 response = self._html % (
-                    self._hostname, self._hostname, self._sensor.time,
-                    self._sensor.temperature, self._sensor.humidity,
-                    self._sensor.light, self._sensor.pressure
+                    self._hostname,
+                    self._hostname,
+                    self._sensor.time,
+                    self._sensor.temperature,
+                    self._sensor.humidity,
+                    self._sensor.light,
+                    self._sensor.pressure,
                 )
                 print(self._sensor.light)
 
@@ -100,7 +109,7 @@ class Server(threading.Thread):
                     "humidity": self._sensor.humidity,
                     "light": self._sensor.light,
                     "pressure": self._sensor.pressure,
-                    "time": self._sensor.time
+                    "time": self._sensor.time,
                 }
 
                 response = json.dumps(json_data)
@@ -117,7 +126,6 @@ class Server(threading.Thread):
 
 
 if __name__ == "__main__":
-
 
     sensor = Sensor("/dev/ttyACM0")
     sensor.start()

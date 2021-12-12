@@ -7,12 +7,15 @@ import time
 import serial
 import serial.tools.list_ports
 
-with open("/etc/flyhostel.conf", "r") as fh:
+import flyhostel
+
+with open(flyhostel.CONFIG_FILE, "r") as fh:
     config = json.load(fh)
 
 logging.basicConfig(level=getattr(logging, config["logging"]["arduino"]))
 
 TIMEOUT = 5
+
 
 def list_ports():
     ports = [p.device for p in serial.tools.list_ports.comports()]
@@ -27,7 +30,11 @@ def read_from_serial(ser):
     while True:
         read = ser.read(100).decode("utf-8")
         logging.debug(read)
-        if (read == "") and (data != "") and ((time.time() - start_time) > ser.timeout):
+        if (
+            (read == "")
+            and (data != "")
+            and ((time.time() - start_time) > ser.timeout)
+        ):
             break
         else:
             data += read
@@ -51,7 +58,7 @@ def identify_ports(ports):
                     attempts += 1
                     ser.write(b"T\n")
                     ret, raw_data = read_from_serial(ser)
-                    status = (raw_data != "")
+                    status = raw_data != ""
                 if attempts == max_attempts:
                     logging.error(f"Device on port {port} not responding")
                     continue
@@ -72,4 +79,3 @@ def identify_ports(ports):
                 raise error
 
     return identifiers
-

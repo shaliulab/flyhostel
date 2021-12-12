@@ -1,1 +1,1 @@
-from .__main__ import main
+CONFIG_FILE = '/home/vibflysleep/.config/flyhostel.conf'

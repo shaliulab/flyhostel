@@ -2,22 +2,29 @@ import argparse
 import json
 import logging
 
+import flyhostel
 from .sensor import Sensor
 from .server import Server
 
 
-def get_parser(ap = None):
+def get_parser(ap=None):
 
     if ap is None:
         ap = argparse.ArgumentParser()
 
-    ap.add_argument("--arduino-port", dest="arduino_port", required=False, default=None)
-    ap.add_argument("--html-port", dest="html_port", required=False, default=8000)
-    ap.add_argument("--json-port", dest="json_port", required=False, default=9000)
+    ap.add_argument(
+        "--arduino-port", dest="arduino_port", required=False, default=None
+    )
+    ap.add_argument(
+        "--html-port", dest="html_port", required=False, default=8000
+    )
+    ap.add_argument(
+        "--json-port", dest="json_port", required=False, default=9000
+    )
     ap.add_argument("--logfile", required=False, default="/temp_log.txt")
     ap.add_argument("--thread", default=False, action="store_true")
     return ap
- 
+
 
 def main(args=None):
     """
@@ -27,11 +34,10 @@ def main(args=None):
     * Sets up html and json servers for easy query of the data
     """
 
-    with open("/etc/flyhostel.conf", "r") as fh:
+    with open(flyhostel.CONFIG_FILE, "r") as fh:
         config = json.load(fh)
-    
-    logging.basicConfig(level=getattr(logging, config["logging"]["sensors"]))
 
+    logging.basicConfig(level=getattr(logging, config["logging"]["sensors"]))
 
     if args is None:
         args = get_parser().parse_args()
@@ -45,7 +51,7 @@ def main(args=None):
 
         html_server.start()
         json_server.start()
-    
+
     else:
         sensor.get_readings()
         for k, v in sensor._data.items():
@@ -53,7 +59,6 @@ def main(args=None):
 
     return 0
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
-
-

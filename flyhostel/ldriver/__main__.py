@@ -10,20 +10,20 @@ def get_parser(ap=None):
 
     if ap is None:
         ap = argparse.ArgumentParser()
-    ap.add_argument("state", type=int, choices=[0,1])
+    ap.add_argument("state", type=int, choices=[0, 1])
     ap.add_argument("--debug", action="store_true", default=False)
     ap.add_argument("--arduino-port", dest="arduino_port", default=None)
     return ap
 
+
 def main(args=None):
-    
+
     if args is None:
         args = get_parser().parse_args()
 
     level = {True: logging.DEBUG, False: logging.WARNING}[args.debug]
     logging.basicConfig(level=level)
 
-   
     identifier = Identifier
     status = False
 
@@ -41,12 +41,12 @@ def main(args=None):
         port = args.arduino_port
         status = True
 
-    
     with serial.Serial(port) as ser:
         logging.debug(f"Setting state to {args.state}")
         cmd = f"S L {args.state * 255}\n".encode()
         logging.debug(cmd)
         ser.write(cmd)
-    
+
+
 if __name__ == "__main__":
     main()

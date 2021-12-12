@@ -3,7 +3,8 @@ import urllib.request
 import logging
 import json
 import traceback
-#import os.path
+
+# import os.path
 import bottle
 
 # For plots
@@ -13,7 +14,8 @@ import matplotlib.dates as mdates
 import pandas as pd
 import numpy as np
 import seaborn as sns
-sns.set(rc={'figure.figsize':(11, 4)})
+
+sns.set(rc={"figure.figsize": (11, 4)})
 
 # To inject images in html
 import base64
@@ -25,6 +27,7 @@ from scp import SCPClient
 
 from server import Server
 
+
 def createSSHClient(server, port, user, password):
     client = paramiko.SSHClient()
     client.load_system_host_keys()
@@ -34,7 +37,7 @@ def createSSHClient(server, port, user, password):
 
 
 PORT = 7575
-DEBUG=True
+DEBUG = True
 
 api = bottle.Bottle()
 
@@ -42,23 +45,28 @@ api = bottle.Bottle()
 ### CLASSS TO BE REMOVED IF BOTTLE CHANGES TO 0.13
 ############
 class CherootServer(bottle.ServerAdapter):
-    def run(self, handler): # pragma: no cover
+    def run(self, handler):  # pragma: no cover
         from cheroot import wsgi
         from cheroot.ssl import builtin
-        self.options['bind_addr'] = (self.host, self.port)
-        self.options['wsgi_app'] = handler
-        certfile = self.options.pop('certfile', None)
-        keyfile = self.options.pop('keyfile', None)
-        chainfile = self.options.pop('chainfile', None)
+
+        self.options["bind_addr"] = (self.host, self.port)
+        self.options["wsgi_app"] = handler
+        certfile = self.options.pop("certfile", None)
+        keyfile = self.options.pop("keyfile", None)
+        chainfile = self.options.pop("chainfile", None)
         server = wsgi.Server(**self.options)
         if certfile and keyfile:
             server.ssl_adapter = builtin.BuiltinSSLAdapter(
-                    certfile, keyfile, chainfile)
+                certfile, keyfile, chainfile
+            )
         try:
             server.start()
         finally:
             server.stop()
+
+
 ############
+
 
 def download_logs(ip, filename):
     server = ip
@@ -68,11 +76,24 @@ def download_logs(ip, filename):
     ssh = createSSHClient(server, port, user, password)
     scp = SCPClient(ssh.get_transport())
     scp.get("/sensor_log.txt", f"/ethoscope_data/sensors/{filename}")
-    df = pd.read_csv(f"/ethoscope_data/sensors/{filename}", sep = "\t", header=None,
-                 names=["datetime", "temperature", "humidity", "light", "pressure", "altitude"],
-                 parse_dates=True, index_col=0)
+    df = pd.read_csv(
+        f"/ethoscope_data/sensors/{filename}",
+        sep="\t",
+        header=None,
+        names=[
+            "datetime",
+            "temperature",
+            "humidity",
+            "light",
+            "pressure",
+            "altitude",
+        ],
+        parse_dates=True,
+        index_col=0,
+    )
 
     return df
+
 
 @api.get("/plot/<ip>/<incubator>")
 def plot(ip, incubator, timeout=10):
@@ -80,17 +101,26 @@ def plot(ip, incubator, timeout=10):
         filename = f"sensor-log_{ip}.txt"
         plotname = f"sensor-plot_{ip}.png"
         df = download_logs(ip, filename=filename)
-        cols_plot = ['temperature', 'humidity', 'light']
-        limits = [[20,30], [0, 100], [0, 1000]]
-        axes = df[cols_plot].plot(marker='.', alpha=0.5, linestyle='None', figsize=(11, 9), subplots=True, title=f"Incubator {incubator} sensor data")
-        i=0
+        cols_plot = ["temperature", "humidity", "light"]
+        limits = [[20, 30], [0, 100], [0, 1000]]
+        axes = df[cols_plot].plot(
+            marker=".",
+            alpha=0.5,
+            linestyle="None",
+            figsize=(11, 9),
+            subplots=True,
+            title=f"Incubator {incubator} sensor data",
+        )
+        i = 0
         for ax in axes:
             ax.set_ylabel(cols_plot[i])
             ax.set_ylim(limits[i])
-            ax.xaxis.set_major_locator(mdates.HourLocator(byhour=range(0,24,2)))
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d_%H:%M'));
+            ax.xaxis.set_major_locator(
+                mdates.HourLocator(byhour=range(0, 24, 2))
+            )
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d_%H:%M"))
 
-            i+=1
+            i += 1
         plot_abspath = f"/ethoscope_data/sensors/{plotname}"
         plt.savefig(plot_abspath)
 
@@ -104,15 +134,21 @@ def plot(ip, incubator, timeout=10):
             # From https://stackoverflow.com/questions/8499633/how-to-display-base64-images-in-html
             base64_image = f"data:image/png;base64, {encoded_string.decode()}"
 
-        html_page = html_page % (f"incubator {incubator}", f"incubator {incubator}",
-                            data["temperature"], data["humidity"], data["light"],
-                            data["pressure"], base64_image)
+        html_page = html_page % (
+            f"incubator {incubator}",
+            f"incubator {incubator}",
+            data["temperature"],
+            data["humidity"],
+            data["light"],
+            data["pressure"],
+            base64_image,
+        )
         return html_page
 
     except Exception as error:
         logging.error(error)
         logging.warning(traceback.print_exc())
-        return  {"code": 1}
+        return {"code": 1}
 
 
 @api.get("/data/<ip>")
@@ -135,16 +171,19 @@ def get_data(ip, timeout=10):
 
     return resp
 
+
 #######TO be remove when bottle changes to version 0.13
 server = "cherrypy"
 try:
     from bottle.cherrypy import wsgiserver
 except:
-    #Trick bottle into thinking that cheroot is cherrypy
-    bottle.server_names["cherrypy"]=CherootServer(host='0.0.0.0', port=PORT)
-    logging.warning("Cherrypy version is bigger than 9, we have to change to cheroot server")
+    # Trick bottle into thinking that cheroot is cherrypy
+    bottle.server_names["cherrypy"] = CherootServer(host="0.0.0.0", port=PORT)
+    logging.warning(
+        "Cherrypy version is bigger than 9, we have to change to cheroot server"
+    )
     pass
 #########
 
 if __name__ == "__main__":
-    bottle.run(api, host='0.0.0.0', port=PORT, debug=DEBUG, server='cherrypy')
+    bottle.run(api, host="0.0.0.0", port=PORT, debug=DEBUG, server="cherrypy")
