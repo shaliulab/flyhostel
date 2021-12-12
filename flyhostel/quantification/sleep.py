@@ -63,7 +63,7 @@ def sleep_annotation(data, analysis_params):
         d["t"] = d["t_round"]
         d.drop("t_round", axis=1, inplace=True)
         data_annot.append(d)
-    
+
     dt_sleep = pd.concat(data_annot)
     return dt_sleep
 
@@ -86,7 +86,7 @@ def get_analysis_params(store_metadata):
 
     store_datetime = datetime.datetime.strptime(store_metadata["created_utc"], date_format)
     store_hour_start = store_datetime.hour + store_datetime.minute/60 + store_datetime.second / 3600
-    
+
     time_window_length=10
     velocity_correction_coef=2
     min_time_immobile=300
@@ -124,21 +124,21 @@ def sleep_plot(dt):
         ax = fig.add_subplot(int(int_str))
         axes.append(ax)
 
-        # take one fly     
+        # take one fly
         dt_one_fly = dt.loc[dt["id"] == ident]
-        
+
         # plot the data
         ax.plot(dt_one_fly["t"] / 3600, dt_one_fly["asleep"], linewidth=1, c="blue")
         ax.set_ylim([0, 1])
 
         # plot the phases (LD)
-        
+
         geom_ld_annotations(dt_one_fly, ax, yrange=[0,1])
     # fig.subplots_adjust(bottom=0.0, right=0.8, top=1.0)
     return fig
 
 
-def main(ap=None, args=None):
+def main(args=None, ap=None):
 
     if args is None:
         ap = get_parser(ap)
@@ -157,9 +157,9 @@ def main(ap=None, args=None):
     # Let assume that 50 pixels in the video frame are 1 cm.
     tr.new_length_unit(250, 'cm')
 
-    # Since we have the frames per second stored int the tr.params dictionary we will use them to 
+    # Since we have the frames per second stored int the tr.params dictionary we will use them to
     tr.new_time_unit(tr.params['frame_rate'], 's')
-    
+
     velocities = np.abs(tr.v).sum(axis=2)
 
     # initialized data_frame
@@ -170,7 +170,7 @@ def main(ap=None, args=None):
             "velocity": velocities[:,i],
             "frame_number": frame_number[1:-1]
         })
-        
+
         d["frame_time"] = [frame_time[i] for i in d["frame_number"]]
         d["t"] = d["frame_time"]
         d["t"] /= 1000 # to seconds
@@ -181,7 +181,7 @@ def main(ap=None, args=None):
         d.drop("frame_time",axis=1, inplace=True)
 
         data=pd.concat([data, d])
-        
+
 
     data=data.groupby(["id", "t_round"]).max().reset_index()[["velocity", "id", "t_round", "L"]]
     data.to_csv("data.csv")
@@ -197,7 +197,7 @@ def main(ap=None, args=None):
     fig.suptitle(f"Fly Hostel - {experiment_name}")
     fig.savefig(experiment_name + "-facet" + ".png", transparent=False)
 
-  
+
 
 if __name__ == "__main__":
     # args = argparse.Namespace(experiment_folder = "/Dropbox/FlySleepLab_Dropbox/Data/flyhostel_data/videos/2021-11-27_12-02-38/")
