@@ -383,6 +383,8 @@ def main(args=None, ap=None):
     )
 
     ## Define plotting and analyze params
+    analysis_params = get_analysis_params(store_metadata)
+
     chunks_per_hour = 3600 / FREQ
     chunk_index = {
         chunk: round(
@@ -394,7 +396,6 @@ def main(args=None, ap=None):
         chunk_index=chunk_index, experiment_name=experiment_name
     )
 
-    analysis_params = get_analysis_params(store_metadata)
 
     ## Process dataset
     logger.info("Computing velocity")
