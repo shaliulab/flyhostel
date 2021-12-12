@@ -2,13 +2,30 @@ import argparse
 import os.path
 import itertools
 import datetime
-from typing_extensions import Required
-import warnings
 import logging
-from pprint import pprint
 from collections import namedtuple
-import joblib
 
+import joblib
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+
+import zeitgeber  # https://github.com/shaliulab/zeitgeber
+
+from flyhostel.sensors.io.plotting import geom_ld_annotations
+from flyhostel.quantification.trajectorytools import load_trajectories
+from flyhostel.quantification.imgstore import read_store_metadata
+
+
+PlottingParams = namedtuple(
+    "PlottingParams",
+    [
+        "chunk_index",
+        "experiment_name",
+    ],
+)
 AnalysisParams = namedtuple(
     "AnalysisParams",
     [
@@ -22,22 +39,11 @@ AnalysisParams = namedtuple(
     ],
 )
 
+N_JOBS = -2
+FREQ = 300
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-N_JOBS = -2
-
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-from matplotlib.pyplot import figure
-
-
-import zeitgeber  # https://github.com/shaliulab/zeitgeber
-
-from flyhostel.sensors.io.plotting import geom_ld_annotations
-from flyhostel.quantification.trajectorytools import load_trajectories
-from flyhostel.quantification.imgstore import read_store_metadata
 
 
 def get_parser(ap=None):
@@ -182,7 +188,7 @@ def init_data_frame():
     )
 
 
-def sleep_plot(dt, ld_annotation=True):
+def sleep_plot(dt, plotting_params, ld_annotation=True):
 
     for column in ["L", "asleep", "t", "id"]:
         assert column in dt.columns, f"{column} is not available"
@@ -211,7 +217,8 @@ def sleep_plot(dt, ld_annotation=True):
             # plot the phases (LD)
             geom_ld_annotations(dt_one_fly, ax, yrange=[0, 1])
 
-    # fig.subplots_adjust(bottom=0.0, right=0.8, top=1.0)
+    fig.subplots_adjust(bottom=0.0, right=0.8, top=1.0)
+    fig.suptitle(f"Fly Hostel - {plotting_params.experiment_name}")
     return fig
 
 
@@ -219,21 +226,24 @@ def tidy_dataset(velocity, chunk_metadata, analysis_params):
 
     frame_number, frame_time = chunk_metadata
 
-    d = pd.DataFrame(
+    # wrapping around dataframe() to avoid
+    # annoying warning
+    data = pd.DataFrame(
         {"velocity": velocity, "frame_number": frame_number[1:-1]}
     )
 
-    d["frame_time"] = [frame_time[i] for i in d["frame_number"]]
-    d["t"] = d["frame_time"]
-    d["t"] /= 1000  # to seconds
-    d["t"] += analysis_params.offset
-    d["L"] = ["T" if e else "F" for e in ((d["t"] / 3600) % 24) < 12]
-    d["t_round"] = (
-        np.floor(d["t"] / analysis_params.time_window_length)
+    data["frame_time"] = [frame_time[i] for i in data["frame_number"]]
+    data["t"] = data["frame_time"]
+    data["t"] /= 1000  # to seconds
+    data["t"] += analysis_params.offset
+    data["L"] = ["T" if e else "F" for e in ((data["t"] / 3600) % 24) < 12]
+    data["t_round"] = (
+        np.floor(data["t"] / analysis_params.time_window_length)
         * analysis_params.time_window_length
     )
-    d.drop("frame_time", axis=1, inplace=True)
-    return d
+
+    data.drop("frame_time", axis=1, inplace=True)
+    return data
 
 
 def tidy_dataset_all(velocities, **kwargs):
@@ -259,7 +269,97 @@ def tidy_dataset_all(velocities, **kwargs):
         ] * d.shape[0]
         data = pd.concat([data, d])
 
+    data = (
+        data.groupby(["id", "t_round"])
+        .max()
+        .reset_index()[["velocity", "id", "t_round", "L"]]
+    )
+
     return data
+
+
+def f(hex_code):
+    h = hex_code.lstrip("#")
+    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def waffle_plot(
+    fig, i, timeseries, plotting_params, ncols, freq=300, scale=False
+):
+
+    int_str = f"16{int(i)+1}"
+    ax = fig.add_subplot(int(int_str))
+
+    if scale:
+        max_val = timeseries.max()
+        timeseries *= 255 / max_val
+
+    if len(timeseries.shape) == 1:
+        timeseries = timeseries.reshape((*timeseries.shape, 1))
+        nchannels = 1
+    else:
+        nchannels = timeseries.shape[1]
+
+    nrows = int(timeseries.shape[0] / ncols)
+    timeseries = timeseries[: nrows * ncols]
+    timeseries = timeseries.reshape((nrows, ncols, nchannels))
+    if ax is None:
+        ax = plt
+
+    pos = list(range(0, int(nrows / 100) * 100, 3600 // freq))
+    ticks = [plotting_params.chunk_index[p] for p in pos]
+
+    if ticks is not None:
+        ax.set_yticks(pos, ticks)
+
+    ax.imshow(timeseries)
+
+    if i == 0:
+        ax.set_ylabel("ZT")
+
+    return ax
+
+
+def waffle_plot_all(data, analysis_params, plotting_params):
+
+    fig = plt.figure(2, figsize=(10, 7), dpi=90, facecolor="white")
+    plt.title(plotting_params.experiment_name)
+
+    ncols = FREQ // analysis_params.time_window_length
+    colors = {"T": ["#F9A825", "#FFF59D"], "F": ["#4527A0", "#CE93D8"]}
+    colors = {k: [f(v) for v in colors[k]] for k in colors}
+
+    for i in np.unique(data["id"]):
+        timeseries = prepare_data_for_waffle_plot(
+            data, i, analysis_params, colors=colors
+        )
+
+        ax = waffle_plot(
+            fig,
+            i,
+            timeseries,
+            plotting_params=plotting_params,
+            ncols=ncols,
+            scale=False,
+            freq=FREQ,
+        )
+
+    return fig
+
+
+def prepare_data_for_waffle_plot(data, i, analysis_params, colors):
+
+    timeseries = data.loc[data["id"] == i]["velocity"].values
+    timeseries_phase = data.loc[data["id"] == i]["L"].values
+    timeseries = timeseries < analysis_params.velocity_correction_coef
+    timeseries = timeseries * 1
+    timeseries = np.array(
+        [
+            colors[timeseries_phase[i]][timeseries[i]]
+            for i in range(len(timeseries))
+        ]
+    )
+    return timeseries
 
 
 def main(args=None, ap=None):
@@ -275,42 +375,38 @@ def main(args=None, ap=None):
 
     experiment_name = os.path.basename(input.rstrip("/"))
 
-    # load trajectories
+    # Load trajectories
     status, chunks, tr = load_trajectories(input)
-
-    # load metadata
+    # Load metadata
     store_metadata, chunk_metadata = read_store_metadata(
         input, chunk_numbers=chunks
     )
+
+    ## Define plotting and analyze params
+    chunks_per_hour = 3600 / FREQ
+    chunk_index = {
+        chunk: round(
+            analysis_params.offset / 3600 + chunk * 1 / chunks_per_hour, 1
+        )
+        for chunk in chunks
+    }
+    plotting_params = PlottingParams(
+        chunk_index=chunk_index, experiment_name=experiment_name
+    )
+
     analysis_params = get_analysis_params(store_metadata)
-    frame_number = list(
-        itertools.chain(*[m["frame_number"] for m in chunk_metadata.values()])
-    )
-    frame_time = list(
-        itertools.chain(*[m["frame_time"] for m in chunk_metadata.values()])
-    )
 
-    # Let assume that 50 pixels in the video frame are 1 cm.
-    tr.new_length_unit(250, "cm")
-    # Since we have the frames per second stored int the tr.params dictionary we will use them to
-    tr.new_time_unit(tr.params["frame_rate"], "s")
-
+    ## Process dataset
     logger.info("Computing velocity")
     velocities = np.abs(tr.v).sum(axis=2)
 
-    # initialized data_frame
     logger.info("Tidying dataset")
     data = tidy_dataset_all(
         velocities,
-        chunk_metadata=(frame_number, frame_time),
+        chunk_metadata=chunk_metadata,
         analysis_params=analysis_params,
     )
 
-    data = (
-        data.groupby(["id", "t_round"])
-        .max()
-        .reset_index()[["velocity", "id", "t_round", "L"]]
-    )
     logger.info(f"Annotating sleep behavior")
     dt_sleep = sleep_annotation_all(data, analysis_params=analysis_params)
 
@@ -319,9 +415,15 @@ def main(args=None, ap=None):
     )
     dt_binned = bin_apply(dt_sleep, analysis_params)
 
+    ## Save and plot results
+
     logger.info("Building plot")
-    fig = sleep_plot(dt_binned, ld_annotation=args.ld_annotation)
-    fig.suptitle(f"Fly Hostel - {experiment_name}")
+    fig = sleep_plot(
+        dt_binned,
+        plotting_params=plotting_params,
+        ld_annotation=args.ld_annotation,
+    )
+    fig2 = waffle_plot_all(data, analysis_params, plotting_params)
 
     logger.info("Saving results ...")
     os.makedirs(args.output, exist_ok=True)
@@ -329,9 +431,14 @@ def main(args=None, ap=None):
     dt_sleep.to_csv(os.path.join(args.output, "dt_sleep.csv"))
     dt_binned.to_csv(os.path.join(args.output, "dt_binned.csv"))
 
+    path = os.path.join(args.output, experiment_name + "-waffle" + ".png")
+    logger.info(f"Saving plot to {path}")
+    fig2.savefig(path, transparent=False)
+
     path = os.path.join(args.output, experiment_name + "-facet" + ".png")
     logger.info(f"Saving plot to {path}")
     fig.savefig(path, transparent=False)
+
     return 0
 
 

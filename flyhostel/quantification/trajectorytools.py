@@ -4,6 +4,8 @@ import trajectorytools.trajectories.concatenate as concatenate
 
 logger = logging.getLogger(__name__)
 
+PIXELS_PER_CM = 250
+
 
 def get_trajectory_files(experiment_folder):
 
@@ -27,4 +29,10 @@ def load_trajectories(experiment_folder):
         "flyhostel has loaded",
         f"{(tr._s.shape[0]+2)/3600/12} hours of data successfully",
     )  # / seconds in hour and frames in second
+
+    # Let assume that 50 pixels in the video frame are 1 cm.
+    tr.new_length_unit(PIXELS_PER_CM, "cm")
+    # Since we have the frames per second stored int the tr.params dictionary we will use them to
+    tr.new_time_unit(tr.params["frame_rate"], "s")
+
     return status, chunks, tr

@@ -16,26 +16,33 @@ def geom_ld_annotations(data, ax, yrange=[0, 100], xtick_freq=6):
     """
 
     values, pos = zeitgeber.rle.decompose(data["L"].values.tolist())
-    zts = []
+    transitions = []
     for i in pos:
-        zts.append(round(data.loc[i]["t"], 2))
+        transitions.append(round(data.loc[i]["t"], 2))
 
     max_t = data["t"].tail().values[-1]
-    min_t = zts[0]
+    min_t = transitions[0]
     y_max = yrange[1]
     color = {"F": (0, 0, 0), "T": (1, 1, 1)}
-    for i in range(len(zts)):
-        if (i + 1) == len(zts):
+    print(transitions)
+
+    for i in range(len(transitions)):
+        if (i + 1) == len(transitions):
             ring_mixed = Polygon(
-                [(zts[i], 0), (max_t, 0), (max_t, y_max), (zts[i], y_max)]
+                [
+                    (transitions[i], 0),
+                    (max_t, 0),
+                    (max_t, y_max),
+                    (transitions[i], y_max),
+                ]
             )
         else:
             ring_mixed = Polygon(
                 [
-                    (zts[i], 0),
-                    (zts[i + 1], 0),
-                    (zts[i + 1], y_max),
-                    (zts[i], y_max),
+                    (transitions[i], 0),
+                    (transitions[i + 1], 0),
+                    (transitions[i + 1], y_max),
+                    (transitions[i], y_max),
                 ]
             )
         ring_patch = PolygonPatch(
@@ -55,7 +62,6 @@ def geom_ld_annotations(data, ax, yrange=[0, 100], xtick_freq=6):
         xtick_freq,
     )
     ax.set_xticks(xticks)
-
     ax.set_xlabel("ZT")
 
     return ax

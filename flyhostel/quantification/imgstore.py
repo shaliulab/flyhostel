@@ -18,4 +18,12 @@ def read_store_metadata(experiment_folder, chunk_numbers=None):
         chunk: store._get_chunk_metadata(chunk) for chunk in chunks
     }
 
+    frame_number = list(
+        itertools.chain(*[m["frame_number"] for m in chunk_metadata.values()])
+    )
+    frame_time = list(
+        itertools.chain(*[m["frame_time"] for m in chunk_metadata.values()])
+    )
+    chunk_metadata = (frame_number, frame_time)
+
     return store_metadata, chunk_metadata
