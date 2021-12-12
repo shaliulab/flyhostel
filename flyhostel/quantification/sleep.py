@@ -36,7 +36,8 @@ from flyhostel.quantification.imgstore import read_store_metadata
 def get_parser(ap=None):
 
     if ap is None:
-        argparse.add_argument("--experiment-folder", "--input", dest="input", required=True, type=str)
+        ap = argparse.ArgumentParser()
+    ap.add_argument("--experiment-folder", "--input", dest="input", required=True, type=str)
     
     return ap
 
