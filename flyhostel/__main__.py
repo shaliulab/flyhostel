@@ -41,7 +41,7 @@ def get_parser():
         add_help=False,
         help="Quantification",
     )
-    quantification_parser.set_defaults(func=flyhostel.quantification.main)   
+    quantification_parser.set_defaults(func=flyhostel.quantification.main)
 
     return ap
 
