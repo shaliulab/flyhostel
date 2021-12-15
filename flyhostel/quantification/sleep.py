@@ -381,7 +381,7 @@ def main(args=None, ap=None):
     experiment_name = os.path.basename(input.rstrip("/"))
 
     # Load trajectories
-    status, chunks, tr = load_trajectories(args.analaysis_folder)
+    status, chunks, tr = load_trajectories(args.analysis_folder)
     # Load metadata
     store_metadata, chunk_metadata = read_store_metadata(
         input, chunk_numbers=chunks
