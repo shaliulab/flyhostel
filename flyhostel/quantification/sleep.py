@@ -367,25 +367,20 @@ def prepare_data_for_waffle_plot(data, i, analysis_params, colors):
     return timeseries
 
 
-def main(args=None, ap=None):
-
-    if args is None:
-        ap = get_parser(ap)
-        args = ap.parse_args()
-
-    if args.imgstore_folder == ".":
-        input = os.getcwd()
-    else:
-        input = args.imgstore_folder
-
-    experiment_name = os.path.basename(input.rstrip("/"))
+def read_data(imgstore_folder, analysis_folder):
 
     # Load trajectories
-    status, chunks, tr = load_trajectories(args.analysis_folder)
+    status, chunks, tr = load_trajectories(analysis_folder)
+
     # Load metadata
     store_metadata, chunk_metadata = read_store_metadata(
-        input, chunk_numbers=chunks
+        imgstore_folder, chunk_numbers=chunks
     )
+
+    return tr, chunks, store_metadata, chunk_metadata
+
+
+def load_params(store_metadata, chunks, experiment_name):
 
     ## Define plotting and analyze params
     analysis_params = get_analysis_params(store_metadata)
@@ -401,7 +396,10 @@ def main(args=None, ap=None):
         chunk_index=chunk_index, experiment_name=experiment_name
     )
 
+    return analysis_params, plotting_params
 
+
+def process_data(tr, analysis_params, chunk_metadata):
     ## Process dataset
     logger.info("Computing velocity")
     velocities = np.abs(tr.v).sum(axis=2)
@@ -419,31 +417,61 @@ def main(args=None, ap=None):
     logger.info(
         f"Binning data every {analysis_params.summary_time_window/60} minutes"
     )
+    
     dt_binned = bin_apply(dt_sleep, analysis_params)
 
-    ## Save and plot results
+    return data, dt_sleep, dt_binned
 
+
+def plot_data(data, dt_binned, analysis_params, plotting_params, ld_annotation=True):
+
+    ## Save and plot results
     logger.info("Building plot")
-    fig = sleep_plot(
+    fig1 = sleep_plot(
         dt_binned,
         plotting_params=plotting_params,
-        ld_annotation=args.ld_annotation,
+        ld_annotation=ld_annotation,
     )
+    plot1 = (os.path.join(plotting_params.experiment_name + "-waffle" + ".png"), fig1)
     fig2 = waffle_plot_all(data, analysis_params, plotting_params)
+    plot2 = (os.path.join(plotting_params.experiment_name + "-facet" + ".png"), fig2)
+
+    return plot1, plot2
+    
+
+def save_results(data, dt_sleep, dt_binned, plot1, plot2, output):
 
     logger.info("Saving results ...")
-    os.makedirs(args.output, exist_ok=True)
-    data.to_csv(os.path.join(args.output, "data.csv"))
-    dt_sleep.to_csv(os.path.join(args.output, "dt_sleep.csv"))
-    dt_binned.to_csv(os.path.join(args.output, "dt_binned.csv"))
+    os.makedirs(output, exist_ok=True)
+    data.to_csv(os.path.join(output, "data.csv"))
+    dt_sleep.to_csv(os.path.join(output, "dt_sleep.csv"))
+    dt_binned.to_csv(os.path.join(output, "dt_binned.csv"))
 
-    path = os.path.join(args.output, experiment_name + "-waffle" + ".png")
-    logger.info(f"Saving plot to {path}")
-    fig2.savefig(path, transparent=False)
+    path2, fig2 = plot2
+    path2 = os.path.join(output, path2)
+    logger.info(f"Saving plot to {path2}")
+    fig2.savefig(path2, transparent=False)
 
-    path = os.path.join(args.output, experiment_name + "-facet" + ".png")
-    logger.info(f"Saving plot to {path}")
-    fig.savefig(path, transparent=False)
+    path1, fig1 = plot1
+    path1 = os.path.join(output, path1)
+    logger.info(f"Saving plot to {path1}")
+    fig1.savefig(path1, transparent=False)
+
+
+def main(args=None, ap=None):
+
+    if args is None:
+        ap = get_parser(ap)
+        args = ap.parse_args()
+
+
+    experiment_name = os.path.basename(args.imgstore_folder.rstrip("/"))
+
+    tr, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, args.analysis_folder)
+    analysis_params, plotting_params = load_params(store_metadata, chunks, experiment_name)
+    data, dt_sleep, dt_binned = process_data(tr, analysis_params, chunk_metadata)
+    plot1, plot2 = plot_data(data, dt_binned, analysis_params, plotting_params, ld_annotation=True)
+    save_results(data, dt_sleep, dt_binned, plot1, plot2, args.output)
 
     return 0
 
