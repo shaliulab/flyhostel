@@ -52,8 +52,13 @@ def get_parser(ap=None):
         ap = argparse.ArgumentParser()
 
     ap.add_argument(
-        "--experiment-folder", "--input", dest="input", required=True, type=str
+        "--imgstore-folder", dest="imgstore_folder", required=True, type=str
     )
+    ap.add_argument(
+        "--analysis-folder", dest="analysis_folder", required=True, type=str
+    )
+
+
     ap.add_argument("--output", dest="output", required=True, type=str)
     ap.add_argument(
         "--ld-annotation",
@@ -368,15 +373,15 @@ def main(args=None, ap=None):
         ap = get_parser(ap)
         args = ap.parse_args()
 
-    if args.input == ".":
+    if args.imgstore_folder == ".":
         input = os.getcwd()
     else:
-        input = args.input
+        input = args.imgstore_folder
 
     experiment_name = os.path.basename(input.rstrip("/"))
 
     # Load trajectories
-    status, chunks, tr = load_trajectories(input)
+    status, chunks, tr = load_trajectories(args.analaysis_folder)
     # Load metadata
     store_metadata, chunk_metadata = read_store_metadata(
         input, chunk_numbers=chunks

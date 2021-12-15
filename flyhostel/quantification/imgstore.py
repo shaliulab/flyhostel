@@ -4,13 +4,12 @@ import itertools
 import imgstore
 
 logger = logging.getLogger(__name__)
-# imgstore_logger = logging.getLogger("imgstore")
 
 
-def read_store_metadata(experiment_folder, chunk_numbers=None):
+def read_store_metadata(imgstore_folder, chunk_numbers=None):
 
     store = imgstore.new_for_filename(
-        experiment_folder, chunk_numbers=chunk_numbers
+        imgstore_folder, chunk_numbers=chunk_numbers
     )
     store_metadata = store._metadata
 
