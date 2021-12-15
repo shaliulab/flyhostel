@@ -37,7 +37,7 @@ class TestQuantificationPlots(unittest.TestCase):
             IMGSTORE_FOLDER, chunk_numbers=CHUNKS
         )
 
-        experiment_name="test_imgstore"      
+        experiment_name="test_imgstore"
         self._analysis_params, self._plotting_params  = load_params(store_metadata, chunks=CHUNKS, experiment_name=experiment_name)
 
     

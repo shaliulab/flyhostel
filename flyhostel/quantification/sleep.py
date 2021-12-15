@@ -24,6 +24,7 @@ PlottingParams = namedtuple(
     [
         "chunk_index",
         "experiment_name",
+        "ld_annotation",
     ],
 )
 AnalysisParams = namedtuple(
@@ -193,7 +194,7 @@ def init_data_frame():
     )
 
 
-def sleep_plot(dt, plotting_params, ld_annotation=True):
+def sleep_plot(dt, plotting_params):
 
     for column in ["L", "asleep", "t", "id"]:
         assert column in dt.columns, f"{column} is not available"
@@ -218,7 +219,7 @@ def sleep_plot(dt, plotting_params, ld_annotation=True):
         )
         ax.set_ylim([0, 1])
 
-        if ld_annotation:
+        if plotting_params.ld_annotation:
             # plot the phases (LD)
             geom_ld_annotations(dt_one_fly, ax, yrange=[0, 1])
 
@@ -380,7 +381,7 @@ def read_data(imgstore_folder, analysis_folder):
     return tr, chunks, store_metadata, chunk_metadata
 
 
-def load_params(store_metadata, chunks, experiment_name):
+def load_params(args, store_metadata, chunks, experiment_name):
 
     ## Define plotting and analyze params
     analysis_params = get_analysis_params(store_metadata)
@@ -393,7 +394,8 @@ def load_params(store_metadata, chunks, experiment_name):
         for chunk in chunks
     }
     plotting_params = PlottingParams(
-        chunk_index=chunk_index, experiment_name=experiment_name
+        chunk_index=chunk_index, experiment_name=experiment_name,
+        ld_annotation=args.ld_annotation
     )
 
     return analysis_params, plotting_params
@@ -423,14 +425,16 @@ def process_data(tr, analysis_params, chunk_metadata):
     return data, dt_sleep, dt_binned
 
 
-def plot_data(data, dt_binned, analysis_params, plotting_params, ld_annotation=True):
+def plot_data(data, dt_binned, analysis_params, plotting_params):
+    """
+    Plot a sleep trace plot and a waffle plot
+    """
 
     ## Save and plot results
     logger.info("Building plot")
     fig1 = sleep_plot(
         dt_binned,
-        plotting_params=plotting_params,
-        ld_annotation=ld_annotation,
+        plotting_params=plotting_params
     )
     plot1 = (os.path.join(plotting_params.experiment_name + "-waffle" + ".png"), fig1)
     fig2 = waffle_plot_all(data, analysis_params, plotting_params)
@@ -468,9 +472,9 @@ def main(args=None, ap=None):
     experiment_name = os.path.basename(args.imgstore_folder.rstrip("/"))
 
     tr, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, args.analysis_folder)
-    analysis_params, plotting_params = load_params(store_metadata, chunks, experiment_name)
+    analysis_params, plotting_params = load_params(args, store_metadata, chunks, experiment_name)
     data, dt_sleep, dt_binned = process_data(tr, analysis_params, chunk_metadata)
-    plot1, plot2 = plot_data(data, dt_binned, analysis_params, plotting_params, ld_annotation=True)
+    plot1, plot2 = plot_data(data, dt_binned, analysis_params, plotting_params)
     save_results(data, dt_sleep, dt_binned, plot1, plot2, args.output)
 
     return 0
