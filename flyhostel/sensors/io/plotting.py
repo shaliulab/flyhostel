@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 from shapely.geometry import Polygon
 from descartes import PolygonPatch
@@ -6,7 +8,16 @@ import zeitgeber
 import matplotlib.pyplot as plt
 
 
-def geom_ld_annotations(data, ax, yrange=[0, 100], xtick_freq=6):
+logger = logging.getLogger(__name__)
+
+
+def geom_ld_annotations(*args, **kwargs):
+    logger.warning("geom_ld_annotations is deprecated. Please use geom_ld_annotation")
+
+    return geom_ld_annotation(*args, **kwargs)
+
+
+def geom_ld_annotation(data, ax, yrange=(0, 100), xtick_freq=6):
     """
     data must have:
 
@@ -15,43 +26,45 @@ def geom_ld_annotations(data, ax, yrange=[0, 100], xtick_freq=6):
 
     """
 
-    values, pos = zeitgeber.rle.decompose(data["L"].values.tolist())
+    light_states, pos = zeitgeber.rle.decompose(data["L"].values.tolist())
     transitions = []
     for i in pos:
-        transitions.append(round(data.loc[i]["t"], 2))
+        transitions.append(round(data.loc[i]["t"] / 3600, 2))
 
-    max_t = data["t"].tail().values[-1]
+    max_t = data["t"].tail().values[-1] / 3600
     min_t = transitions[0]
+    
+    y_min = yrange[0]
     y_max = yrange[1]
+    
     color = {"F": (0, 0, 0), "T": (1, 1, 1)}
-    print(transitions)
 
     for i in range(len(transitions)):
         if (i + 1) == len(transitions):
-            ring_mixed = Polygon(
+            polygon = Polygon(
                 [
-                    (transitions[i], 0),
-                    (max_t, 0),
+                    (transitions[i], y_min),
+                    (max_t, y_min),
                     (max_t, y_max),
                     (transitions[i], y_max),
                 ]
             )
         else:
-            ring_mixed = Polygon(
+            polygon = Polygon(
                 [
-                    (transitions[i], 0),
-                    (transitions[i + 1], 0),
+                    (transitions[i], y_min),
+                    (transitions[i + 1], y_min),
                     (transitions[i + 1], y_max),
                     (transitions[i], y_max),
                 ]
             )
-        ring_patch = PolygonPatch(
-            ring_mixed,
-            facecolor=color[values[i]],
+        polygon_path = PolygonPatch(
+            polygon,
+            facecolor=color[light_states[i]],
             alpha=0.2,
             edgecolor=(0, 0, 0),
         )
-        ax.add_patch(ring_patch)
+        ax.add_patch(polygon_path)
 
     xrange = [int(np.floor(min_t)), int(np.ceil(max_t))]
     ax.set_xlim(*xrange)
@@ -62,7 +75,7 @@ def geom_ld_annotations(data, ax, yrange=[0, 100], xtick_freq=6):
         xtick_freq,
     )
     ax.set_xticks(xticks)
-    ax.set_xlabel("ZT")
+
 
     return ax
 

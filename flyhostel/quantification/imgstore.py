@@ -12,6 +12,7 @@ def read_store_metadata(imgstore_folder, chunk_numbers=None):
         imgstore_folder, chunk_numbers=chunk_numbers
     )
     store_metadata = store._metadata
+    store_metadata["chunks"] = store._index._chunks
 
     chunks = list(store._index.chunks)
     chunk_metadata = {

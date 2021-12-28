@@ -3,7 +3,8 @@ import os.path
 import itertools
 import datetime
 import logging
-from collections import namedtuple
+# from collections import namedtuple
+from recordtype import recordtype
 
 import joblib
 import numpy as np
@@ -19,14 +20,16 @@ from flyhostel.quantification.trajectorytools import load_trajectories
 from flyhostel.quantification.imgstore import read_store_metadata
 
 
-PlottingParams = namedtuple(
+PlottingParams = recordtype(
     "PlottingParams",
     [
         "chunk_index",
         "experiment_name",
+        "ld_annotation",
+        "number_of_animals",
     ],
 )
-AnalysisParams = namedtuple(
+AnalysisParams = recordtype(
     "AnalysisParams",
     [
         "time_window_length",
@@ -193,7 +196,7 @@ def init_data_frame():
     )
 
 
-def sleep_plot(dt, plotting_params, ld_annotation=True):
+def sleep_plot(dt, plotting_params):
 
     for column in ["L", "asleep", "t", "id"]:
         assert column in dt.columns, f"{column} is not available"
@@ -203,26 +206,28 @@ def sleep_plot(dt, plotting_params, ld_annotation=True):
     ncol = 1
     nrow = len(idents)
     axes = []
+    Y_RANGE = (0, 1)
 
     for i, ident in enumerate(idents):
         int_str = f"{nrow}{ncol}{i+1}"
-        ax = fig.add_subplot(int(int_str))
-        axes.append(ax)
+        axes.append(fig.add_subplot(int(int_str)))
 
         # take one fly
         dt_one_fly = dt.loc[dt["id"] == ident].reset_index()
 
+        if plotting_params.ld_annotation:
+            # plot the phases (LD)
+            geom_ld_annotations(dt_one_fly, axes[i], yrange=Y_RANGE)
+
         # plot the data
-        ax.plot(
+        axes[i].plot(
             dt_one_fly["t"] / 3600, dt_one_fly["asleep"], linewidth=1, c="blue"
         )
-        ax.set_ylim([0, 1])
 
-        if ld_annotation:
-            # plot the phases (LD)
-            geom_ld_annotations(dt_one_fly, ax, yrange=[0, 1])
+        axes[i].set_ylim(Y_RANGE)
+        axes[i].set_xlabel("ZT")
 
-    fig.subplots_adjust(bottom=0.0, right=0.8, top=1.0)
+    # fig.subplots_adjust(bottom=0.0, right=0.8, top=1.0)
     fig.suptitle(f"Fly Hostel - {plotting_params.experiment_name}")
     return fig
 
@@ -288,12 +293,7 @@ def f(hex_code):
     return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
 
 
-def waffle_plot(
-    fig, i, timeseries, plotting_params, ncols, freq=300, scale=False
-):
-
-    int_str = f"16{int(i)+1}"
-    ax = fig.add_subplot(int(int_str))
+def make_waffle_array(timeseries, ncols, scale=False):
 
     if scale:
         max_val = timeseries.max()
@@ -308,14 +308,33 @@ def waffle_plot(
     nrows = int(timeseries.shape[0] / ncols)
     timeseries = timeseries[: nrows * ncols]
     timeseries = timeseries.reshape((nrows, ncols, nchannels))
+
+    return timeseries
+
+
+def waffle_plot(
+    fig, i, timeseries, plotting_params, ncols, freq=300, **kwargs
+):
+
+    int_str = f"1{plotting_params.number_of_animals}{int(i)+1}"
+    ax = fig.add_subplot(int(int_str))
+
+    timeseries = make_waffle_array(
+        timeseries=timeseries,
+        ncols=ncols,
+        **kwargs
+    )
+
     if ax is None:
         ax = plt
 
-    pos = list(range(0, int(nrows / 100) * 100, 3600 // freq))
+    nrows, ncols = timeseries.shape[:2]
+    pos = list(range(0, 1+int(nrows / 6) * 6, 3600 // freq))
     ticks = [plotting_params.chunk_index[p] for p in pos]
 
     if ticks is not None:
         ax.set_yticks(pos, ticks)
+        ax.set_xticks([0, ncols-1], [0, freq])
 
     ax.imshow(timeseries)
 
@@ -328,6 +347,7 @@ def waffle_plot(
 def waffle_plot_all(data, analysis_params, plotting_params):
 
     fig = plt.figure(2, figsize=(10, 7), dpi=90, facecolor="white")
+    plt.axis("off")
     plt.title(plotting_params.experiment_name)
 
     ncols = FREQ // analysis_params.time_window_length
@@ -380,7 +400,7 @@ def read_data(imgstore_folder, analysis_folder):
     return tr, chunks, store_metadata, chunk_metadata
 
 
-def load_params(store_metadata, chunks, experiment_name):
+def load_params(store_metadata):
 
     ## Define plotting and analyze params
     analysis_params = get_analysis_params(store_metadata)
@@ -390,10 +410,12 @@ def load_params(store_metadata, chunks, experiment_name):
         chunk: round(
             analysis_params.offset / 3600 + chunk * 1 / chunks_per_hour, 1
         )
-        for chunk in chunks
+        for chunk in store_metadata["chunks"]
     }
     plotting_params = PlottingParams(
-        chunk_index=chunk_index, experiment_name=experiment_name
+        chunk_index=chunk_index, experiment_name=None,
+        ld_annotation=None,
+        number_of_animals=None
     )
 
     return analysis_params, plotting_params
@@ -417,27 +439,29 @@ def process_data(tr, analysis_params, chunk_metadata):
     logger.info(
         f"Binning data every {analysis_params.summary_time_window/60} minutes"
     )
-    
+
     dt_binned = bin_apply(dt_sleep, analysis_params)
 
     return data, dt_sleep, dt_binned
 
 
-def plot_data(data, dt_binned, analysis_params, plotting_params, ld_annotation=True):
+def plot_data(data, dt_binned, analysis_params, plotting_params):
+    """
+    Plot a sleep trace plot and a waffle plot
+    """
 
     ## Save and plot results
     logger.info("Building plot")
     fig1 = sleep_plot(
         dt_binned,
-        plotting_params=plotting_params,
-        ld_annotation=ld_annotation,
+        plotting_params=plotting_params
     )
     plot1 = (os.path.join(plotting_params.experiment_name + "-waffle" + ".png"), fig1)
     fig2 = waffle_plot_all(data, analysis_params, plotting_params)
     plot2 = (os.path.join(plotting_params.experiment_name + "-facet" + ".png"), fig2)
 
     return plot1, plot2
-    
+
 
 def save_results(data, dt_sleep, dt_binned, plot1, plot2, output):
 
@@ -468,9 +492,14 @@ def main(args=None, ap=None):
     experiment_name = os.path.basename(args.imgstore_folder.rstrip("/"))
 
     tr, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, args.analysis_folder)
-    analysis_params, plotting_params = load_params(store_metadata, chunks, experiment_name)
+
+    analysis_params, plotting_params = load_params(store_metadata)
+    plotting_params.number_of_animals = tr.s.shape[1]
+    plotting_params.experiment_name = experiment_name
+    plotting_params.ld_annotation = args.ld_annotation
+
     data, dt_sleep, dt_binned = process_data(tr, analysis_params, chunk_metadata)
-    plot1, plot2 = plot_data(data, dt_binned, analysis_params, plotting_params, ld_annotation=True)
+    plot1, plot2 = plot_data(data, dt_binned, analysis_params, plotting_params)
     save_results(data, dt_sleep, dt_binned, plot1, plot2, args.output)
 
     return 0
