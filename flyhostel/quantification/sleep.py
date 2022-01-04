@@ -12,7 +12,7 @@ import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure
-
+import yaml
 import zeitgeber  # https://github.com/shaliulab/zeitgeber
 
 from flyhostel.sensors.io.plotting import geom_ld_annotations
@@ -163,14 +163,21 @@ def get_analysis_params(store_metadata):
         + store_datetime.second / 3600
     )
 
-    time_window_length = 10
-    velocity_correction_coef = 2
-    min_time_immobile = 300
-    summary_time_window = 30 * 60
-    reference_hour = 6
+    try:
+        with open("./analysis_params.yaml", "r") as filehandle:
+            data = yaml.load(filehandle, yaml.SafeLoader)
+    except:
+        logger.warning("No analysis_params.yaml detected. Using defaults")
+        data = {}
+
+    time_window_length = data.get("time_window_length", 10)
+    velocity_correction_coef = data.get("velocity_correction_coef", 0.06) # cm / second
+    min_time_immobile = data.get("min_time_immobile", 300)
+    summary_time_window = data.get("time_window_length", 30*60)
+    reference_hour = data.get("reference_hour", 6)
     offset = store_hour_start - reference_hour
     offset *= 3600
-    summary_FUN = "mean"
+    summary_FUN = data.get("summary_FUN", "mean")
 
     params = AnalysisParams(
         time_window_length,

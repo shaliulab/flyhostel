@@ -2,9 +2,10 @@ import argparse
 import os
 import os.path
 import logging
-import re
+import datetime
 
 from flyhostel.sensors.io.plotting import make_environmental_plot
+from flyhostel.quantification.imgstore import _read_store_metadata
 import zeitgeber
 
 import numpy as np
@@ -12,6 +13,13 @@ import imgstore
 
 logging.getLogger("flyhostel.sensors.io.plotting").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+
+# TODO Move to another module
+import glob
+import pandas as pd
+from imgstore.util import motif_extra_data_json_to_df
+##
 
 def get_parser(ap=None):
 
@@ -41,6 +49,32 @@ def get_parser(ap=None):
     return ap
 
 
+# TODO move from here to another module
+def get_extra_data(store_path, ignore_corrupt_chunks=False):
+
+    paths = sorted(
+        glob.glob(
+            os.path.join(
+                store_path,
+                "*.extra.json"
+            )
+        )
+    )
+
+    dfs = []
+    for path in paths:
+        try:
+            dfs.append(motif_extra_data_json_to_df(None, path))
+        except Exception as error:
+            if ignore_corrupt_chunks:
+                logger.warning(error)
+            else:
+                raise error
+    
+    extra_data = pd.concat(dfs, axis=0, ignore_index=True)
+    return extra_data
+
+    
 def read_data(store_path):
     """
     Open imgstore and load environmental data to Python
@@ -48,10 +82,9 @@ def read_data(store_path):
 
     imgstore_logger = logging.getLogger("imgstore")
     imgstore_logger.setLevel(logging.ERROR)
-    store = imgstore.new_for_filename(store_path)
     imgstore_logger.setLevel(logging.WARNING)
-    data = store.get_extra_data(ignore_corrupt_chunks=True)
-    return store, data
+    data = get_extra_data(store_path, ignore_corrupt_chunks=True)
+    return data
 
 
 def discretize_light(data, threshold=None):
@@ -73,17 +106,20 @@ def clean_data(data):
     return data
 
 
-def compute_zt0_offset(store, reference_hour):
+def compute_zt0_offset(start_time, reference_hour):
     """
     Return ms passed from zt0 to experiment start
     """
-    experiment_name = os.path.basename(os.path.dirname(store.full_path))
-    datetime_str = re.match(
-        "^([0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}).*",
-        experiment_name,
-    ).group(1)
+    start_time = datetime.datetime.strptime(
+        start_time,
+        "%Y-%m-%dT%H:%M:%S.%f"
+    )
 
-    start_time = zeitgeber.seconds_since_midnight(datetime_str)
+    hour = start_time.hour + 1 # TODO Fix this timezone correction
+    minute = start_time.minute
+    second = start_time.second
+
+    start_time  = hour * 3600 + minute * 60 + second
 
     zt0 = reference_hour * 3600
     offset = start_time - zt0
@@ -94,13 +130,15 @@ def compute_zt0_offset(store, reference_hour):
 def load_data(store_path, reference_hour, threshold=None):
 
     # read data
-    store, data = read_data(store_path)
+    data = read_data(store_path)
+    store_metadata = _read_store_metadata(store_path)
+    start_time = store_metadata["created_utc"]
 
     # clean
     data = clean_data(data)
 
     # create ZT column
-    offset_ms = compute_zt0_offset(store, reference_hour)
+    offset_ms = compute_zt0_offset(start_time, reference_hour)
     data["ZT"] = data["frame_time"] + offset_ms
     # annotate phase
     data = discretize_light(data, threshold=threshold)
@@ -108,7 +146,7 @@ def load_data(store_path, reference_hour, threshold=None):
     #
     data["t"] = data["ZT"] / 1000 # to seconds
 
-    return store, data
+    return data
 
 
 def plot_data(root, data, **kwargs):
@@ -132,7 +170,7 @@ def main(args=None, ap=None):
 
         args = ap.parse_args()
 
-    store, data = load_data(
+    data = load_data(
         store_path=args.input,
         reference_hour=args.reference_hour,
         threshold=args.light_threshold,
@@ -140,7 +178,7 @@ def main(args=None, ap=None):
 
     os.makedirs(args.output, exist_ok=True)
 
-    experiment_date = os.path.basename(os.path.dirname(store.full_path))
+    experiment_date = os.path.basename(args.input)
     dest=os.path.join(
         args.output,
         f"{experiment_date}_environment-log.csv"

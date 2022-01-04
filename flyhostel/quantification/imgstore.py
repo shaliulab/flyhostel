@@ -20,13 +20,17 @@ def get_chunk_metadata(chunk_filename):
     index["frame_number"] = data["frame_number"]
     return index
 
-
-def read_store_metadata(imgstore_folder, chunk_numbers=None):
-
+def _read_store_metadata(imgstore_folder):
     metadata_filename = os.path.join(imgstore_folder, STORE_MD_FILENAME)
     with open(metadata_filename, "r") as filehandle:
         store_metadata = yaml.load(filehandle, Loader=yaml.SafeLoader)["__store"]
     
+    return store_metadata
+
+
+def read_store_metadata(imgstore_folder, chunk_numbers=None):
+
+    store_metadata = _read_store_metadata(imgstore_folder)
 
     if chunk_numbers is None:
         index_files = sorted(
