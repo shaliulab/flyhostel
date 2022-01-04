@@ -1,5 +1,4 @@
 import logging
-
 import numpy as np
 from shapely.geometry import Polygon
 from descartes import PolygonPatch
@@ -26,18 +25,27 @@ def geom_ld_annotation(data, ax, yrange=(0, 100), xtick_freq=6):
 
     """
 
-    light_states, pos = zeitgeber.rle.decompose(data["L"].values.tolist())
-    transitions = []
-    for i in pos:
-        transitions.append(round(data.loc[i]["t"] / 3600, 2))
+    data=data.copy() # working with a copy! :D
+    data["t"] /= 3600 # to hours
 
-    max_t = data["t"].tail().values[-1] / 3600
+
+    light_states, positions = zeitgeber.rle.decompose(data["L"].values.tolist())
+    transitions = []
+    for i in positions:
+        transitions.append(round(data.loc[i]["t"], 2))
+
+
+    max_t = data["t"].tail().values[-1]
     min_t = transitions[0]
     
     y_min = yrange[0]
     y_max = yrange[1]
+
+
     
     color = {"F": (0, 0, 0), "T": (1, 1, 1)}
+    logger.debug(f"Positions set to {positions}")
+    logger.debug(f"Transitions set to {transitions}")
 
     for i in range(len(transitions)):
         if (i + 1) == len(transitions):
@@ -94,11 +102,18 @@ def geom_env_data(data, ax):
     return ax, ax2
 
 
-def make_environmental_plot(data, dest, title=""):
+def make_environmental_plot(root, data, title=""):
     fig = plt.figure(1, figsize=(5, 5), dpi=90)
     ax = fig.add_subplot(111)
     ax = geom_ld_annotations(data, ax)
     geom_env_data(data, ax)
     ax.set_title(title)
     plt.tight_layout()
+    dest = root + "_environment-log.png"
     fig.savefig(dest)
+    plt.close(fig)
+
+    plt.scatter(data["t"], data["light"])
+    dest = root + "_light-log.png"
+    plt.savefig(dest)
+    plt.close()

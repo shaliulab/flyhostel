@@ -4,7 +4,6 @@ import sys
 import logging
 import serial
 import serial.tools.list_ports
-import ipdb
 
 # logging.basicConfig(level=logging.DEBUG)
 from .utils import identify_ports, list_ports

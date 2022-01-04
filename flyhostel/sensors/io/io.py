@@ -1,4 +1,5 @@
 import argparse
+import os
 import os.path
 import logging
 import re
@@ -9,6 +10,8 @@ import zeitgeber
 import numpy as np
 import imgstore
 
+logging.getLogger("flyhostel.sensors.io.plotting").setLevel(logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 def get_parser(ap=None):
 
@@ -19,11 +22,21 @@ def get_parser(ap=None):
         "--experiment-folder", "--input", dest="input", type=str, required=True
     )
     ap.add_argument(
+        "--output", dest="output", type=str, default="."
+    )
+    ap.add_argument(
         "--reference_hour",
         "--zt0",
         dest="reference_hour",
         type=float,
         required=True,
+    )
+
+    ap.add_argument(
+        "--light-threshold",
+        dest="light_threshold",
+        type=int,
+        default=None,
     )
     return ap
 
@@ -41,9 +54,11 @@ def read_data(store_path):
     return store, data
 
 
-def discretize_light(data):
-    threshold = data["light"].mean()
-    print("Light threshold: ", threshold)
+def discretize_light(data, threshold=None):
+    if threshold is None:
+        threshold = data["light"].mean()
+        logger.info("Light threshold: ", threshold)
+    
     data["L"] = [str(e)[0] for e in data["light"] > threshold]
     return data
 
@@ -76,7 +91,7 @@ def compute_zt0_offset(store, reference_hour):
     return offset_ms
 
 
-def load_data(store_path, reference_hour):
+def load_data(store_path, reference_hour, threshold=None):
 
     # read data
     store, data = read_data(store_path)
@@ -87,25 +102,26 @@ def load_data(store_path, reference_hour):
     # create ZT column
     offset_ms = compute_zt0_offset(store, reference_hour)
     data["ZT"] = data["frame_time"] + offset_ms
-
     # annotate phase
-    data = discretize_light(data)
+    data = discretize_light(data, threshold=threshold)
 
     #
-    data["t"] = data["ZT"] / 3600000
+    data["t"] = data["ZT"] / 1000 # to seconds
 
     return store, data
 
 
-def plot_data(store, data):
-
-    experiment_date = os.path.basename(os.path.dirname(store.full_path))
+def plot_data(root, data, **kwargs):
+    
 
     make_environmental_plot(
+        root=root,
         data=data,
-        title=experiment_date,
-        dest=f"{experiment_date}_environment_log.png",
+        **kwargs,
     )
+
+def save_data(dest, data):
+    data.to_csv(dest)
 
 
 def main(args=None, ap=None):
@@ -117,11 +133,25 @@ def main(args=None, ap=None):
         args = ap.parse_args()
 
     store, data = load_data(
-        store_path=args.input, reference_hour=args.reference_hour
+        store_path=args.input,
+        reference_hour=args.reference_hour,
+        threshold=args.light_threshold,
     )
 
-    plot_data(store, data)
+    os.makedirs(args.output, exist_ok=True)
 
+    experiment_date = os.path.basename(os.path.dirname(store.full_path))
+    dest=os.path.join(
+        args.output,
+        f"{experiment_date}_environment-log.csv"
+    )
+
+    save_data(dest, data)
+    root=os.path.join(
+        args.output,
+        f"{experiment_date}"
+    )
+    plot_data(root, data, title=experiment_date)
 
 if __name__ == "__main__":
     main()

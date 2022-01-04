@@ -42,7 +42,8 @@ AnalysisParams = recordtype(
     ],
 )
 
-N_JOBS = -2
+#N_JOBS = -2
+N_JOBS = 1
 FREQ = 300
 
 logger = logging.getLogger(__name__)
@@ -242,7 +243,9 @@ def tidy_dataset(velocity, chunk_metadata, analysis_params):
         {"velocity": velocity, "frame_number": frame_number[1:-1]}
     )
 
-    data["frame_time"] = [frame_time[i] for i in data["frame_number"]]
+    # its better to use the index instead of the frame number
+    # in case the first frame_number is not 0
+    data["frame_time"] = [frame_time[i] for i, _ in enumerate(data["frame_number"])]
     data["t"] = data["frame_time"]
     data["t"] /= 1000  # to seconds
     data["t"] += analysis_params.offset
@@ -330,10 +333,16 @@ def waffle_plot(
 
     nrows, ncols = timeseries.shape[:2]
     pos = list(range(0, 1+int(nrows / 6) * 6, 3600 // freq))
-    ticks = [plotting_params.chunk_index[p] for p in pos]
+
+    ticks = []
+    positions = []
+    for p in pos:
+        if p in plotting_params.chunk_index:
+            ticks.append(plotting_params.chunk_index[p])
+            positions.append(p)
 
     if ticks is not None:
-        ax.set_yticks(pos, ticks)
+        ax.set_yticks(positions, ticks)
         ax.set_xticks([0, ncols-1], [0, freq])
 
     ax.imshow(timeseries)
@@ -456,9 +465,9 @@ def plot_data(data, dt_binned, analysis_params, plotting_params):
         dt_binned,
         plotting_params=plotting_params
     )
-    plot1 = (os.path.join(plotting_params.experiment_name + "-waffle" + ".png"), fig1)
+    plot1 = (os.path.join(plotting_params.experiment_name + "-facet" + ".png"), fig1)
     fig2 = waffle_plot_all(data, analysis_params, plotting_params)
-    plot2 = (os.path.join(plotting_params.experiment_name + "-facet" + ".png"), fig2)
+    plot2 = (os.path.join(plotting_params.experiment_name + "-waffle" + ".png"), fig2)
 
     return plot1, plot2
 
