@@ -59,11 +59,10 @@ def get_parser(ap=None):
         "--imgstore-folder", dest="imgstore_folder", required=True, type=str
     )
     ap.add_argument(
-        "--analysis-folder", dest="analysis_folder", required=True, type=str
+        "--analysis-folder", dest="analysis_folder", default=None, type=str
     )
 
-
-    ap.add_argument("--output", dest="output", required=True, type=str)
+    ap.add_argument("--output", dest="output", default=None, type=str)
     ap.add_argument(
         "--ld-annotation",
         dest="ld_annotation",
@@ -504,6 +503,17 @@ def main(args=None, ap=None):
         ap = get_parser(ap)
         args = ap.parse_args()
 
+
+    if args.analysis_folder is None:
+        args.analysis_folder = os.path.join(
+            args.imgstore_folder,
+            "idtrackerai"
+        )
+    if args.output is None:
+        args.output = os.path.join(
+            args.imgstore_folder,
+            "output"
+        )
 
     experiment_name = os.path.basename(args.imgstore_folder.rstrip("/"))
 
