@@ -45,26 +45,40 @@ def sync(src, dst, *args, **kwargs):
     return sync_(src, dst, *args, **kwargs)
 
 
-def generate_analysis_patterns(folder, session_padded):
+def generate_analysis_patterns(folder, session):
 
     files = [
-        os.path.join(folder, f"session_{session_padded}_error.txt"),
-        os.path.join(folder, f"session_{session_padded}/video_object.npy"),
-        os.path.join(folder, f"session_{session_padded}/preprocessing/blobs_collection_no_gaps.npy"),
-        os.path.join(folder, f"session_{session_padded}/preprocessing/blobs_collection.npy"),
-        os.path.join(folder, f"session_{session_padded}/preprocessing/fragments.npy"),
+        os.path.join(folder, f"session_{session}_error.txt"),
+        os.path.join(folder, f"session_{session}/video_object.npy"),
+        os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_no_gaps.npy"),
+        os.path.join(folder, f"session_{session}/preprocessing/blobs_collection.npy"),
+        os.path.join(folder, f"session_{session}/preprocessing/fragments.npy"),
     ]
 
     return files
 
+
+def generate_imgstore_meta_patterns(folder, session):
+
+    files = [
+        os.path.join(folder, "metadata.yaml"),
+        os.path.join(folder, f"{session}.extra.json"),
+        os.path.join(folder, f"{session}.npz"),
+        os.path.join(folder, f"{session}.png"),
+    ]
+
+    return files
+
+
 PATTERNS = {
-    "analysis": generate_analysis_patterns
+    "analysis": generate_analysis_patterns,
+    "imgstore_meta": generate_imgstore_meta_patterns,
 }
 
-def list_files_one_session(folder, session):
-    session_padded = str(session).zfill(6)
-    files = PATTERNS["analysis"](folder, session_padded)
 
+def list_files_one_session(file_type, folder, session):
+    session_padded = str(session).zfill(6)
+    files = PATTERNS[file_type](folder, session_padded)
     return files
 
 
@@ -73,7 +87,7 @@ def list_files_from_dropbox(*args, **kwargs):
     files = res["paths"]
     return files
 
-def download_analysis_results(rootdir, folder, version=2, ncores=-2, sessions=None):
+def download_results(file_type, rootdir, folder, version=2, ncores=-2, sessions=None):
     """
     Downloads the idtrackerai results stored in Dropbox
     """
@@ -94,13 +108,13 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2, sessions=No
     elif version == 2:
         analysis_folder = os.path.jon(folder_display, "idtrackerai")
 
-    patterns = PATTERNS["analysis"](analysis_folder, "[0-9]{6}")
+    patterns = PATTERNS[file_type](analysis_folder, "[0-9]{6}")
 
 
     if sessions is None:
         files = list_files_from_dropbox(folder_display, recursive=True)
     else:
-        files = list(itertools.chain(*[list_files_one_session(folder_display, session) for session in sessions]))
+        files = list(itertools.chain(*[list_files_one_session(file_type, folder_display, session) for session in sessions]))
 
     keep_files = match_files_to_patterns(folder_display, files, patterns)
 
@@ -138,6 +152,7 @@ def get_parser(ap=None):
     ap.add_argument("--version", default=2, type=int)
     ap.add_argument("--ncores", default=-2, type=int)
     ap.add_argument("--sessions", nargs="+", default=None, type=int)
+    ap.add_argument("--file-type", dest="file_type")
     return ap
 
 
@@ -153,7 +168,8 @@ def main(args=None):
         assert len(args.sessions) == 2
         sessions = list(range(*args.sessions))
 
-    download_analysis_results(
+    download_results(
+        file_type=args.file_type,
         rootdir = args.rootdir,
         folder = args.folder,
         version=args.version,
