@@ -51,7 +51,6 @@ def generate_analysis_patterns(folder, session, version):
         pass
     elif version == 2:
         folder = os.path.jon(folder, "idtrackerai")
-        
 
 
     files = [
@@ -104,9 +103,9 @@ PATTERNS = {
 }
 
 
-def list_files_one_session(file_type, folder, session):
+def list_files_one_session(file_type, folder, session, version=2):
     session_padded = str(session).zfill(6)
-    files = PATTERNS[file_type](folder, session_padded)
+    files = PATTERNS[file_type](folder, session_padded, version=version)
     return files
 
 
@@ -131,12 +130,12 @@ def download_results(file_type, rootdir, folder, version=2, ncores=-2, sessions=
         subfolder = subfolder[1]
 
     assert "/./" not in folder_display
-    patterns = PATTERNS[file_type](folder_display, "[0-9]{6}")
+    patterns = PATTERNS[file_type](folder_display, "[0-9]{6}", version=version)
 
     if sessions is None:
         files = list_files_from_dropbox(folder_display, recursive=True)
     else:
-        files = list(itertools.chain(*[list_files_one_session(file_type, folder_display, session) for session in sessions]))
+        files = list(itertools.chain(*[list_files_one_session(file_type, folder_display, session, version=version) for session in sessions]))
 
     keep_files = match_files_to_patterns(folder_display, files, patterns)
 
@@ -155,7 +154,7 @@ def download_results(file_type, rootdir, folder, version=2, ncores=-2, sessions=
 
     if ncores == 1:
         for arg in sync_args:
-            sync(*arg, download=True)
+            sync(*arg)
     else:
         joblib.Parallel(n_jobs=ncores)(
             joblib.delayed(sync)(
