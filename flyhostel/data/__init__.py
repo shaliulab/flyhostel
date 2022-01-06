@@ -8,12 +8,14 @@ from dropy import DropboxDownloader
 
 logger = logging.getLogger(__name__)
 
-def match_files_to_patterns(files, patterns):
+def match_files_to_patterns(folder, files, patterns):
     keep_files = []
     for file in files:
         for pattern in patterns:
             if re.match(pattern, file):
-                keep_files.append(file)
+                keep_files.append(
+                    file.lstrip(folder)
+                )
                 break
     
     return keep_files
@@ -56,7 +58,7 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2):
         ),
     ]
 
-    keep_files = match_files_to_patterns(files, patterns)
+    keep_files = match_files_to_patterns(folder, files, patterns)
     
     if len(keep_files) == 0:
         logger.warning(f"No files matching patterns in {folder}")
@@ -64,9 +66,16 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2):
 
     logger.debug(f"Files to be downloaded: {keep_files}")
 
+
+    subfolder = folder.split("/./")
+    if len(subfolder) == 1:
+        subfolder = ""
+    else:
+        subfolder = subfolder[1]
+
     joblib.Parallel(n_jobs=ncores)(
         joblib.delayed(sync)(
-            f"Dropbox:{folder}/{file}", os.path.join(rootdir, file)
+            f"Dropbox:{folder}/{file}", os.path.join(rootdir, subfolder, file)
         )
             for file in keep_files
     )
