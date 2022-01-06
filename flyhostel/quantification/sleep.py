@@ -12,7 +12,7 @@ import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure
-
+import yaml
 import zeitgeber  # https://github.com/shaliulab/zeitgeber
 
 from flyhostel.sensors.io.plotting import geom_ld_annotations
@@ -42,7 +42,8 @@ AnalysisParams = recordtype(
     ],
 )
 
-N_JOBS = -2
+#N_JOBS = -2
+N_JOBS = 1
 FREQ = 300
 
 logger = logging.getLogger(__name__)
@@ -58,11 +59,10 @@ def get_parser(ap=None):
         "--imgstore-folder", dest="imgstore_folder", required=True, type=str
     )
     ap.add_argument(
-        "--analysis-folder", dest="analysis_folder", required=True, type=str
+        "--analysis-folder", dest="analysis_folder", default=None, type=str
     )
 
-
-    ap.add_argument("--output", dest="output", required=True, type=str)
+    ap.add_argument("--output", dest="output", default=None, type=str)
     ap.add_argument(
         "--ld-annotation",
         dest="ld_annotation",
@@ -162,14 +162,21 @@ def get_analysis_params(store_metadata):
         + store_datetime.second / 3600
     )
 
-    time_window_length = 10
-    velocity_correction_coef = 2
-    min_time_immobile = 300
-    summary_time_window = 30 * 60
-    reference_hour = 6
+    try:
+        with open("./analysis_params.yaml", "r") as filehandle:
+            data = yaml.load(filehandle, yaml.SafeLoader)
+    except:
+        logger.warning("No analysis_params.yaml detected. Using defaults")
+        data = {}
+
+    time_window_length = data.get("time_window_length", 10)
+    velocity_correction_coef = data.get("velocity_correction_coef", 0.06) # cm / second
+    min_time_immobile = data.get("min_time_immobile", 300)
+    summary_time_window = data.get("time_window_length", 30*60)
+    reference_hour = data.get("reference_hour", 6)
     offset = store_hour_start - reference_hour
     offset *= 3600
-    summary_FUN = "mean"
+    summary_FUN = data.get("summary_FUN", "mean")
 
     params = AnalysisParams(
         time_window_length,
@@ -242,7 +249,9 @@ def tidy_dataset(velocity, chunk_metadata, analysis_params):
         {"velocity": velocity, "frame_number": frame_number[1:-1]}
     )
 
-    data["frame_time"] = [frame_time[i] for i in data["frame_number"]]
+    # its better to use the index instead of the frame number
+    # in case the first frame_number is not 0
+    data["frame_time"] = [frame_time[i] for i, _ in enumerate(data["frame_number"])]
     data["t"] = data["frame_time"]
     data["t"] /= 1000  # to seconds
     data["t"] += analysis_params.offset
@@ -330,10 +339,16 @@ def waffle_plot(
 
     nrows, ncols = timeseries.shape[:2]
     pos = list(range(0, 1+int(nrows / 6) * 6, 3600 // freq))
-    ticks = [plotting_params.chunk_index[p] for p in pos]
+
+    ticks = []
+    positions = []
+    for p in pos:
+        if p in plotting_params.chunk_index:
+            ticks.append(plotting_params.chunk_index[p])
+            positions.append(p)
 
     if ticks is not None:
-        ax.set_yticks(pos, ticks)
+        ax.set_yticks(positions, ticks)
         ax.set_xticks([0, ncols-1], [0, freq])
 
     ax.imshow(timeseries)
@@ -456,9 +471,9 @@ def plot_data(data, dt_binned, analysis_params, plotting_params):
         dt_binned,
         plotting_params=plotting_params
     )
-    plot1 = (os.path.join(plotting_params.experiment_name + "-waffle" + ".png"), fig1)
+    plot1 = (os.path.join(plotting_params.experiment_name + "-facet" + ".png"), fig1)
     fig2 = waffle_plot_all(data, analysis_params, plotting_params)
-    plot2 = (os.path.join(plotting_params.experiment_name + "-facet" + ".png"), fig2)
+    plot2 = (os.path.join(plotting_params.experiment_name + "-waffle" + ".png"), fig2)
 
     return plot1, plot2
 
@@ -488,6 +503,17 @@ def main(args=None, ap=None):
         ap = get_parser(ap)
         args = ap.parse_args()
 
+
+    if args.analysis_folder is None:
+        args.analysis_folder = os.path.join(
+            args.imgstore_folder,
+            "idtrackerai"
+        )
+    if args.output is None:
+        args.output = os.path.join(
+            args.imgstore_folder,
+            "output"
+        )
 
     experiment_name = os.path.basename(args.imgstore_folder.rstrip("/"))
 
