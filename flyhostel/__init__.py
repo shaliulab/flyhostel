@@ -1,1 +1,1 @@
-CONFIG_FILE = '/home/vibflysleep/.config/flyhostel.conf'
+CONFIG_FILE = '/home/antortjim/.config/flyhostel.conf'

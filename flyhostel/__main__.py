@@ -43,6 +43,15 @@ def get_parser():
     )
     quantification_parser.set_defaults(func=flyhostel.quantification.main)
 
+    data_parser = subparsers.add_parser(
+        "data",
+        parents=[flyhostel.data.get_parser()],
+        add_help=False,
+        help="Data",
+    )
+    data_parser.set_defaults(func=flyhostel.data.main)
+
+
     return ap
 
 
