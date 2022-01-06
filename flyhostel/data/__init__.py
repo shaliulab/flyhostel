@@ -4,7 +4,7 @@ import logging
 import re
 import joblib
 from dropy.web_utils import sync, list_folder
-from dropy.dropy import DropboxDownloader
+from dropy import DropboxDownloader
 
 logger = logging.getLogger(__name__)
 
