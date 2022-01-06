@@ -5,6 +5,7 @@ import flyhostel.sensors
 import flyhostel.sensors.io
 import flyhostel.ldriver
 import flyhostel.quantification
+import flyhostel.data
 
 
 def get_parser():
