@@ -45,8 +45,8 @@ def sync(src, dst, *args, **kwargs):
     return sync_(src, dst, *args, **kwargs)
 
 
-def list_files_one_session(folder, session):
-    session_padded = str(session).zfill(6)
+def generate_analysis_patterns(folder, session_padded):
+
     files = [
         os.path.join(folder, f"session_{session_padded}_error.txt"),
         os.path.join(folder, f"session_{session_padded}/video_object.npy"),
@@ -54,6 +54,17 @@ def list_files_one_session(folder, session):
         os.path.join(folder, f"session_{session_padded}/preprocessing/blobs_collection.npy"),
         os.path.join(folder, f"session_{session_padded}/preprocessing/fragments.npy"),
     ]
+
+    return files
+
+PATTERNS = {
+    "analysis": generate_analysis_patterns
+}
+
+def list_files_one_session(folder, session):
+    session_padded = str(session).zfill(6)
+    files = PATTERNS["analysis"](folder, session_padded)
+
     return files
 
 
@@ -83,25 +94,8 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2, sessions=No
     elif version == 2:
         analysis_folder = os.path.jon(folder_display, "idtrackerai")
 
-    patterns = [
-        os.path.join(
-            analysis_folder,
-            "session_[0-9]{6}_error.txt"
-        ),
-        os.path.join(
-            analysis_folder,
-            "session_[0-9]{6}/video_object.npy"
-        ),
-        os.path.join(
-            analysis_folder,
-            "session_[0-9]{6}/preprocessing/blobs_collection.*.npy"
-        ),
+    patterns = PATTERNS["analysis"](analysis_folder, "[0-9]{6}")
 
-        os.path.join(
-            analysis_folder,
-            "session_[0-9]{6}/preprocessing/fragments.npy"
-        ),
-    ]
 
     if sessions is None:
         files = list_files_from_dropbox(folder_display, recursive=True)
