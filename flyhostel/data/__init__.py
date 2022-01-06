@@ -3,7 +3,8 @@ import os.path
 import logging
 import re
 import joblib
-from dropy.web_utils import sync, list_folder
+from dropy.web_utils import sync as sync_
+from dropy.web_utils import list_folder
 from dropy import DropboxDownloader
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,10 @@ def match_files_to_patterns(folder, files, patterns):
 
     return keep_files
 
+def sync(src, dst, *args, **kwargs):
+    logger.info(f"{src} -> {dst}")
+    return sync_(src, dst, *args, **kwargs)
+
 
 def download_analysis_results(rootdir, folder, version=2, ncores=-2):
     """
@@ -33,6 +38,10 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2):
 
     folder_display = folder.replace("/./", "/")
     subfolder = folder.split("/./")
+    if len(subfolder) == 1:
+        subfolder = ""
+    else:
+        subfolder = subfolder[1]
 
     assert "/./" not in folder_display
     res = list_folder(folder_display)
@@ -64,9 +73,7 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2):
         ),
     ]
 
-    import ipdb; ipdb.set_trace()
     keep_files = match_files_to_patterns(folder_display, files, patterns)
-    import ipdb; ipdb.set_trace()
 
     if len(keep_files) == 0:
         logger.warning(f"No files matching patterns in {folder_display}")
@@ -74,17 +81,18 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2):
 
     logger.debug(f"Files to be downloaded: {keep_files}")
 
+    args = [
+        (f"Dropbox:{folder_display}/{file}", os.path.join(rootdir, subfolder, file))
+        for file in keep_files
+    ]
 
-    if len(subfolder) == 1:
-        subfolder = ""
-    else:
-        subfolder = subfolder[1]
+    print(args)
 
     joblib.Parallel(n_jobs=ncores)(
         joblib.delayed(sync)(
-            f"Dropbox:{folder_display}/{file}", os.path.join(rootdir, subfolder, file)
+            *arg
         )
-            for file in keep_files
+            for arg in args
     )
 
 
@@ -97,6 +105,7 @@ def get_parser(ap=None):
     ap.add_argument("--version", default=2, type=int)
     ap.add_argument("--ncores", default=-2, type=int)
     return ap
+
 
 def main(args=None):
 

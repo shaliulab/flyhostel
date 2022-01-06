@@ -1,4 +1,4 @@
-import serial
+    import serial
 import logging
 import argparse
 import time
