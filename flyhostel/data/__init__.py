@@ -13,11 +13,13 @@ def match_files_to_patterns(folder, files, patterns):
     for file in files:
         for pattern in patterns:
             if re.match(pattern, file):
+                filename = file.replace(folder, "")
+                logger.debug(f"{file} -> {filename}")
                 keep_files.append(
-                    file.lstrip(folder)
+                    filename
                 )
                 break
-    
+
     return keep_files
 
 
@@ -29,14 +31,18 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2):
     assert rootdir.startswith("/")
     assert folder.startswith("/")
 
-    res = list_folder(folder)
+    folder_display = folder.replace("/./", "/")
+    subfolder = folder.split("/./")
+
+    assert "/./" not in folder_display
+    res = list_folder(folder_display)
     files = res["files"]
     # dirs = res["dirs"]
 
     if version == 1:
-        analysis_folder = folder
+        analysis_folder = folder_display
     elif version == 2:
-        analysis_folder = os.path.join(folder, "idtrackerai") 
+        analysis_folder = os.path.join(folder_display, "idtrackerai")
 
     patterns = [
         os.path.join(
@@ -58,16 +64,17 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2):
         ),
     ]
 
-    keep_files = match_files_to_patterns(folder, files, patterns)
-    
+    import ipdb; ipdb.set_trace()
+    keep_files = match_files_to_patterns(folder_display, files, patterns)
+    import ipdb; ipdb.set_trace()
+
     if len(keep_files) == 0:
-        logger.warning(f"No files matching patterns in {folder}")
+        logger.warning(f"No files matching patterns in {folder_display}")
         return
 
     logger.debug(f"Files to be downloaded: {keep_files}")
 
 
-    subfolder = folder.split("/./")
     if len(subfolder) == 1:
         subfolder = ""
     else:
@@ -75,7 +82,7 @@ def download_analysis_results(rootdir, folder, version=2, ncores=-2):
 
     joblib.Parallel(n_jobs=ncores)(
         joblib.delayed(sync)(
-            f"Dropbox:{folder}/{file}", os.path.join(rootdir, subfolder, file)
+            f"Dropbox:{folder_display}/{file}", os.path.join(rootdir, subfolder, file)
         )
             for file in keep_files
     )
@@ -87,14 +94,14 @@ def get_parser(ap=None):
 
     ap.add_argument("--rootdir", required=True)
     ap.add_argument("--folder", required=True)
-    ap.add_argument("--version", default=2)
-    ap.add_argument("--ncores", default=-2)
+    ap.add_argument("--version", default=2, type=int)
+    ap.add_argument("--ncores", default=-2, type=int)
     return ap
 
-def main(ap=None, args=None):
+def main(args=None):
 
     if args is None:
-        ap = get_parser(ap)
+        ap = get_parser()
         args = ap.parse_args()
 
     download_analysis_results(

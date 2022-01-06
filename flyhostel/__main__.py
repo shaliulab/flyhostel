@@ -7,6 +7,9 @@ import flyhostel.ldriver
 import flyhostel.quantification
 import flyhostel.data
 
+import logging
+logging.getLogger("flyhostel.data").setLevel(logging.DEBUG)
+
 
 def get_parser():
     ap = argparse.ArgumentParser(
