@@ -45,7 +45,14 @@ def sync(src, dst, *args, **kwargs):
     return sync_(src, dst, *args, **kwargs)
 
 
-def generate_analysis_patterns(folder, session):
+def generate_analysis_patterns(folder, session, version):
+
+    if version == 1:
+        pass
+    elif version == 2:
+        folder = os.path.jon(folder, "idtrackerai")
+        
+
 
     files = [
         os.path.join(folder, f"session_{session}_error.txt"),
@@ -55,24 +62,43 @@ def generate_analysis_patterns(folder, session):
         os.path.join(folder, f"session_{session}/preprocessing/fragments.npy"),
     ]
 
+    files = list(map(sanitize_path, files))
     return files
 
 
-def generate_imgstore_meta_patterns(folder, session):
+def generate_imgstore_meta_patterns(folder, session, subfolder = "", version=None):
 
     files = [
-        os.path.join(folder, "metadata.yaml"),
-        os.path.join(folder, f"{session}.extra.json"),
-        os.path.join(folder, f"{session}.npz"),
-        os.path.join(folder, f"{session}.png"),
+        # os.path.join(folder, subfolder, "metadata.yaml"),
+        # os.path.join(folder, subfolder, f"{session}.extra.json"),
+        # os.path.join(folder, subfolder, f"{session}.npz"),
+        # os.path.join(folder, subfolder, f"{session}.png"),
+        os.path.join(folder, "lowres", "metadata.yaml"),
+        os.path.join(folder, "lowres", f"{session}.extra.json"),
+        os.path.join(folder, "lowres", f"{session}.npz"),
+        os.path.join(folder, "lowres", f"{session}.png"),
     ]
 
+    files = list(map(sanitize_path, files))
+    return files
+
+def generate_imgstore_patterns(folder, session, subfolder = "", version=None):
+
+    files = [
+        os.path.join(folder, subfolder, f"{session}.avi"),
+        os.path.join(folder, subfolder, f"{session}.mp4"),
+        os.path.join(folder, "lowres", f"{session}.avi"),
+        os.path.join(folder, "lowres", f"{session}.mp4"),
+    ]
+
+    files = list(map(sanitize_path, files))
     return files
 
 
 PATTERNS = {
     "analysis": generate_analysis_patterns,
     "imgstore_meta": generate_imgstore_meta_patterns,
+    "imgstore": generate_imgstore_patterns,
 }
 
 
@@ -103,13 +129,7 @@ def download_results(file_type, rootdir, folder, version=2, ncores=-2, sessions=
         subfolder = subfolder[1]
 
     assert "/./" not in folder_display
-    if version == 1:
-        analysis_folder = folder_display
-    elif version == 2:
-        analysis_folder = os.path.jon(folder_display, "idtrackerai")
-
-    patterns = PATTERNS[file_type](analysis_folder, "[0-9]{6}")
-
+    patterns = PATTERNS[file_type](folder_display, "[0-9]{6}")
 
     if sessions is None:
         files = list_files_from_dropbox(folder_display, recursive=True)
