@@ -53,6 +53,8 @@ def generate_analysis_patterns(folder, session):
         os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_no_gaps.npy"),
         os.path.join(folder, f"session_{session}/preprocessing/blobs_collection.npy"),
         os.path.join(folder, f"session_{session}/preprocessing/fragments.npy"),
+        os.path.join(folder, f"session_{session}/trajectories/trajectories.npy"),
+        os.path.join(folder, f"session_{session}/trajectories/trajectories_wo_gaps.npy"),
     ]
 
     return files
