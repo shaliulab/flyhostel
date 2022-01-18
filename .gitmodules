@@ -1,0 +1,9 @@
+[submodule "libraries/zeitgeber"]
+	path = libraries/zeitgeber
+	url = git@github.com:shaliulab/zeitgeber.git
+[submodule "libraries/trajectorytools"]
+	path = libraries/trajectorytools
+	url = git@github.com:shaliulab/trajectorytools
+[submodule "libraries/dropy"]
+	path = libraries/dropy
+	url = git@github.com:shaliulab/dropy
