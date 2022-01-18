@@ -8,7 +8,6 @@ import joblib
 from dropy.web_utils import sync as sync_
 from dropy.web_utils import list_folder
 from dropy.updown.utils import unnest
-from dropy import DropboxDownloader
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

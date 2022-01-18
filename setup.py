@@ -44,7 +44,7 @@ setup(
     #],
     packages = find_packages(),
     #include_package_data=True,
-    install_requires=["pyserial"],
+    install_requires=["pyserial", "recordtype", "zeitgeber", "trajectorytools", "dropy"],
     entry_points={
         "console_scripts": [
             "fh=flyhostel.__main__:main"
