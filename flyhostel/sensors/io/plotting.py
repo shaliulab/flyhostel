@@ -1,5 +1,6 @@
 import logging
 import numpy as np
+import math
 from shapely.geometry import Polygon
 from descartes import PolygonPatch
 
@@ -18,7 +19,7 @@ def geom_ld_annotations(*args, **kwargs):
 def set_xticks(ax, xtick_freq, min_t, max_t):
     xticks = np.arange(
         xtick_freq * (int(min_t) // xtick_freq),
-        xtick_freq * (int(max_t + xtick_freq) // xtick_freq),
+        xtick_freq * (math.ceil(max_t + xtick_freq) / xtick_freq),
         xtick_freq,
     )
     ax.set_xticks(xticks)
@@ -34,9 +35,9 @@ def geom_ld_annotation(data, ax, yrange=(0, 100), xtick_freq=6):
 
     """
 
+
     data=data.copy() # working with a copy! :D
     data["t"] /= 3600 # to hours
-
 
     light_states, positions = zeitgeber.rle.decompose(data["L"].values.tolist())
     transitions = []
@@ -125,7 +126,7 @@ def geom_env_data(data, ax):
 def make_environmental_plot(root, data, title=""):
     fig = plt.figure(1, figsize=(5, 5), dpi=90)
     ax = fig.add_subplot(111)
-    ax = geom_ld_annotations(data, ax, yrange=(0, 100))
+    ax = geom_ld_annotation(data, ax, yrange=(0, 100))
     geom_env_data(data, ax)
     ax.set_title(title)
     plt.tight_layout()

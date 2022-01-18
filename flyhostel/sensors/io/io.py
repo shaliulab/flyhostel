@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 # TODO Move to another module
 import glob
 import pandas as pd
+import pandas.api.types as ptypes
+
 from imgstore.util import motif_extra_data_json_to_df
 ##
 
@@ -72,6 +74,16 @@ def get_extra_data(store_path, ignore_corrupt_chunks=False):
                 raise error
     
     extra_data = pd.concat(dfs, axis=0, ignore_index=True)
+
+    extra_data["light"] = np.float64(extra_data["light"].values)
+
+
+    assert ptypes.is_numeric_dtype(extra_data["light"]), "light is not numeric"
+    assert ptypes.is_numeric_dtype(extra_data["temperature"]), "temperature is not numeric"
+    assert ptypes.is_numeric_dtype(extra_data["humidity"]), "humidity is not numeric"
+    assert ptypes.is_numeric_dtype(extra_data["time"]), "time is not numeric"
+    assert ptypes.is_numeric_dtype(extra_data["frame_time"]), "frame_time is not numeric"
+    assert ptypes.is_numeric_dtype(extra_data["frame_index"]), "frame_index is not numeric"
     return extra_data
 
     
@@ -84,15 +96,6 @@ def read_data(store_path):
     imgstore_logger.setLevel(logging.ERROR)
     imgstore_logger.setLevel(logging.WARNING)
     data = get_extra_data(store_path, ignore_corrupt_chunks=True)
-    return data
-
-
-def discretize_light(data, threshold=None):
-    if threshold is None:
-        threshold = data["light"].mean()
-        logger.info("Light threshold: ", threshold)
-    
-    data["L"] = [str(e)[0] for e in data["light"] > threshold]
     return data
 
 
@@ -126,6 +129,21 @@ def compute_zt0_offset(start_time, reference_hour):
     offset_ms = offset * 1000
     return offset_ms
 
+def discretize_light(data, threshold=None):
+    if threshold is None:
+        threshold = data["light"].mean()
+        logger.info("Light threshold: ", threshold)
+    
+    data["L"] = [str(e)[0] for e in data["light"] > threshold]
+    return data
+
+
+
+def annotate_phase(data):
+    data["L"] = [str(e)[0] for e in data["ZT"] / 3600000 % 24 < 12]
+    return data
+
+
 
 def load_data(store_path, reference_hour, threshold=None):
 
@@ -141,7 +159,8 @@ def load_data(store_path, reference_hour, threshold=None):
     offset_ms = compute_zt0_offset(start_time, reference_hour)
     data["ZT"] = data["frame_time"] + offset_ms
     # annotate phase
-    data = discretize_light(data, threshold=threshold)
+    # data = discretize_light(data, threshold=threshold)
+    data = annotate_phase(data)
 
     #
     data["t"] = data["ZT"] / 1000 # to seconds
@@ -178,7 +197,7 @@ def main(args=None, ap=None):
 
     os.makedirs(args.output, exist_ok=True)
 
-    experiment_date = os.path.basename(args.input)
+    experiment_date = os.path.basename(args.input.rstrip("/"))
     dest=os.path.join(
         args.output,
         f"{experiment_date}_environment-log.csv"
