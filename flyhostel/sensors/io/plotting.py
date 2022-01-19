@@ -64,13 +64,13 @@ def geom_ld_annotation(data, ax, yrange=(0, 100), xtick_freq=6):
         ]
     )
    
-    polygon_path = PolygonPatch(
+    polygon_patch = PolygonPatch(
         polygon,
-        facecolor=(0, 0, 0),
+        facecolor=(0.86,0.86,0.86),
         edgecolor=(0, 0, 0),
     )
 
-    ax.add_patch(polygon_path)
+    ax.add_patch(polygon_patch)
     ###   
 
     
@@ -97,12 +97,12 @@ def geom_ld_annotation(data, ax, yrange=(0, 100), xtick_freq=6):
                     (transitions[i], y_max),
                 ]
             )
-        polygon_path = PolygonPatch(
+        polygon_patch = PolygonPatch(
             polygon,
             facecolor=color[light_states[i]],
             edgecolor=(0, 0, 0),
         )
-        ax.add_patch(polygon_path)
+        ax.add_patch(polygon_patch)
 
     ax.set_xlim(*xrange)
     ax.set_ylim(*yrange)
