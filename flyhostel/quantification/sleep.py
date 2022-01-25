@@ -477,9 +477,9 @@ def plot_data(data, dt_binned, analysis_params, plotting_params, suffix=""):
         dt_binned,
         plotting_params=plotting_params
     )
-    plot1 = (add_suffix(plotting_params.experiment_name + "-facet" + ".png", suffix), fig1)
+    plot1 = (add_suffix(plotting_params.experiment_name + "-facet" + "png", suffix), fig1)
     fig2 = waffle_plot_all(data, analysis_params, plotting_params)
-    plot2 = (add_suffix(plotting_params.experiment_name + "-waffle" + ".png", suffix), fig2)
+    plot2 = (add_suffix(plotting_params.experiment_name + "-waffle" + "png", suffix), fig2)
 
     return plot1, plot2
 
