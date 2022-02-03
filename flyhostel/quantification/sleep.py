@@ -5,7 +5,7 @@ import datetime
 import logging
 # from collections import namedtuple
 from recordtype import recordtype
-
+import functools
 import joblib
 import numpy as np
 import pandas as pd
@@ -13,11 +13,13 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure
 import yaml
-import zeitgeber  # https://github.com/shaliulab/zeitgeber
+import zeitgeber # https://github.com/shaliulab/zeitgeber
 
 from flyhostel.plotting import geom_ld_annotations
 from flyhostel.quantification.trajectorytools import load_trajectories
 from flyhostel.quantification.imgstore import read_store_metadata
+from flyhostel.utils import add_suffix
+from flyhostel.constants import *
 
 
 PlottingParams = recordtype(
@@ -61,6 +63,8 @@ def get_parser(ap=None):
     ap.add_argument(
         "--analysis-folder", dest="analysis_folder", default=None, type=str
     )
+
+    ap.add_argument("--interval", nargs="+", type=int, required=False, default=None)
 
     ap.add_argument("--output", dest="output", default=None, type=str)
     ap.add_argument(
@@ -169,11 +173,11 @@ def get_analysis_params(store_metadata):
         logger.warning("No analysis_params.yaml detected. Using defaults")
         data = {}
 
-    time_window_length = data.get("time_window_length", 10)
-    velocity_correction_coef = data.get("velocity_correction_coef", 0.06) # cm / second
-    min_time_immobile = data.get("min_time_immobile", 300)
-    summary_time_window = data.get("time_window_length", 30*60)
-    reference_hour = data.get("reference_hour", 6)
+    time_window_length = data.get("TIME_WINDOW_LENGTH", DEFAULT_TIME_WINDOW_LENGTH)
+    velocity_correction_coef = data.get("VELOCITY_CORRECTION_COEF", DEFAULT_VELOCITY_CORRECTION_COEF) # cm / second
+    min_time_immobile = data.get("MIN_TIME_IMMOBILE", DEFAULT_MIN_TIME_IMMOBILE)
+    summary_time_window = data.get("SUMMARY_TIME_WINDOW", DEFAULT_SUMMARY_TIME_WINDOW)
+    reference_hour = data.get("REFERENCE_HOUR", DEFAULT_REFERENCE_HOUR)
     offset = store_hour_start - reference_hour
     offset *= 3600
     summary_FUN = data.get("summary_FUN", "mean")
@@ -401,16 +405,18 @@ def prepare_data_for_waffle_plot(data, i, analysis_params, colors):
     )
     return timeseries
 
-
-def read_data(imgstore_folder, analysis_folder):
+@functools.lru_cache(maxsize=100, typed=False)
+def read_data(imgstore_folder, analysis_folder, interval=None):
 
     # Load trajectories
-    status, chunks, tr = load_trajectories(analysis_folder)
+    status, chunks, tr = load_trajectories(analysis_folder, interval=interval)
 
     # Load metadata
     store_metadata, chunk_metadata = read_store_metadata(
         imgstore_folder, chunk_numbers=chunks
     )
+    pixels_per_cm = store_metadata["pixels_per_cm"]
+    tr.new_length_unit(pixels_per_cm, "cm")
 
     return tr, chunks, store_metadata, chunk_metadata
 
@@ -460,7 +466,7 @@ def process_data(tr, analysis_params, chunk_metadata):
     return data, dt_sleep, dt_binned
 
 
-def plot_data(data, dt_binned, analysis_params, plotting_params):
+def plot_data(data, dt_binned, analysis_params, plotting_params, suffix=""):
     """
     Plot a sleep trace plot and a waffle plot
     """
@@ -471,20 +477,20 @@ def plot_data(data, dt_binned, analysis_params, plotting_params):
         dt_binned,
         plotting_params=plotting_params
     )
-    plot1 = (os.path.join(plotting_params.experiment_name + "-facet" + ".png"), fig1)
+    plot1 = (add_suffix(plotting_params.experiment_name + "-facet" + "png", suffix), fig1)
     fig2 = waffle_plot_all(data, analysis_params, plotting_params)
-    plot2 = (os.path.join(plotting_params.experiment_name + "-waffle" + ".png"), fig2)
+    plot2 = (add_suffix(plotting_params.experiment_name + "-waffle" + "png", suffix), fig2)
 
     return plot1, plot2
 
 
-def save_results(data, dt_sleep, dt_binned, plot1, plot2, output):
+def save_results(data, dt_sleep, dt_binned, plot1, plot2, output, suffix=""):
 
     logger.info("Saving results ...")
     os.makedirs(output, exist_ok=True)
-    data.to_csv(os.path.join(output, "data.csv"))
-    dt_sleep.to_csv(os.path.join(output, "dt_sleep.csv"))
-    dt_binned.to_csv(os.path.join(output, "dt_binned.csv"))
+    data.to_csv(os.path.join(output, add_suffix(RAW_DATA, suffix)))
+    dt_sleep.to_csv(os.path.join(output, add_suffix(ANNOTATED_DATA, suffix)))
+    dt_binned.to_csv(os.path.join(output, add_suffix(BINNED_DATA, suffix)))
 
     path2, fig2 = plot2
     path2 = os.path.join(output, path2)
@@ -495,6 +501,14 @@ def save_results(data, dt_sleep, dt_binned, plot1, plot2, output):
     path1 = os.path.join(output, path1)
     logger.info(f"Saving plot to {path1}")
     fig1.savefig(path1, transparent=False)
+
+
+def make_suffix(analysis_params):
+    suffix = f"{str(analysis_params.velocity_correction_coef * 1000).zfill(5)}"
+    f"-{analysis_params.min_time_immobile}"
+    f"-{analysis_params.time_window_length}"
+    f"-{analysis_params.summary_time_window}"
+    return suffix
 
 
 def main(args=None, ap=None):
@@ -517,16 +531,16 @@ def main(args=None, ap=None):
 
     experiment_name = os.path.basename(args.imgstore_folder.rstrip("/"))
 
-    tr, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, args.analysis_folder)
-
+    tr, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, args.analysis_folder, tuple(args.interval))
     analysis_params, plotting_params = load_params(store_metadata)
+    suffix = make_suffix(analysis_params)
     plotting_params.number_of_animals = tr.s.shape[1]
     plotting_params.experiment_name = experiment_name
     plotting_params.ld_annotation = args.ld_annotation
 
     data, dt_sleep, dt_binned = process_data(tr, analysis_params, chunk_metadata)
-    plot1, plot2 = plot_data(data, dt_binned, analysis_params, plotting_params)
-    save_results(data, dt_sleep, dt_binned, plot1, plot2, args.output)
+    plot1, plot2 = plot_data(data, dt_binned, analysis_params, plotting_params, suffix=suffix)
+    save_results(data, dt_sleep, dt_binned, plot1, plot2, args.output, suffix=suffix)
 
     return 0
 

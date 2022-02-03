@@ -1,1 +1,1 @@
-CONFIG_FILE = '/home/luna.kuleuven.be/u0127714/.config/flyhostel.conf'
+CONFIG_FILE = '/home/vibflysleep/.config/flyhostel.conf'
