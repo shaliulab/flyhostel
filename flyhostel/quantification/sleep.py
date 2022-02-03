@@ -15,7 +15,7 @@ from matplotlib.pyplot import figure
 import yaml
 import zeitgeber # https://github.com/shaliulab/zeitgeber
 
-from flyhostel.sensors.io.plotting import geom_ld_annotations
+from flyhostel.plotting import geom_ld_annotations
 from flyhostel.quantification.trajectorytools import load_trajectories
 from flyhostel.quantification.imgstore import read_store_metadata
 from flyhostel.utils import add_suffix
