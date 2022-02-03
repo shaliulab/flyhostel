@@ -1,9 +1,9 @@
 import threading
 import socket
 import json
-
+import os
 from .sensor import Sensor
-
+MAX_COUNT = 10
 
 class Server(threading.Thread):
 
@@ -86,6 +86,12 @@ class Server(threading.Thread):
         while True:
             client_connection, client_address = self._server_socket.accept()
             request = client_connection.recv(1024).decode()
+            if self._sensor.temperature == 0:
+                count += 1
+                if count > MAX_COUNT:
+                    os.system("reboot")
+            else:
+                count = 0
 
             if self._server_type == "html":
                 # Wait for client connections

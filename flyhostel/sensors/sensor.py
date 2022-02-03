@@ -13,6 +13,7 @@ from flyhostel.arduino import Identifier
 import flyhostel
 
 TIMEOUT = 5
+MAX_COUNT=3
 
 with open(flyhostel.CONFIG_FILE, "r") as fh:
     conf = json.load(fh)
@@ -70,6 +71,10 @@ class Sensor(threading.Thread):
 
         magnitude = data[1].lower()  # temperature, humidity, etc
         measurement = float(data[2])  # value in some unit
+        
+        if magnitude == "temperature" and measurement < -100:
+            logging.warning("Temperature is aberrant and the thermometer is probably malfunctioning. Shutting down")
+            os.system("reboot")
 
         unit = ""
         if len(data) == 4:
@@ -125,26 +130,29 @@ class Sensor(threading.Thread):
     def run(self):
 
         self.last_t = 0
+        count = 0
         while True:
 
             try:
                 status = self.get_readings()
-                if status != 0:
-                    continue
+                if status == 0:
+                    count = 0
+                else:
+                    count +=1
+                    if count == MAX_COUNT:
+                        os.system("reboot")
+                    else:
+                        continue
+
                 if (
                     self._logfile is not None
                     and time.time() > self.last_t + self._freq
                 ):
                     self.write()
 
-            except Exception as e:
-                print("Keyboard Interrupt or program error")
-                logging.warning(
-                    "Last line read from Arduino: %s", decoded_bytes
-                )
-                logging.warning(e)
-
+            except KeyboardInterrupt:
                 break
+
 
             time.sleep(1)
 
