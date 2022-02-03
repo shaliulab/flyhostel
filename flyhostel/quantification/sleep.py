@@ -236,6 +236,8 @@ def sleep_plot(dt, plotting_params):
         )
 
         axes[i].set_ylim(Y_RANGE)
+        axes[i].set_yticks([0, .5, 1])
+        axes[i].set_yticklabels(["0", "50", "100"])
         axes[i].set_xlabel("ZT")
 
     # fig.subplots_adjust(bottom=0.0, right=0.8, top=1.0)
@@ -354,6 +356,7 @@ def waffle_plot(
     if ticks is not None:
         ax.set_yticks(positions, ticks)
         ax.set_xticks([0, ncols-1], [0, freq])
+        ax.set_xlabel("Time in chunk (s)")
 
     ax.imshow(timeseries)
 
@@ -365,7 +368,7 @@ def waffle_plot(
 
 def waffle_plot_all(data, analysis_params, plotting_params):
 
-    fig = plt.figure(2, figsize=(10, 7), dpi=90, facecolor="white")
+    fig = plt.figure(2, figsize=(12, 7), dpi=90, facecolor="white")
     plt.axis("off")
     plt.title(plotting_params.experiment_name)
 
@@ -477,9 +480,9 @@ def plot_data(data, dt_binned, analysis_params, plotting_params, suffix=""):
         dt_binned,
         plotting_params=plotting_params
     )
-    plot1 = (add_suffix(plotting_params.experiment_name + "-facet" + "png", suffix), fig1)
+    plot1 = (add_suffix(plotting_params.experiment_name + "-facet.png", suffix), fig1)
     fig2 = waffle_plot_all(data, analysis_params, plotting_params)
-    plot2 = (add_suffix(plotting_params.experiment_name + "-waffle" + "png", suffix), fig2)
+    plot2 = (add_suffix(plotting_params.experiment_name + "-waffle.png", suffix), fig2)
 
     return plot1, plot2
 
