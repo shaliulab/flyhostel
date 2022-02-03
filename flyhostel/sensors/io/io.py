@@ -4,12 +4,9 @@ import os.path
 import logging
 import datetime
 
-from flyhostel.sensors.io.plotting import make_environmental_plot
+from flyhostel.plotting import make_environmental_plot
 from flyhostel.quantification.imgstore import _read_store_metadata
-import zeitgeber
-
 import numpy as np
-import imgstore
 
 logging.getLogger("flyhostel.sensors.io.plotting").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)

@@ -12,10 +12,8 @@ README = (HERE / "README.md").read_text()
 
 PKG_NAME = "flyhostel"
 
-repo = git.Repo()
-git_hash = repo.head.object.hexsha
 # attention. you need to update the numbers ALSO in the imgstore/__init__.py file
-version = "1.0.0" + "." + git_hash
+version = "1.0.1"
 
 CONFIG_FILE = "/etc/flyhostel.conf"
 if not os.access(CONFIG_FILE, os.W_OK):
@@ -44,10 +42,16 @@ setup(
     #],
     packages = find_packages(),
     #include_package_data=True,
-    install_requires=["pyserial", "recordtype", "zeitgeber", "trajectorytools", "dropy"],
+    extras_require={
+        "sensor": ["pyserial"],
+        "plotting": ["zeitgeber"],
+        "quant": ["recordtype", "zeitgeber", "trajectorytools"],
+        "dropbox": ["dropy"]
+    },
     entry_points={
         "console_scripts": [
-            "fh=flyhostel.__main__:main"
+            "fh=flyhostel.__main__:main",
+            "fh-sensor=flyhostel.sensors.__main__:main",
             ]
     },
 )
