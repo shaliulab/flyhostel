@@ -6,7 +6,7 @@ After=ntpd.service network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/sensors
+WorkingDirectory=/root
 ExecStart=fh-sensor --arduino-port /dev/ttyACM0 --html-port 80 --json-port 9001 --thread
 RestartSec=5
 Restart=always
