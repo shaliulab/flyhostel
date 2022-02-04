@@ -65,6 +65,8 @@ class Server(threading.Thread):
         )
         self._server_socket.bind((self._SERVER_HOST, self._port))
         self._server_socket.listen(1)
+        self._count = 0
+
 
         print("Listening on port %s ..." % self._port)
         super().__init__(*args, **kwargs)
@@ -87,11 +89,11 @@ class Server(threading.Thread):
             client_connection, client_address = self._server_socket.accept()
             request = client_connection.recv(1024).decode()
             if self._sensor.temperature == 0:
-                count += 1
-                if count > MAX_COUNT:
+                self._count += 1
+                if self._count > MAX_COUNT:
                     os.system("reboot")
             else:
-                count = 0
+                self._count = 0
 
             if self._server_type == "html":
                 # Wait for client connections
