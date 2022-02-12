@@ -10,7 +10,7 @@ def get_parser(ap=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--interval", nargs="+", type=int)
     ap.add_argument("--chunks", nargs="+", type=int)
-    ap.add_argument("--experiment-folder", dest="experiment_folder", type=str)
+    ap.add_argument("--experiment-folder", dest="experiment_folder", type=str, required=True)
     return ap
 
 
@@ -62,6 +62,12 @@ def upload_chunks(experiment_folder, interval=None, chunks=None, jobs=5):
 
 
 def main(ap=None, args=None):
+
+    if args is None:
+        ap = get_parser(ap)
+        args = ap.parse_args()
+
+
     return upload_chunks(
         experiment_folder=args.experiment_folder,
         interval=args.interval, chunks=args.chunks
