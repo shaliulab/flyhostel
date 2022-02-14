@@ -51,6 +51,7 @@ setup(
         "console_scripts": [
             "fh=flyhostel.__main__:main",
             "fh-sensor=flyhostel.sensors.__main__:main",
+            "fh-upload=flyhostel.data.upload:main",
             ]
     },
 )
