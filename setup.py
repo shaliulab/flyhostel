@@ -2,7 +2,6 @@ import pathlib
 import os.path
 from setuptools import setup, find_packages
 import json
-import git
 
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent
