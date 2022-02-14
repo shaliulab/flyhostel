@@ -23,8 +23,9 @@ def load_trajectories(experiment_folder, interval):
     
     if interval is not None:
         assert len(interval) == 2
-        chunks = chunks[interval[0]:interval[1]]
-        trajectories_paths = trajectories_paths[interval[0]:interval[1]]
+        indices = (chunks.index(interval[0]), chunks.index(interval[1]-1))
+        chunks = chunks[indices[0]:indices[1]]
+        trajectories_paths = trajectories_paths[indices[0]:indices[1]-1]
 
     status, tr = concatenate.from_several_idtracker_files(
         trajectories_paths, strict=False,
