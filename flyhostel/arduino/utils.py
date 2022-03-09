@@ -31,6 +31,7 @@ def read_from_serial(ser):
         read = ser.read(100)
         print(read)
         decode = read.decode("utf-8")
+        read = decode
         logging.debug(read)
         if (
             (read == "")
