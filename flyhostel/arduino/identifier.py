@@ -1,13 +1,5 @@
-import json
-import subprocess
-import sys
-import logging
-import serial
 import serial.tools.list_ports
-
-# logging.basicConfig(level=logging.DEBUG)
 from .utils import identify_ports, list_ports
-
 
 class Identifier:
     @classmethod

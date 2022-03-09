@@ -62,22 +62,24 @@ void loop() {
     delay(delayTime);
 }
 void printValues() {
-    Serial.print("DATA:Temperature:");
+    Serial.print("{");
+    Serial.print("\"temperature\": ");
     Serial.print(bme.readTemperature());
-    Serial.println(":*C");
-    Serial.print("DATA:Pressure:");
+    Serial.print(",");
+    Serial.print("\"pressure\": ");
     Serial.print(bme.readPressure() / 100.0F);
-    Serial.println(":hPa");
-    Serial.print("DATA:Altitude:");
+    Serial.print(",");
+    Serial.print("\"altitude\": ");
     Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
-    Serial.println(":m");
-    Serial.print("DATA:Humidity:");
+    Serial.print(",");
+    Serial.print("\"humidity\": ");
     Serial.print(bme.readHumidity());
-    Serial.println(":%");
-    int value = analogRead(A0); 
-    Serial.print("DATA:Light:");
-    Serial.println(value);  
-//    Serial.println();
+    Serial.print(",");
+    Serial.print("\"light\": ");
+    int light = analogRead(A0); 
+    Serial.print(light);
+    Serial.print("}");
+    Serial.println();  
 }
 
 

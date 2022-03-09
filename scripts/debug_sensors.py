@@ -1,33 +1,42 @@
 import logging
 import serial
 import time
-import flyhostel.arduino.utils
+from flyhostel.arduino import utils
 
 log = logging.getLogger("flyhostel.arduino.utils")
 log.setLevel(logging.DEBUG)
 
-
-#ports = flyhostel.arduino.utils.list_ports()
-#flyhostel.arduino.utils.identify_ports(ports)
-
-
 port = "/dev/ttyACM0"
-TIMEOUT=1
+TIMEOUT=2
 
-def send_command(ser, command="T"):
-    cmd = f"{command}\n"
-    ser.write(cmd.encode("utf-8"))
+def main_v1():
 
-with serial.Serial(port, timeout=TIMEOUT) as ser:
+    with serial.Serial(port, timeout=TIMEOUT) as ser:
 
-    status = False
-    i = 0
-    send_command(ser)
-    while True:
-        ret, data = flyhostel.arduino.utils.read_from_serial(ser)
-        send_command(ser, command = "D")
-        #i += 1
-        #if i == 1:
-        #    send_command(ser, command = "T")
-        #    i = 0
+        utils.write(ser, "T\n")
+        data = utils.read(ser)
+        utils.write(ser, "T\n")
+        data = utils.read(ser)
+        print(data)
 
+def main_v2():
+
+    with serial.Serial(port, timeout=TIMEOUT) as ser:
+
+        data = utils.talk(ser, "T\n", wait_for_response=True, max_attempts=3)
+        print(data)
+    
+def read_data():
+
+    with serial.Serial(port, timeout=TIMEOUT) as ser:
+
+        data = utils.talk(ser, "D\n", wait_for_response=True, max_attempts=3)
+        print(data)
+
+
+def main():
+    return read_data()
+
+
+if __name__ == "__main__":
+    main()
