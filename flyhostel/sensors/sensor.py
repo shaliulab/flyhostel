@@ -90,6 +90,8 @@ class Sensor(threading.Thread):
 
         data = utils.talk(self._ser, "D\n")
         status, data = utils.safe_json_load(self._ser, data)
+        
+        data["time"] = time.time()
 
         if status == 0:
             self._data = data
@@ -97,7 +99,6 @@ class Sensor(threading.Thread):
         return status
 
     def get_readings(self):
-        self._data["time"] = time.time()
         status = self.communicate()
         return status
 
