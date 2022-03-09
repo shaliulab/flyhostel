@@ -62,8 +62,6 @@ class Sensor(threading.Thread):
     def __getattr__(self, value):
         if value in self._data.keys():
             return self._data[value]
-        else:
-            return super().__getattr__(value)
 
     def reset(self):
         self._data = {

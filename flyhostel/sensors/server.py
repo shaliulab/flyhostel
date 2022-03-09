@@ -80,9 +80,11 @@ class Server(threading.Thread):
         super().__init__(*args, **kwargs)
 
     def _fill_html(self, src=""):
+
         response = self._html % (
             self._hostname,
             self._hostname,
+            self._sensor.datetime,
             self._sensor.temperature,
             self._sensor.humidity,
             self._sensor.light,
@@ -104,18 +106,7 @@ class Server(threading.Thread):
                 self._count = 0
 
             if self._server_type == "html":
-                # Wait for client connections
-
-                response = self._html % (
-                    self._hostname,
-                    self._hostname,
-                    self._sensor.time,
-                    self._sensor.temperature,
-                    self._sensor.humidity,
-                    self._sensor.light,
-                    self._sensor.pressure,
-                )
-                print(self._sensor.light)
+                response = self._fill_html()
 
             if self._server_type == "json":
 
@@ -125,11 +116,10 @@ class Server(threading.Thread):
                     "humidity": self._sensor.humidity,
                     "light": self._sensor.light,
                     "pressure": self._sensor.pressure,
-                    "time": self._sensor.time,
+                    "time": self._sensor.datetime,
                 }
 
                 response = json.dumps(json_data)
-                # response = "Hello World!"
 
             response = "HTTP/1.0 200 OK\n\n" + response
             print(response)
