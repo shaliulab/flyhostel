@@ -56,8 +56,11 @@ class Sensor(threading.Thread):
     def detect(self):
 
         identifier = Identifier
-        port = identifier.report()["Environmental sensor"]
-        print("Detected Environmental sensor on port %s" % port)
+        port = identifier.report().get("Environmental sensor", None)
+        if port is None:
+            raise Exception("Environmental sensor not detected")
+        else:
+            print("Detected Environmental sensor on port %s" % port)
         return port
 
     def flush(self):

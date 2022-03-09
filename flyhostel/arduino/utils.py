@@ -28,7 +28,9 @@ def read_from_serial(ser):
     ret = True
     start_time = time.time()
     while True:
-        read = ser.read(100).decode("utf-8")
+        read = ser.read(100)
+        print(read)
+        decode = read.decode("utf-8")
         logging.debug(read)
         if (
             (read == "")
