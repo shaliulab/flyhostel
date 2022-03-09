@@ -48,7 +48,7 @@ class Sensor(threading.Thread):
 
     @property
     def last_time(self):
-        return self._data["time"]
+        return self._data["timestamp"]
 
     @property
     def must_update(self):
