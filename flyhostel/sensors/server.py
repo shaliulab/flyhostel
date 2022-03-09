@@ -2,7 +2,9 @@ import threading
 import socket
 import json
 import os
-from .sensor import Sensor
+from flyhostel.sensors.sensor import Sensor
+from flyhostel.sensors.constants import HTML_PORT, JSON_PORT
+
 MAX_COUNT = 10
 
 class Server(threading.Thread):
@@ -48,7 +50,7 @@ class Server(threading.Thread):
         </html>
         """
 
-    def __init__(self, sensor, server_type="html", port=80, *args, **kwargs):
+    def __init__(self, sensor, server_type="html", port=HTML_PORT, *args, **kwargs):
 
         with open("/etc/hostname", "r") as fh:
             self._hostname = fh.read().strip("\n")
@@ -137,8 +139,8 @@ if __name__ == "__main__":
 
     sensor = Sensor("/dev/ttyACM0")
     sensor.start()
-    html_server = Server(sensor, server_type="html", port=80)
-    json_server = Server(sensor, server_type="json", port=9001)
+    html_server = Server(sensor, server_type="html", port=HTML_PORT)
+    json_server = Server(sensor, server_type="json", port=JSON_PORT)
 
     # html_server.start()
     json_server.start()
