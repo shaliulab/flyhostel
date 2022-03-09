@@ -52,20 +52,6 @@ def contains_data(data):
     valid = data != "" and len(data) != 0
     return valid
 
-def contains_data(data):
-    """
-    Checks data actually contains something
-
-    Arguments:
-        * data (str)
-    Returns:
-        * valid (bool)
-    """
-
-    valid = data != "" and len(data) != 0
-    return valid
-
-
 def read(ser):
     """
     Keep reading from serial until a newline character
