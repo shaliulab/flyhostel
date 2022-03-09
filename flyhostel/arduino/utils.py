@@ -28,6 +28,7 @@ def safe_json_load(ser, data):
         message = sys.exc_info()
         logging.warning(f"Parsing error on port {ser.port}")
         logging.debug(data)
+        data = None
         status = 1
 
     return status, data
