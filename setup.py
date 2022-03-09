@@ -17,7 +17,9 @@ version = "1.0.1"
 
 CONFIG_FILE = "/etc/flyhostel.conf"
 if not os.access(CONFIG_FILE, os.W_OK):
-    CONFIG_FILE = os.path.join(os.environ["HOME"], ".config", "flyhostel.conf")
+    folder = os.path.join(os.environ["HOME"], ".config")
+    os.makedirs(folder, exist_ok=True)
+    CONFIG_FILE = os.path.join(folder, "flyhostel.conf")
 
 with open(f"{PKG_NAME}/_version.py", "w") as fh:
     fh.write(f"__version__ = '{version}'\n")
