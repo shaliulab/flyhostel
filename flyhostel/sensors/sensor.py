@@ -72,7 +72,8 @@ class Sensor(threading.Thread):
             "altitude": 0,
             "light": 0,
             "humidity": 0,
-            "time": 0,
+            "timestamp": 0,
+            "datetime": "",
         }
 
     def detect(self):
@@ -91,7 +92,10 @@ class Sensor(threading.Thread):
         data = utils.talk(self._ser, "D\n")
         status, data = utils.safe_json_load(self._ser, data)
         
-        data["time"] = time.time()
+        data["timestamp"] = time.time()
+        data["datetime"] = datetime.datetime.fromtimestamp(
+            data["timestamp"]
+        ).strftime("%Y-%m-%d %H:%M:%S")
 
         if status == 0:
             self._data = data
@@ -130,14 +134,10 @@ class Sensor(threading.Thread):
         
     def write(self):
         with open(self._logfile, "a") as fh:
-            now = datetime.datetime.from_timestmap(
-                self.last_time
-            ).strftime("%Y-%m-%d %H:%M:%S")
-
             fh.write(
                 "%s\t%s\t%s\t%s\t%s\t%s\n"
                 % (
-                    now,
+                    self._data["datetime"],
                     self._data["temperature"],
                     self._data["humidity"],
                     self._data["light"],
