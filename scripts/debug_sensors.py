@@ -14,15 +14,20 @@ log.setLevel(logging.DEBUG)
 port = "/dev/ttyACM0"
 TIMEOUT=1
 
+def send_command(ser, command="T"):
+    cmd = f"{command}\n"
+    ser.write(cmd.encode("utf-8"))
+
 with serial.Serial(port, timeout=TIMEOUT) as ser:
 
     status = False
-    #ser.write(b"T\n")
-    ser.write(b"T")
-    data = b""
+    i = 0
+    send_command(ser)
     while True:
-        new_data = ser.read(100)
-    #ret, data = flyhostel.arduino.utils.read_from_serial(ser)
-        print(new_data)
-        data += new_data
-        print(data)
+        ret, data = flyhostel.arduino.utils.read_from_serial(ser)
+        send_command(ser, command = "D")
+        #i += 1
+        #if i == 1:
+        #    send_command(ser, command = "T")
+        #    i = 0
+

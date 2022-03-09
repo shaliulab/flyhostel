@@ -59,7 +59,6 @@ def identify_ports(ports):
                 status = False
                 while (not status) and (attempts < max_attempts):
                     attempts += 1
-                    ser.write(b"T\n")
                     ret, raw_data = read_from_serial(ser)
                     status = raw_data != ""
                 if attempts == max_attempts:
@@ -73,6 +72,7 @@ def identify_ports(ports):
                     logging.debug(raw_data)
                     continue
                 name = data["name"]
+                print(data)
                 identifiers[port] = name
         except serial.serialutil.SerialException as error:
             message = sys.exc_info()
