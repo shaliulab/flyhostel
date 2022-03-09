@@ -1,4 +1,5 @@
 import threading
+import logging
 import socket
 import json
 import os
@@ -65,7 +66,12 @@ class Server(threading.Thread):
         self._server_socket.setsockopt(
             socket.SOL_SOCKET, socket.SO_REUSEADDR, 1
         )
-        self._server_socket.bind((self._SERVER_HOST, self._port))
+        try:
+            self._server_socket.bind((self._SERVER_HOST, self._port))
+        except Exception as error:
+            logging.warning(f"Cannot bind to port {self._port}")
+            raise error
+            
         self._server_socket.listen(1)
         self._count = 0
 

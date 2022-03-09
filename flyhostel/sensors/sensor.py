@@ -34,13 +34,15 @@ class Sensor(threading.Thread):
         self, logfile=None, verbose=False, port=None, *args, **kwargs
     ):
 
+        self.reset()
+
         if port is None:
             port = self.detect()
+
         self._ser = serial.Serial(port, timeout=TIMEOUT)
         self._logfile = logfile
         self._verbose = verbose
         self._data = {}
-        self.reset()
         super().__init__(*args, **kwargs)
 
 
