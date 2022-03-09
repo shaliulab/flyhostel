@@ -54,8 +54,7 @@ def main(args=None):
 
     else:
         sensor.get_readings()
-        for k, v in sensor._data.items():
-            print(f"{k}: {v}")
+        print(sensor._data)
 
     return 0
 

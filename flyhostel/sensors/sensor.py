@@ -80,7 +80,7 @@ class Sensor(threading.Thread):
     def communicate(self):
 
         data = utils.talk(self._ser, "D\n")
-        status, data = utils.safe_json_load(data)
+        status, data = utils.safe_json_load(self._ser, data)
 
         if status == 0:
             self._data = data

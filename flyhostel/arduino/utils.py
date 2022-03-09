@@ -6,17 +6,18 @@ import serial
 import serial.tools.list_ports
 
 import flyhostel
-
-NEWLINE="\n"
-EMPTY=""
-PORT_PREFIX="ACM"
+from  flyhostel.arduino.constants import (
+    PORT_PREFIX,
+    NEWLINE,
+    EMPTY,
+    TIMEOUT
+)
 
 with open(flyhostel.CONFIG_FILE, "r") as fh:
     config = json.load(fh)
 
 logging.basicConfig(level=getattr(logging, config["logging"]["arduino"]))
 
-TIMEOUT = 5
 
     
 def safe_json_load(ser, data):
@@ -102,7 +103,7 @@ def write(ser, command):
     command_log = command.strip('\n')
     logging.debug(f"Writing {command_log} to {ser.port}")
 
-    if command[-1] == NEWLINE:
+    if command[-1] != NEWLINE:
         command += NEWLINE
 
     command = command.encode() 
@@ -157,11 +158,10 @@ def identify_ports(ports):
     
     """
     identifiers = {}
-    max_attempts = 3
     for port in ports:
         try:
             with serial.Serial(port, timeout=TIMEOUT) as ser:
-                name = read_device_name(ser, max_attempts)
+                name = read_device_name(ser)
                 identifiers[port] = name
         except serial.serialutil.SerialException as error:
             message = sys.exc_info()
@@ -173,7 +173,7 @@ def identify_ports(ports):
     return identifiers
 
 
-def read_device_name(ser, max_attempts):
-    data = talk(ser, command = "T", wait_for_response=True, max_attempts=max_attempts)
+def read_device_name(ser):
+    data = talk(ser, command = "T\n", wait_for_response=True, max_attempts=3)
     return safe_json_load(ser, data)[1]["name"]
         
