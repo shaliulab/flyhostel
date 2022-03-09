@@ -1,5 +1,6 @@
 import pathlib
 import os.path
+import os
 from setuptools import setup, find_packages
 import json
 
@@ -57,14 +58,10 @@ setup(
 )
 
 
-
 if not os.path.exists(CONFIG_FILE):
-    while True:
-        videos_folder=input("Please enter the path where videos should be saved:\n")
-        if os.path.exists(videos_folder):
-            break
+    videos_folder = "/flyhostel_data/videos"
+    os.makedirs(videos_folder, exist_ok=True)
     config = {"videos": {"folder": videos_folder}, "logging": {"sensors": "WARNING", "arduino": "WARNING"}}
-
     with open(CONFIG_FILE, "w") as fh:
         json.dump(config, fh)
 
