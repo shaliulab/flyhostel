@@ -58,6 +58,13 @@ class Sensor(threading.Thread):
     def has_logfile(self):
         return self._logfile is not None
 
+
+    def __getattr__(self, value):
+        if value in self._data.keys():
+            return self._data[value]
+        else:
+            return super().__getattr__(value)
+
     def reset(self):
         self._data = {
             "temperature": 0,
