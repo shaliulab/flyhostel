@@ -11,9 +11,7 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
 PKG_NAME = "flyhostel"
-
-# attention. you need to update the numbers ALSO in the imgstore/__init__.py file
-version = "1.0.1"
+version = "1.1.0"
 
 CONFIG_FILE = "/etc/flyhostel.conf"
 if not os.access(CONFIG_FILE, os.W_OK):
