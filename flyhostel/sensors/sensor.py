@@ -42,7 +42,6 @@ class Sensor(threading.Thread):
         self._ser = serial.Serial(port, timeout=TIMEOUT)
         self._logfile = logfile
         self._verbose = verbose
-        self._data = {}
         super().__init__(*args, **kwargs)
 
 
@@ -89,13 +88,13 @@ class Sensor(threading.Thread):
 
         data = utils.talk(self._ser, "D\n")
         status, data = utils.safe_json_load(self._ser, data)
-        
-        data["timestamp"] = time.time()
-        data["datetime"] = datetime.datetime.fromtimestamp(
-            data["timestamp"]
-        ).strftime("%Y-%m-%d %H:%M:%S")
 
         if status == 0:
+        
+            data["timestamp"] = time.time()
+            data["datetime"] = datetime.datetime.fromtimestamp(
+                data["timestamp"]
+            ).strftime("%Y-%m-%d %H:%M:%S")
             self._data = data
 
         return status

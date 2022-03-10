@@ -25,11 +25,18 @@ def safe_json_load(ser, data):
         data = json.loads(data)
         status = 0
     except json.decoder.JSONDecodeError as error:
-        message = sys.exc_info()
-        logging.warning(f"Parsing error on port {ser.port}")
-        logging.debug(data)
-        data = None
-        status = 1
+        if data == "ERROR: Could not find a valid BME280 sensor, check wiring, address, sensor ID!":
+            status = 2
+        else:
+            logging.warning(f"Parsing error on port {ser.port}")
+            logging.warning(data)
+            data = None
+            status = 1
+
+    if status == 2:
+         raise Exception(data)
+
+    logging.debug(f"safe_json_load returns {data} with status {status}")
 
     return status, data
     
