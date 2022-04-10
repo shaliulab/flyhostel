@@ -134,12 +134,15 @@ def talk(ser, command, wait_for_response=True, max_attempts=2):
 
         if contains_data(data):
             logging.debug(f"Received {data} from {ser.port}")
-            return data
+            code = 0
+            break
         else:
             attempts+=1
+            data = None
+            code = 1
 
 
-    return None
+    return code, data
 
 
 def identify_ports(ports):
