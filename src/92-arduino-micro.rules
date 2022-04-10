@@ -1,0 +1,1 @@
+ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="2341", ATTRS{idProduct}=="8037", SYMLINK+="micro", MODE="0666"
