@@ -1,0 +1,1 @@
+ACTION=="add", SUBSYSTEM=="tty", ATTRS{manufacturer}=="Arduino (www.arduino.cc)", ATTRS{serial}=="85830303639351B0D192", SYMLINK+="uno", MODE="0660", GROUP="plugdev"

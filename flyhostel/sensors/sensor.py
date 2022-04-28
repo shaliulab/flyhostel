@@ -79,7 +79,9 @@ class Sensor(threading.Thread):
 
     def communicate(self):
 
-        data = utils.talk(self._ser, "D\n")
+        code, data = utils.talk(self._ser, "D\n")
+        if code != 0:
+            raise Exception("Cannot communicate command")
         status, data = utils.safe_json_load(self._ser, data)
 
         if status == 0:
