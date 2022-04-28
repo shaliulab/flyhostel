@@ -1,9 +1,10 @@
 import os
 import os.path
 
-RAW_DATA="data.csv"
-ANNOTATED_DATA="dt_sleep.csv"
-BINNED_DATA="dt_binned.csv"
+from .quantification.modelling.constants import *
+RAW="data"
+ANNOTATED="dt_sleep"
+BINNED="dt_binned"
 DEFAULT_TIME_WINDOW_LENGTH=10
 DEFAULT_VELOCITY_CORRECTION_COEF=0.02
 DEFAULT_MIN_TIME_IMMOBILE=300
@@ -15,3 +16,4 @@ DEFAULT_CONFIG = {"videos": {"folder": "/flyhostel_data/videos"}, "logging": {"s
 N_JOBS = 1
 ETHOGRAM_FREQUENCY = 300
 INDEX_FORMAT=".npz"
+COLORS = {"T": [(249, 168, 37), (255, 245, 157)], "F": [(69, 39, 160), (206, 147, 216)]}

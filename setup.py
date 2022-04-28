@@ -32,6 +32,7 @@ setup(
             "fh-sensor=flyhostel.sensors.__main__:main",
             "fh-upload=flyhostel.data.upload:main",
             "fh-copy=flyhostel.data.idtrackerai:copy",
+            "fh-simulate=flyhostel.quantification.modelling.main:main",
             ]
     },
 )
