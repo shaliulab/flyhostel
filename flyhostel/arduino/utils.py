@@ -5,7 +5,6 @@ import logging
 import serial
 import serial.tools.list_ports
 
-import flyhostel
 from  flyhostel.arduino.constants import (
     PORT_PREFIX,
     NEWLINE,
@@ -13,11 +12,7 @@ from  flyhostel.arduino.constants import (
     TIMEOUT
 )
 
-with open(flyhostel.CONFIG_FILE, "r") as fh:
-    config = json.load(fh)
-
-logging.basicConfig(level=getattr(logging, config["logging"]["arduino"]))
-
+logger = logging.getLogger(__name__)
 
     
 def safe_json_load(ser, data):
@@ -28,15 +23,15 @@ def safe_json_load(ser, data):
         if data == "ERROR: Could not find a valid BME280 sensor, check wiring, address, sensor ID!":
             status = 2
         else:
-            logging.warning(f"Parsing error on port {ser.port}")
-            logging.warning(data)
+            logger.warning(f"Parsing error on port {ser.port}")
+            logger.warning(data)
             data = None
             status = 1
 
     if status == 2:
          raise Exception(data)
 
-    logging.debug(f"safe_json_load returns {data} with status {status}")
+    logger.debug(f"safe_json_load returns {data} with status {status}")
 
     return status, data
     
@@ -72,7 +67,7 @@ def read(ser):
         * data (str)    
     """
 
-    logging.debug(f"Reading from {ser.port}")
+    logger.debug(f"Reading from {ser.port}")
 
     data = "" 
     # NOTE
@@ -95,7 +90,7 @@ def write(ser, command):
     """
     
     command_log = command.strip('\n')
-    logging.debug(f"Writing {command_log} to {ser.port}")
+    logger.debug(f"Writing {command_log} to {ser.port}")
 
     if command[-1] != NEWLINE:
         command += NEWLINE
@@ -124,7 +119,7 @@ def talk(ser, command, wait_for_response=True, max_attempts=2):
 
     attempts=0
     while attempts < max_attempts:
-        logging.debug(f"Talking to {ser.port}")
+        logger.debug(f"Talking to {ser.port}")
 
         write(ser, command)
         if not wait_for_response:
@@ -133,7 +128,7 @@ def talk(ser, command, wait_for_response=True, max_attempts=2):
         data = read(ser)
 
         if contains_data(data):
-            logging.debug(f"Received {data} from {ser.port}")
+            logger.debug(f"Received {data} from {ser.port}")
             return data
         else:
             attempts+=1
@@ -160,7 +155,7 @@ def identify_ports(ports):
         except serial.serialutil.SerialException as error:
             message = sys.exc_info()
             if "Permission denied" in str(message[1]):
-                logging.debug(f"Permission denied error on port {port}")
+                logger.debug(f"Permission denied error on port {port}")
             else:
                 raise error
 

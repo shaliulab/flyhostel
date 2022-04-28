@@ -1,12 +1,18 @@
 import logging
-import numpy as np
 import math
-from shapely.geometry import Polygon
-from descartes import PolygonPatch
+import warnings
 
-import zeitgeber
+import numpy as np
+import matplotlib
+
 import matplotlib.pyplot as plt
 
+import zeitgeber
+
+try:
+    matplotlib.use('TkAgg')
+except Exception:
+    warnings.warn("matplotlib cannot use TkAgg backend")
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +34,15 @@ def set_xticks(ax, xtick_freq, min_t, max_t):
 
 def geom_ld_annotation(data, ax, yrange=(0, 100), xtick_freq=6):
     """
-    data must have:
+    Render a background shade in a plot with time along the X axis
+    to represent the D/L phases
 
-    Column L with either T or F (str)
-    Column t with ZT in hours (float)
+    Arguments:
+        * data (pd.DataFrame). must have:
+          * Column L with either T or F (str)
+          * Column t with ZT in seconds (float)
 
     """
-
 
     data=data.copy() # working with a copy! :D
     data["t"] /= 3600 # to hours
@@ -52,96 +60,46 @@ def geom_ld_annotation(data, ax, yrange=(0, 100), xtick_freq=6):
 
     ax, xticks = set_xticks(ax, xtick_freq, min_t, max_t)
     xrange = [min(xticks), max(xticks)]
-    print(xrange)
 
     # background color (default)
-    polygon = Polygon(
+    polygon = plt.Polygon(
         [
             (xrange[0], y_min),
             (xrange[1], y_min),
             (xrange[1], y_max),
             (xrange[0], y_max),
-        ]
-    )
-   
-    polygon_patch = PolygonPatch(
-        polygon,
-        facecolor=(0.86,0.86,0.86),
-        edgecolor=(0, 0, 0),
+        ], color=(0.86,0.86,0.86)
     )
 
-    ax.add_patch(polygon_patch)
-    ###   
+    ax.add_patch(polygon)
 
-    
-    color = {"F": (0.5, 0.5, 0.5), "T": (1, 1, 1)}
+    palette = {"F": (0.5, 0.5, 0.5), "T": (1, 1, 1)}
     logger.debug(f"Positions set to {positions}")
     logger.debug(f"Transitions set to {transitions}")
 
     for i in range(len(transitions)):
         if (i + 1) == len(transitions):
-            polygon = Polygon(
+            polygon = plt.Polygon(
                 [
                     (transitions[i], y_min),
                     (max_t, y_min),
                     (max_t, y_max),
                     (transitions[i], y_max),
-                ]
+                ], color=palette[light_states[i]]
             )
         else:
-            polygon = Polygon(
+            polygon = plt.Polygon(
                 [
                     (transitions[i], y_min),
                     (transitions[i + 1], y_min),
                     (transitions[i + 1], y_max),
                     (transitions[i], y_max),
-                ]
+                ], color=palette[light_states[i]]
             )
-        polygon_patch = PolygonPatch(
-            polygon,
-            facecolor=color[light_states[i]],
-            edgecolor=(0, 0, 0),
-        )
-        ax.add_patch(polygon_patch)
+
+        ax.add_patch(polygon)
 
     ax.set_xlim(*xrange)
     ax.set_ylim(*yrange)
     return ax
 
-
-def geom_env_data(data, ax):
-
-    ax2 = ax.twinx()
-    ax2.set_ylabel("Temp ºC")
-    ax.set_ylabel("% Hum")
-
-    # ax.set_xticks(list(range(*xrange)) + [xrange[-1]])
-    # ax.set_yticks(list(range(*yrange)) + [yrange[-1]])
-    # ax.set_aspect(1)
-    ax.scatter(data["t"] / 3600, data["humidity"], s=0.1)
-    ax2.scatter(data["t"] / 3600, data["temperature"], c="red", s=0.1)
-    return ax, ax2
-
-
-def make_environmental_plot(root, data, title=""):
-    fig = plt.figure(1, figsize=(5, 5), dpi=90)
-    ax = fig.add_subplot(111)
-    ax = geom_ld_annotation(data, ax, yrange=(0, 100))
-    geom_env_data(data, ax)
-    ax.set_title(title)
-    plt.tight_layout()
-    dest = root + "_environment-log.png"
-    fig.savefig(dest)
-    plt.close(fig)
-
-    light_log_data = data.copy()
-    light_log_data["t"] /= 3600
-
-    fig = plt.figure(1, figsize=(5, 5), dpi=90)
-    ax = fig.add_subplot(111)
-    ax = geom_ld_annotations(data, ax, yrange=(0, light_log_data["light"].max()))
-    ax.scatter(light_log_data["t"], light_log_data["light"])
-    ax = set_xticks(ax, 6, light_log_data["t"].min(), light_log_data["t"].max())
-    dest = root + "_light-log.png"
-    fig.savefig(dest)
-    plt.close(fig)

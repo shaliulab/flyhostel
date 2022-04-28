@@ -2,7 +2,7 @@ import argparse
 import json
 import logging
 
-from flyhostel import CONFIG_FILE
+from flyhostel.utils import load_config
 from flyhostel.sensors.sensor import Sensor
 from flyhostel.sensors.server import Server
 
@@ -34,8 +34,7 @@ def main(args=None):
     * Sets up html and json servers for easy query of the data
     """
 
-    with open(CONFIG_FILE, "r") as fh:
-        config = json.load(fh)
+    config = load_config()
 
     logging.basicConfig(level=getattr(logging, config["logging"]["sensors"]))
 

@@ -17,18 +17,10 @@ MAX_COUNT=3
 DATA_SEPARATOR=","
 METADATA_SEPARATOR=";"
 
-with open(flyhostel.CONFIG_FILE, "r") as fh:
-    conf = json.load(fh)
-
-try:
-    FREQUENCY = conf["sensors"]["frequency"]
-except Exception:
-    FREQUENCY = 60
 
 
 class Sensor(threading.Thread):
 
-    _freq = FREQUENCY  # seconds
 
     def __init__(
         self, logfile=None, verbose=False, port=None, *args, **kwargs
@@ -42,6 +34,7 @@ class Sensor(threading.Thread):
         self._ser = serial.Serial(port, timeout=TIMEOUT)
         self._logfile = logfile
         self._verbose = verbose
+        self._freq = 5
         super().__init__(*args, **kwargs)
 
 

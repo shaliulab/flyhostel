@@ -1,1 +1,1 @@
-CONFIG_FILE = '/root/.config/flyhostel.conf'
+__version__ = '1.1.0'

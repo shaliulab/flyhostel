@@ -13,35 +13,13 @@ README = (HERE / "README.md").read_text()
 PKG_NAME = "flyhostel"
 version = "1.1.0"
 
-CONFIG_FILE = "/etc/flyhostel.conf"
-if not os.access(CONFIG_FILE, os.W_OK):
-    folder = os.path.join(os.environ["HOME"], ".config")
-    os.makedirs(folder, exist_ok=True)
-    CONFIG_FILE = os.path.join(folder, "flyhostel.conf")
-
-with open(f"{PKG_NAME}/_version.py", "w") as fh:
-    fh.write(f"__version__ = '{version}'\n")
 with open(f"{PKG_NAME}/__init__.py", "w") as fh:
-    fh.write(f"CONFIG_FILE = '{CONFIG_FILE}'\n")
+    fh.write(f"__version__ = '{version}'\n")
 
-# This call to setup() does all the work
 setup(
     name=PKG_NAME,
     version=version,
-    #description="High resolution monitoring of Drosophila",
-    #long_description=README,
-    #long_description_content_type="text/markdown",
-    ##url="https://github.com/realpython/reader",
-    #author="Antonio Ortega",
-    #author_email="antonio.ortega@kuleuven.be",
-    #license="MIT",
-    #classifiers=[
-    #    "License :: OSI Approved :: MIT License",
-    #    "Programming Language :: Python :: 3",
-    #    "Programming Language :: Python :: 3.7",
-    #],
     packages = find_packages(),
-    #include_package_data=True,
     extras_require={
         "sensor": ["pyserial"],
         "plotting": ["zeitgeber"],
@@ -53,15 +31,10 @@ setup(
             "fh=flyhostel.__main__:main",
             "fh-sensor=flyhostel.sensors.__main__:main",
             "fh-upload=flyhostel.data.upload:main",
+            "fh-copy=flyhostel.data.idtrackerai:copy",
             ]
     },
 )
 
 
-if not os.path.exists(CONFIG_FILE):
-    videos_folder = "/flyhostel_data/videos"
-    os.makedirs(videos_folder, exist_ok=True)
-    config = {"videos": {"folder": videos_folder}, "logging": {"sensors": "WARNING", "arduino": "WARNING"}}
-    with open(CONFIG_FILE, "w") as fh:
-        json.dump(config, fh)
 

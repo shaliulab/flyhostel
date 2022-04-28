@@ -4,13 +4,12 @@ import os.path
 import glob
 import numpy as np
 import yaml
-
+from flyhostel.constants import INDEX_FORMAT
 from imgstore.constants import STORE_MD_KEY, STORE_MD_FILENAME
 
 logger = logging.getLogger(__name__)
 
 
-INDEX_FORMAT=".npz"
 
 def get_chunk_metadata(chunk_filename):
 
@@ -20,7 +19,7 @@ def get_chunk_metadata(chunk_filename):
     index["frame_number"] = data["frame_number"]
     return index
 
-def _read_store_metadata(imgstore_folder):
+def read_store_metadata(imgstore_folder):
     metadata_filename = os.path.join(imgstore_folder, STORE_MD_FILENAME)
     with open(metadata_filename, "r") as filehandle:
         store_metadata = yaml.load(filehandle, Loader=yaml.SafeLoader)["__store"]
@@ -28,9 +27,7 @@ def _read_store_metadata(imgstore_folder):
     return store_metadata
 
 
-def read_store_metadata(imgstore_folder, chunk_numbers=None):
-
-    store_metadata = _read_store_metadata(imgstore_folder)
+def read_store_description(imgstore_folder, chunk_numbers=None):
 
     if chunk_numbers is None:
         index_files = sorted(
@@ -55,8 +52,6 @@ def read_store_metadata(imgstore_folder, chunk_numbers=None):
             for chunk_index in chunks
         ]
 
-    store_metadata["chunks"] = chunks
-
     chunk_metadata = {
         chunk: get_chunk_metadata(chunk) for chunk in index_files
     }
@@ -69,4 +64,4 @@ def read_store_metadata(imgstore_folder, chunk_numbers=None):
     )
 
     chunk_metadata = (frame_number, frame_time)
-    return store_metadata, chunk_metadata
+    return chunks, chunk_metadata

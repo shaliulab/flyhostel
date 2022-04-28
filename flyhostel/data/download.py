@@ -7,7 +7,6 @@ import re
 import joblib
 from dropy.web_utils import sync as sync_
 from dropy.web_utils import list_folder
-from dropy.updown.utils import unnest
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -69,14 +68,14 @@ def generate_analysis_patterns(folder, session, version):
 def generate_imgstore_meta_patterns(folder, session, subfolder = "", version=None):
 
     files = [
-        # os.path.join(folder, subfolder, "metadata.yaml"),
-        # os.path.join(folder, subfolder, f"{session}.extra.json"),
-        # os.path.join(folder, subfolder, f"{session}.npz"),
-        # os.path.join(folder, subfolder, f"{session}.png"),
-        os.path.join(folder, "lowres", "metadata.yaml"),
-        os.path.join(folder, "lowres", f"{session}.extra.json"),
-        os.path.join(folder, "lowres", f"{session}.npz"),
-        os.path.join(folder, "lowres", f"{session}.png"),
+        os.path.join(folder, subfolder, "metadata.yaml"),
+        os.path.join(folder, subfolder, f"{session}.extra.json"),
+        os.path.join(folder, subfolder, f"{session}.npz"),
+        os.path.join(folder, subfolder, f"{session}.png"),
+        # os.path.join(folder, "lowres", "metadata.yaml"),
+        # os.path.join(folder, "lowres", f"{session}.extra.json"),
+        # os.path.join(folder, "lowres", f"{session}.npz"),
+        # os.path.join(folder, "lowres", f"{session}.png"),
     ]
 
     files = list(map(sanitize_path, files))
@@ -86,9 +85,9 @@ def generate_imgstore_patterns(folder, session, subfolder = "", version=None):
 
     files = [
         os.path.join(folder, subfolder, f"{session}.avi"),
-        os.path.join(folder, subfolder, f"{session}.mp4"),
-        os.path.join(folder, "lowres", f"{session}.avi"),
-        os.path.join(folder, "lowres", f"{session}.mp4"),
+        # os.path.join(folder, subfolder, f"{session}.mp4"),
+        # os.path.join(folder, "lowres", f"{session}.avi"),
+        # os.path.join(folder, "lowres", f"{session}.mp4"),
     ]
 
     files = list(map(sanitize_path, files))
@@ -157,7 +156,7 @@ def download_results(file_type, rootdir, folder, version=2, ncores=-2, sessions=
     else:
         joblib.Parallel(n_jobs=ncores)(
             joblib.delayed(sync)(
-                *arg, download=True
+                *arg
             )
                 for arg in sync_args
         )

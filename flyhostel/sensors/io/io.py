@@ -4,8 +4,8 @@ import os.path
 import logging
 import datetime
 
-from flyhostel.plotting import make_environmental_plot
-from flyhostel.quantification.imgstore import _read_store_metadata
+from flyhostel.plotting.environment import make_environment_plot
+from flyhostel.quantification.imgstore import read_store_metadata
 import numpy as np
 
 logging.getLogger("flyhostel.sensors.io.plotting").setLevel(logging.DEBUG)
@@ -146,7 +146,7 @@ def load_data(store_path, reference_hour, threshold=None):
 
     # read data
     data = read_data(store_path)
-    store_metadata = _read_store_metadata(store_path)
+    store_metadata = read_store_metadata(store_path)
     start_time = store_metadata["created_utc"]
 
     # clean
@@ -168,7 +168,7 @@ def load_data(store_path, reference_hour, threshold=None):
 def plot_data(root, data, **kwargs):
     
 
-    make_environmental_plot(
+    make_environment_plot(
         root=root,
         data=data,
         **kwargs,

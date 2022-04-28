@@ -9,6 +9,7 @@ import flyhostel.data
 
 import logging
 logging.getLogger("flyhostel.data").setLevel(logging.DEBUG)
+logging.getLogger("flyhostel.quantification").setLevel(logging.DEBUG)
 
 
 def get_parser():
@@ -41,11 +42,11 @@ def get_parser():
 
     quantification_parser = subparsers.add_parser(
         "quant",
-        parents=[flyhostel.quantification.get_parser()],
+        parents=[flyhostel.quantification.parser.get_parser()],
         add_help=False,
         help="Quantification",
     )
-    quantification_parser.set_defaults(func=flyhostel.quantification.main)
+    quantification_parser.set_defaults(func=flyhostel.quantification.main.main)
 
     data_parser = subparsers.add_parser(
         "data",
