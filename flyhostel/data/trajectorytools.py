@@ -19,7 +19,7 @@ def get_trajectory_files(experiment_folder):
     return trajectories_paths
 
 
-def load_trajectories(trajectories_paths, interval, timestamps_paths=None):
+def load_trajectories(trajectories_paths, interval, timestamps_paths=None, **kwargs):
 
 
     chunks = [int(os.path.basename(p).replace(
@@ -45,7 +45,8 @@ def load_trajectories(trajectories_paths, interval, timestamps_paths=None):
         trajectories_paths,
         timestamps=np.array(timestamps),
         strict=False,
-        zero_index=interval[0]
+        zero_index=interval[0],
+        **kwargs
     )
     logger.info(
         "flyhostel has loaded",
