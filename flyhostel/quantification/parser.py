@@ -25,4 +25,6 @@ def get_parser(ap=None):
         action="store_false",
         default=True,
     )
+
+    ap.add_argument("--interpolate-nans", action="store_true", default=False)   
     return ap

@@ -47,7 +47,7 @@ def copy(args=None, ap=None):
 
 
 #@functools.lru_cache(maxsize=100, typed=False)
-def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None):
+def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
     """
     """    
     
@@ -59,7 +59,7 @@ def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None):
     )
   
     # Load trajectories
-    status, chunks, tr = load_trajectories(trajectories_paths=trajectories_paths, timestamps_paths=timestamps_paths, interval=interval)
+    status, chunks, tr = load_trajectories(trajectories_paths=trajectories_paths, timestamps_paths=timestamps_paths, interval=interval, **kwargs)
     tr.new_length_unit(pixels_per_cm, "cm")
     return (tr, chunks)
 
@@ -68,7 +68,7 @@ def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None):
 def read_csv_data(csv_file, pixels_per_cm, interval=None):
     raise NotImplementedError
 
-def read_data(imgstore_folder, interval, from_idtrackerai=True):
+def read_data(imgstore_folder, interval, interpolate_nans=False, from_idtrackerai=True):
 
     store_metadata = read_store_metadata(
         imgstore_folder
@@ -80,7 +80,8 @@ def read_data(imgstore_folder, interval, from_idtrackerai=True):
         tr, chunks = read_idtrackerai_data(
             imgstore_folder,
             interval=interval,
-            pixels_per_cm=pixels_per_cm
+            pixels_per_cm=pixels_per_cm,
+            interpolate_nans=interpolate_nans
         )
 
     else:

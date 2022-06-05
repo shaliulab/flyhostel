@@ -77,7 +77,7 @@ def main(args=None, ap=None):
     experiment_name = os.path.basename(
         os.path.realpath(os.path.basename(args.imgstore_folder.rstrip("/")))
     )
-    tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, tuple(args.interval))
+    tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, tuple(args.interval), interpolate_nans=args.interpolate_nans)
     noa = velocities.shape[1]
 
     # import itertools
@@ -92,8 +92,6 @@ def main(args=None, ap=None):
     #         A,
     #         B
     #     )
-
-
 
 
     analysis_params, plotting_params = load_params(store_metadata)
