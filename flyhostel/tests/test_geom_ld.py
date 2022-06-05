@@ -19,7 +19,6 @@ data = pd.DataFrame({
 data["L"] = ["T" if (t % (3600*24)) <  3600*12 else "F" for t in data["t"]]
 data["asleep"] = 50 + np.random.normal(loc=0, scale=5, size=NDAYS*24*12)
 
-# import ipdb; ipdb.set_trace()
 current = os.path.join(STATIC_DATA_DIR, "test_geom_ld_current.png")
 target = os.path.join(STATIC_DATA_DIR, "test_geom_ld_target.png")
 

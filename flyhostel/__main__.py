@@ -4,7 +4,8 @@ import argparse
 import flyhostel.sensors
 import flyhostel.sensors.io
 import flyhostel.ldriver
-import flyhostel.quantification
+import flyhostel.quantification.main
+import flyhostel.quantification.parser
 import flyhostel.data
 
 import logging

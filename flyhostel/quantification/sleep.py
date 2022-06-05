@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 import zeitgeber # https://github.com/shaliulab/zeitgeber
 from flyhostel.constants import N_JOBS
+from flyhostel.quantification.constants import FLYHOSTEL_ID
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -62,18 +63,18 @@ def sleep_annotation_all(data, **kwargs):
 
     if N_JOBS == 1:
         data_annot = []
-        for i in tqdm(
-            np.unique(data["id"]), desc="Quantifying sleep on animal"
+        for id in tqdm(
+            np.unique(data[FLYHOSTEL_ID]), desc="Quantifying sleep on animal"
         ):
             data_annot.append(
-                sleep_annotation(data.loc[data["id"] == i], **kwargs)
+                sleep_annotation(data.loc[data[FLYHOSTEL_ID] == id], **kwargs)
             )
     else:
         data_annot = joblib.Parallel(n_jobs=N_JOBS)(
             joblib.delayed(sleep_annotation)(
-                data.loc[data["id"] == i], **kwargs
+                data.loc[data[FLYHOSTEL_ID] == id], **kwargs
             )
-            for i in np.unique(data["id"])
+            for id in np.unique(data[FLYHOSTEL_ID])
         )
     
     logger.debug("Done")

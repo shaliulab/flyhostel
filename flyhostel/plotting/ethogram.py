@@ -1,11 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from flyhostel.quantification.constants import FLYHOSTEL_ID
+
 def ethogram_plot_single(
-    fig, i, data, plotting_params, colors, ncols
+    fig, id, i, data, plotting_params, colors, ncols
 ):
      
-    single_animal = data.loc[data["id"] == i]
+    single_animal = data.loc[data[FLYHOSTEL_ID] == id]
     timeseries = single_animal["velocity"].values
 
     timeseries_phase = single_animal["L"].values
@@ -66,9 +68,10 @@ def ethogram_plot(data, analysis_params, plotting_params, **kwargs):
     plt.axis("off")
     plt.title(plotting_params.experiment_name)
 
-    for i in set(data["id"].tolist()):
+    for i, id in enumerate(set(data[FLYHOSTEL_ID])):
         ax = ethogram_plot_single(
             fig,
+            id,
             i,
             data,
             plotting_params=plotting_params,

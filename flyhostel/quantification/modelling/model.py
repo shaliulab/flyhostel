@@ -31,6 +31,9 @@ class SocialSleepModel:
                         neighbor.conditionally_moves(p)                        
                 else:
                     individual.spontaneously_moves()
+                    # TODO
+                    # If individual did not move, make it more likely
+                    # for other individuals to stop moving?
                 if individual.time_moving > individual.movement_bout_length:
                     individual.stop_moving()
 

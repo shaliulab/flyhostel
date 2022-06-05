@@ -2,27 +2,28 @@ import os.path
 
 import pandas as pd
 import matplotlib.pyplot as plt
+from flyhostel.quantification.constants import FLYHOSTEL_ID
 
 from .core import geom_ld_annotation 
 
 def sleep_plot(dt, plotting_params):
 
-    for column in ["L", "asleep", "t", "id"]:
+    for column in ["L", "asleep", "t", FLYHOSTEL_ID]:
         assert column in dt.columns, f"{column} is not available"
 
-    identities = dt["id"].unique()
+    ids = dt[FLYHOSTEL_ID].unique()
     fig = plt.figure(1, figsize=(10, 7), dpi=90, facecolor="white")
     ncol = 1
-    nrow = len(identities)
+    nrow = len(ids)
     axes = []
     Y_RANGE = (0, 1)
 
-    for i, ident in enumerate(identities):
+    for i, id in enumerate(ids):
         int_str = f"{nrow}{ncol}{i+1}"
         axes.append(fig.add_subplot(int(int_str)))
 
         # take one fly
-        dt_one_fly = dt.loc[dt["id"] == ident].reset_index()
+        dt_one_fly = dt.loc[dt[FLYHOSTEL_ID] == id].reset_index()
 
         if plotting_params.ld_annotation:
             # plot the phases (LD)

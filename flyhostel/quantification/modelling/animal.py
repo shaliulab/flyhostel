@@ -10,8 +10,6 @@ from .constants import QUIESCENT_STATE, MOVING_STATE
 
 class BaseAnimal:
 
-    neighbor_threshold=0.2 #cm
-
     def __init__(self, idx, x0, y0, movement_bout_length, neighbor_threshold, probability_interaction_movement, probability_spontaneous_movement, s0=MOVING_STATE):
         """
         Arguments:
@@ -150,13 +148,22 @@ class BehaviorSensitiveProbabilityOfMovementMixin:
         return p
 
 
-class RandomlyMovingAnimalMixin:
-    def move(self):
-        length = np.sqrt(np.random.uniform(0, 1))
-        angle = np.pi * np.random.uniform(0, 2)
-        self.x = np.sin(angle) * length
-        self.y = np.cos(angle) * length
+def move_within_random_circle():
+    """
+    Generate a random position within the unit circle
+    """
+    
+    length = np.sqrt(np.random.uniform(0, 1))
+    angle = np.pi * np.random.uniform(0, 2)
+    x = np.sin(angle) * length
+    y = np.cos(angle) * length
+    return x, y
 
+
+class RandomlyMovingAnimalMixin:
+    
+    def move(self):
+        self.x, self.y = move_within_random_circle()
 
 class RandomlyMovingAnimal(SimpleAnimal, RandomlyMovingAnimalMixin):
     pass

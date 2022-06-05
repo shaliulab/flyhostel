@@ -1,14 +1,16 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+
+from flyhostel.quantification.constants import FLYHOSTEL_ID
 from .core import geom_ld_annotation 
 
 def synchrony_plot(dt_binned, y, plotting_params):
 
-    for column in ["L", y, "t", "id"]:
+    for column in ["L", y, "t", FLYHOSTEL_ID]:
         assert column in dt_binned.columns, f"{column} is not available"
 
 
-    dt_binned["diff"]=dt_binned.groupby("id")[[y]].diff()
+    dt_binned["diff"]=dt_binned.groupby(FLYHOSTEL_ID)[[y]].diff()
     # drop the first bin, for which no diff with the previous bin can be computed 
     dt_binned.dropna(inplace=True)
     sync_dt = pd.DataFrame(1 / (1 + dt_binned.groupby("t")["diff"].std())).rename(columns={"diff": "sync"})

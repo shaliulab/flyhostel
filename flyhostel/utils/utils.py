@@ -8,6 +8,7 @@ import shutil
 from tqdm import tqdm
 
 from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG
+from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def load_config(path=CONFIG_FILE):
 
 def copy_files_to_store(imgstore_folder, files, overwrite=False):
 
-    trajectories_source_path = os.path.join(imgstore_folder, "trajectories_source.pkl")
+    trajectories_source_path = os.path.join(imgstore_folder, f"{TRAJECTORIES_SOURCE}.pkl")
     trajectories_source={}
 
     if os.path.exists(trajectories_source_path):

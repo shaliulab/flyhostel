@@ -21,9 +21,13 @@ def get_chunk_metadata(chunk_filename):
 
 def read_store_metadata(imgstore_folder):
     metadata_filename = os.path.join(imgstore_folder, STORE_MD_FILENAME)
-    with open(metadata_filename, "r") as filehandle:
-        store_metadata = yaml.load(filehandle, Loader=yaml.SafeLoader)["__store"]
+    if os.path.exists(metadata_filename):
+        with open(metadata_filename, "r") as filehandle:
+            store_metadata = yaml.load(filehandle, Loader=yaml.SafeLoader)["__store"]
     
+    else:
+        raise Exception(f"{imgstore_folder} does not contain a {STORE_MD_FILENAME} file. Are you sure you sure you are in the right folder?")
+        
     return store_metadata
 
 
