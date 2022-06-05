@@ -11,7 +11,7 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
 PKG_NAME = "flyhostel"
-version = "1.1.0"
+version = "1.1.1"
 
 with open(f"{PKG_NAME}/__init__.py", "w") as fh:
     fh.write(f"__version__ = '{version}'\n")
