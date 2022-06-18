@@ -2,12 +2,12 @@
 
 import argparse
 
-import flyhostel.sensors
-import flyhostel.sensors.io
-import flyhostel.ldriver
-import flyhostel.quantification
-import flyhostel.quantification.modelling
-import flyhostel.data
+import flyhostel.sensors.bin
+import flyhostel.sensors.io.bin
+import flyhostel.ldriver.bin
+import flyhostel.quantification.bin
+import flyhostel.quantification.modelling.bin
+import flyhostel.data.bin
 
 import logging
 logging.getLogger("flyhostel.data").setLevel(logging.DEBUG)
