@@ -2,9 +2,22 @@
 
 import argparse
 
-import flyhostel.sensors.bin
+try:
+    import flyhostel.sensors.bin
+    SENSOR_AVAILABLE=True
+except Exception as error:
+    SENSOR_AVAILABLE=False
+
+
 import flyhostel.sensors.io.bin
-import flyhostel.ldriver.bin
+
+
+try:
+    import flyhostel.ldriver.bin
+    LED_DRIVER_AVAILABLE=True
+except Exception as error:
+    LED_DRIVER_AVAILABLE=False
+
 import flyhostel.quantification.bin
 import flyhostel.quantification.modelling.bin
 import flyhostel.data.bin
@@ -20,14 +33,15 @@ def get_parser():
     )
     subparsers = ap.add_subparsers()  # help=argparse.SUPPRESS)
 
-    # Sensor module (to drive a custom made temp, humidity and light sensor)
-    sensor_parser = subparsers.add_parser(
-        "sensor",
-        parents=[flyhostel.sensors.bin.parser.get_parser()],
-        add_help=True,
-        help="Command the environmental sensor in the setup",
-    )
-    sensor_parser.set_defaults(func=flyhostel.sensors.bin.run.main)
+    if SENSOR_AVAILABLE:
+        # Sensor module (to drive a custom made temp, humidity and light sensor)
+        sensor_parser = subparsers.add_parser(
+            "sensor",
+            parents=[flyhostel.sensors.bin.parser.get_parser()],
+            add_help=True,
+            help="Command the environmental sensor in the setup",
+        )
+        sensor_parser.set_defaults(func=flyhostel.sensors.bin.run.main)
 
     
     # Sensor IO module (for reading and plotting the sensor data)
@@ -39,14 +53,15 @@ def get_parser():
     )
     sensor_io_parser.set_defaults(func=flyhostel.sensors.io.bin.run.main)
 
-    # LED-driver module
-    ldriver_parser = subparsers.add_parser(
-        "ldriver",
-        parents=[flyhostel.ldriver.bin.get_parser()],
-        add_help=True,
-        help="Command the LED driver in the setup",
-    )
-    ldriver_parser.set_defaults(func=flyhostel.ldriver.bin.run.main)
+    if LED_DRIVER_AVAILABLE:
+        # LED-driver module
+        ldriver_parser = subparsers.add_parser(
+            "ldriver",
+            parents=[flyhostel.ldriver.bin.get_parser()],
+            add_help=True,
+            help="Command the LED driver in the setup",
+        )
+        ldriver_parser.set_defaults(func=flyhostel.ldriver.bin.run.main)
 
     # Quantification module (to quantify behaviors in flyhostel datasets)
     quantification_parser = subparsers.add_parser(
