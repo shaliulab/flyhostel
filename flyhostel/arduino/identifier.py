@@ -1,4 +1,3 @@
-import serial.tools.list_ports
 from .utils import identify_ports, list_ports
 
 class Identifier:
