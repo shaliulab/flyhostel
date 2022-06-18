@@ -181,4 +181,6 @@ if SERIAL_AVAILABLE:
 
 else:
     class Serial:
-        raise Exception("Please install pyserial (pip install pyserial)")
+
+        def __init__(self, *args, **kwargs):
+            raise Exception("Please install pyserial (pip install pyserial)")
