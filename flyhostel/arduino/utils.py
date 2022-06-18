@@ -175,5 +175,10 @@ def read_device_name(ser):
     return safe_json_load(ser, data)[1]["name"]
         
 
-class Serial(serial.Serial):
-    pass
+if SERIAL_AVAILABLE:
+    class Serial(serial.Serial):
+        pass
+
+else:
+    class Serial:
+        raise Exception("Please install pyserial (pip install pyserial)")
