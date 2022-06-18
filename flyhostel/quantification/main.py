@@ -109,14 +109,13 @@ def main(args=None, ap=None):
     )
 
 
+    tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, interval, interpolate_nans=args.interpolate_nans)
+
     # TODO: Format this into a clean function or something
     import numpy as np
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_trajectories.npy"), tr._s)
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_timestamps.npy"), chunk_metadata[1])
     #####
-
-    noa = velocities.shape[1]
-    tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, tuple(args.interval), interpolate_nans=args.interpolate_nans)
     noa = velocities.shape[1]
 
     # import itertools
@@ -132,8 +131,6 @@ def main(args=None, ap=None):
     #         B
     #     )
 
-
->>>>>>> c2d0640c67a5e62bc1e21b6a02a2ef88d7b0ee4c
     analysis_params, plotting_params = load_params(store_metadata)
     suffix = make_suffix(analysis_params)
     plotting_params.number_of_animals = noa
