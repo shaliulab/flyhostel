@@ -1,11 +1,12 @@
 #! /usr/bin env python
 
 import argparse
+
 import flyhostel.sensors
 import flyhostel.sensors.io
 import flyhostel.ldriver
-import flyhostel.quantification.main
-import flyhostel.quantification.bin.parser
+import flyhostel.quantification
+import flyhostel.quantification.modelling
 import flyhostel.data
 
 import logging
@@ -27,15 +28,7 @@ def get_parser():
         help="Command the environmental sensor in the setup",
     )
     sensor_parser.set_defaults(func=flyhostel.sensors.bin.run.main)
-    
-    # LED-driver module
-    ldriver_parser = subparsers.add_parser(
-        "ldriver",
-        parents=[flyhostel.ldriver.bin.get_parser()],
-        add_help=True,
-        help="Command the LED driver in the setup",
-    )
-    ldriver_parser.set_defaults(func=flyhostel.ldriver.bin.run.main)
+
     
     # Sensor IO module (for reading and plotting the sensor data)
     sensor_io_parser = subparsers.add_parser(
@@ -45,6 +38,15 @@ def get_parser():
         help="Sensor IO",
     )
     sensor_io_parser.set_defaults(func=flyhostel.sensors.io.bin.run.main)
+
+    # LED-driver module
+    ldriver_parser = subparsers.add_parser(
+        "ldriver",
+        parents=[flyhostel.ldriver.bin.get_parser()],
+        add_help=True,
+        help="Command the LED driver in the setup",
+    )
+    ldriver_parser.set_defaults(func=flyhostel.ldriver.bin.run.main)
 
     # Quantification module (to quantify behaviors in flyhostel datasets)
     quantification_parser = subparsers.add_parser(
@@ -64,6 +66,20 @@ def get_parser():
     )
     quantification_parser.set_defaults(func=flyhostel.quantification.bin.run.main)
 
+    modelling_parser = subparsers.add_parser(
+        "modelling",
+        parents=[flyhostel.quantification.modelling.bin.parser.get_parser()],
+        add_help=True,
+        help="""
+        Modelling and simulation functinality.
+
+        Simulate virtual flies that can be either awake or asleep and transition between both states
+        spontaneously or by means of the interaction with another animal, each with some prob.
+        This simulation teaches us about the effects of groups on sleep duration
+        """,
+    )
+    modelling_parser.set_defaults(func=flyhostel.data.bin.copy.main)
+
     # Data module (to manage and administer flyhostel datasets)
     # NOTE: For now it just copies the trajectory files to the imgstore folder,
     # following the convention of chunk number with 6 zeros + .npy
@@ -79,21 +95,6 @@ def get_parser():
         """,
     )
     copy_parser.set_defaults(func=flyhostel.data.bin.copy.main)
-
-    modelling_parser = subparsers.add_parser(
-        "modelling",
-        parents=[flyhostel.quantification.modelling.bin.parser.get_parser()],
-        add_help=True,
-        help="""
-        Modelling and simulation functinality.
-
-        Simulate virtual flies that can be either awake or asleep and transition between both states
-        spontaneously or by means of the interaction with another animal, each with some prob.
-        This simulation teaches us about the effects of groups on sleep duration
-        """,
-    )
-    modelling_parser.set_defaults(func=flyhostel.data.bin.copy.main)
-
 
     return ap
 
