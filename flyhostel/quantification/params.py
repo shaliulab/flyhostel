@@ -1,8 +1,12 @@
 import datetime
 import logging
+
+# mutable namedtuples
+# https://pypi.org/project/recordtype/
 from recordtype import recordtype
 
 import yaml
+
 logger = logging.getLogger(__name__)
 
 from flyhostel.constants import *

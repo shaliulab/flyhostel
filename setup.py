@@ -11,7 +11,7 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
 PKG_NAME = "flyhostel"
-version = "1.1.2"
+version = "1.1.3"
 
 with open(f"{PKG_NAME}/__init__.py", "w") as fh:
     fh.write(f"__version__ = '{version}'\n")
@@ -22,17 +22,13 @@ setup(
     packages = find_packages(),
     extras_require={
         "sensor": ["pyserial"],
-        "plotting": ["zeitgeber"],
-        "quant": ["recordtype", "zeitgeber", "trajectorytools"],
+        "quant": ["recordtype", "trajectorytools==??"],
         "dropbox": ["dropy"]
     },
+    install_requires=["zeitgeber"],
     entry_points={
         "console_scripts": [
             "fh=flyhostel.__main__:main",
-            "fh-sensor=flyhostel.sensors.__main__:main",
-            "fh-upload=flyhostel.data.upload:main",
-            "fh-copy=flyhostel.data.idtrackerai:copy",
-            "fh-simulate=flyhostel.quantification.modelling.main:main",
             ]
     },
 )

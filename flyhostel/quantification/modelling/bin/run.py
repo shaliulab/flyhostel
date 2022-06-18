@@ -1,9 +1,9 @@
-from .model import SocialSleepModel
-from .animal import SimpleAnimal, RandomlyMovingAnimal
-from .manager import SimulationManager
-from .analysis import SleepAnalyser
+from flyhostel.quantification.modelling.model import SocialSleepModel
+from flyhostel.quantification.modelling.animal import SimpleAnimal, RandomlyMovingAnimal
+from flyhostel.quantification.modelling.manager import SimulationManager
+from flyhostel.quantification.modelling.analysis import SleepAnalyser
+from flyhostel.quantification.modelling.parameters import load_parameters
 from .parser import get_parser
-from .parameters import load_parameters
 
 
 def main(ap=None, args=None):

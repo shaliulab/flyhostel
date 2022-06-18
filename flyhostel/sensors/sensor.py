@@ -1,3 +1,4 @@
+from modulefinder import Module
 import threading
 import time
 import datetime
@@ -6,18 +7,21 @@ import os
 import traceback
 import json
 
-import serial
+try:
+    import serial
+except ModuleNotFoundError:
+    raise Exception("Sensor interfacing requires pyserial is installed")
 
 from flyhostel.arduino import utils
 from flyhostel.arduino import Identifier
-import flyhostel
+
 
 TIMEOUT = 5
 MAX_COUNT=3
 DATA_SEPARATOR=","
 METADATA_SEPARATOR=";"
 
-
+logger = logging.getLogger(__name__)
 
 class Sensor(threading.Thread):
 

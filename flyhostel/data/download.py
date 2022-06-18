@@ -5,6 +5,12 @@ import pickle
 import itertools
 import re
 import joblib
+
+try:
+    import dropy
+except ModuleNotFoundError:
+    raise Exception("Dropbox interfacing requires dropy is installed")
+
 from dropy.web_utils import sync as sync_
 from dropy.web_utils import list_folder
 

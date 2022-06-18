@@ -20,32 +20,6 @@ import pandas.api.types as ptypes
 from imgstore.util import motif_extra_data_json_to_df
 ##
 
-def get_parser(ap=None):
-
-    if ap is None:
-        ap = argparse.ArgumentParser()
-
-    ap.add_argument(
-        "--experiment-folder", "--input", dest="input", type=str, required=True
-    )
-    ap.add_argument(
-        "--output", dest="output", type=str, default="."
-    )
-    ap.add_argument(
-        "--reference_hour",
-        "--zt0",
-        dest="reference_hour",
-        type=float,
-        required=True,
-    )
-
-    ap.add_argument(
-        "--light-threshold",
-        dest="light_threshold",
-        type=int,
-        default=None,
-    )
-    return ap
 
 
 # TODO move from here to another module
@@ -178,34 +152,3 @@ def save_data(dest, data):
     data.to_csv(dest)
 
 
-def main(args=None, ap=None):
-
-    if args is None:
-        if ap is None:
-            ap = get_parser()
-
-        args = ap.parse_args()
-
-    data = load_data(
-        store_path=args.input,
-        reference_hour=args.reference_hour,
-        threshold=args.light_threshold,
-    )
-
-    os.makedirs(args.output, exist_ok=True)
-
-    experiment_date = os.path.basename(args.input.rstrip("/"))
-    dest=os.path.join(
-        args.output,
-        f"{experiment_date}_environment-log.csv"
-    )
-
-    save_data(dest, data)
-    root=os.path.join(
-        args.output,
-        f"{experiment_date}"
-    )
-    plot_data(root, data, title=experiment_date)
-
-if __name__ == "__main__":
-    main()

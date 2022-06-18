@@ -1,61 +1,26 @@
-import dataclasses
 import os.path
 import logging
 
-from flyhostel.utils import add_suffix
 from flyhostel.data.idtrackerai import read_data
 from flyhostel.plotting.synchrony import synchrony_plot
 from flyhostel.plotting.sleep import sleep_plot
 from flyhostel.plotting.ethogram import ethogram_plot
 from flyhostel.constants import (
-    RAW,
-    ANNOTATED,
     BINNED,
     COLORS,
 )
-from flyhostel.quantification.constants import FLYHOSTEL_ID, TRAJECTORIES_SOURCE
+from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
 import yaml
 
-from .ethogram import prepare_data_for_ethogram_plot
-from .sleep import sleep_annotation_all
+from flyhostel.quantification.ethogram import prepare_data_for_ethogram_plot
+from flyhostel.quantification.sleep import sleep_annotation_all
 
 
-from .parser import get_parser
-from .utils import tidy_dataset_all, bin_apply, make_suffix, annotate_id
-from .params import load_params
+from flyhostel.quantification.utils import tidy_dataset_all, bin_apply, make_suffix, annotate_id
+from flyhostel.quantification.params import load_params
+from flyhostel.quantification.data_view import DataView
 
 logger = logging.getLogger(__name__)
-
-
-class DataView:
-
-    def __init__(self, experiment, name, data, fig=None):
-        self.experiment=experiment
-        self.name = name
-        self.data = data
-        self.fig = fig
-
-        self._csv_path = os.path.join(f"{experiment}_{name}.csv")
-        self._fig_path = os.path.join(f"{experiment}_{name}.png")
-
-    def save(self, output, suffix):
-
-        columns = self.data.columns.tolist()
-        columns.pop(columns.index(FLYHOSTEL_ID))
-        columns.insert(0, FLYHOSTEL_ID)
-
-        data = self.data[columns]
-
-        data.to_csv(
-            add_suffix(os.path.join(output, self._csv_path), suffix)
-        )
-
-        if self.fig is not None:
-            self.fig.savefig(
-                add_suffix(os.path.join(output, self._fig_path), suffix),
-                transparent=False
-            )
-            self.fig.clear()
 
 
 def process_data(velocities, chunk_metadata, analysis_params, plotting_params):
@@ -75,6 +40,8 @@ def process_data(velocities, chunk_metadata, analysis_params, plotting_params):
     dt_ethogram = prepare_data_for_ethogram_plot(data, analysis_params)        
     return dt_raw, dt_sleep, dt_binned, dt_ethogram
 
+
+from .parser import get_parser
 
 def main(args=None, ap=None):
 
@@ -163,9 +130,3 @@ def main(args=None, ap=None):
     annotation_view = DataView(experiment_name, "annotation",dt_sleep, None)
     annotation_view.save(output, suffix="annotation")
     return 0
-
-
-if __name__ == "__main__":
-    # args = argparse.Namespace(experiment_folder = "/Dropbox/FlySleepLab_Dropbox/Data/flyhostel_data/videos/2021-11-27_12-02-38/")
-    # main(args=args)
-    main()

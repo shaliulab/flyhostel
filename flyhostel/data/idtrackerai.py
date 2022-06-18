@@ -1,4 +1,3 @@
-import argparse
 import os.path
 import logging
 import glob
@@ -21,29 +20,6 @@ def copy_idtrackerai_data(imgstore_folder, analysis_folder, overwrite=True):
     copy_files_to_store(imgstore_folder, trajectories_paths, overwrite=overwrite)
 
     
-
-def copy(args=None, ap=None):
-
-    if args is None:
-        if ap is None:
-            ap = argparse.ArgumentParser()
-
-        ap.add_argument(
-            "--imgstore-folder", dest="imgstore_folder", required=True, type=str
-        )
-
-        ap.add_argument(
-            "--analysis-folder", dest="analysis_folder", default=None, type=str
-        )
-        ap.add_argument(
-            "--overwrite", action="store_true", default=True,
-            help="Makes a new copy of the idtrackerai's trajectory file"
-            " even if a copy already exists, overwriting it"
-            )
-        
-        args = ap.parse_args()
-
-    copy_idtrackerai_data(args.imgstore_folder, args.analysis_folder, args.overwrite)
 
 
 #@functools.lru_cache(maxsize=100, typed=False)
