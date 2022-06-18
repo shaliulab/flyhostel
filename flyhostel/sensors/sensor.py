@@ -7,11 +7,6 @@ import os
 import traceback
 import json
 
-try:
-    import serial
-except ModuleNotFoundError:
-    raise Exception("Sensor interfacing requires pyserial is installed")
-
 from flyhostel.arduino import utils
 from flyhostel.arduino import Identifier
 
@@ -35,7 +30,7 @@ class Sensor(threading.Thread):
         if port is None:
             port = self.detect()
 
-        self._ser = serial.Serial(port, timeout=TIMEOUT)
+        self._ser = utils.Serial(port, timeout=TIMEOUT)
         self._logfile = logfile
         self._verbose = verbose
         self._freq = 5

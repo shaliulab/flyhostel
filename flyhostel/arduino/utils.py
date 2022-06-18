@@ -2,15 +2,20 @@ import json
 import sys
 import logging
 
-import serial
-import serial.tools.list_ports
 
-from  flyhostel.arduino.constants import (
+from flyhostel.arduino.constants import (
     PORT_PREFIX,
     NEWLINE,
     EMPTY,
     TIMEOUT
 )
+try:
+    import serial
+    import serial.tools.list_ports
+    SERIAL_AVAILABLE=True
+except ModuleNotFoundError:
+    serial=None
+    SERIAL_AVAILABLE=False
 
 logger = logging.getLogger(__name__)
 
@@ -169,3 +174,6 @@ def read_device_name(ser):
     data = talk(ser, command = "T\n", wait_for_response=True, max_attempts=3)
     return safe_json_load(ser, data)[1]["name"]
         
+
+class Serial(serial.Serial):
+    pass
