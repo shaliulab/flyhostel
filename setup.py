@@ -22,10 +22,18 @@ setup(
     packages = find_packages(),
     extras_require={
         "sensor": ["pyserial"],
-        "quant": ["recordtype", "trajectorytools==??"],
+        "quant": [
+            "recordtype",
+            "trajectorytools-shaliulab==0.3.5"
+        ],
         "dropbox": ["dropy"]
     },
-    install_requires=["zeitgeber"],
+    install_requires=[
+        "zeitgeber",
+        "matplotlib",
+        "pyaml",
+        "imgstore-shaliulab>=0.4.0"
+    ],
     entry_points={
         "console_scripts": [
             "fh=flyhostel.__main__:main",
