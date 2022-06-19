@@ -38,7 +38,7 @@ def get_parser():
         sensor_parser = subparsers.add_parser(
             "sensor",
             parents=[flyhostel.sensors.bin.parser.get_parser()],
-            add_help=True,
+            add_help=False,
             help="Command the environmental sensor in the setup",
         )
         sensor_parser.set_defaults(func=flyhostel.sensors.bin.run.main)
@@ -48,7 +48,7 @@ def get_parser():
     sensor_io_parser = subparsers.add_parser(
         "sensor-io",
         parents=[flyhostel.sensors.io.bin.parser.get_parser()],
-        add_help=True,
+        add_help=False,
         help="Sensor IO",
     )
     sensor_io_parser.set_defaults(func=flyhostel.sensors.io.bin.run.main)
@@ -58,7 +58,7 @@ def get_parser():
         ldriver_parser = subparsers.add_parser(
             "ldriver",
             parents=[flyhostel.ldriver.bin.get_parser()],
-            add_help=True,
+            add_help=False,
             help="Command the LED driver in the setup",
         )
         ldriver_parser.set_defaults(func=flyhostel.ldriver.bin.run.main)
@@ -67,7 +67,7 @@ def get_parser():
     quantification_parser = subparsers.add_parser(
         "quant",
         parents=[flyhostel.quantification.bin.parser.get_parser()],
-        add_help=True,
+        add_help=False,
         help="""
         Quantification of behaviors recorded in a flyhostel dataset
         The following behaviors can be quantified:
@@ -84,7 +84,7 @@ def get_parser():
     modelling_parser = subparsers.add_parser(
         "modelling",
         parents=[flyhostel.quantification.modelling.bin.parser.get_parser()],
-        add_help=True,
+        add_help=False,
         help="""
         Modelling and simulation functinality.
 
@@ -101,7 +101,7 @@ def get_parser():
     copy_parser = subparsers.add_parser(
         "copy",
         parents=[flyhostel.data.bin.copy.get_parser()],
-        add_help=True,
+        add_help=False,
         help="""
         Copy trajectory files in the session_ folders of an idtrackerai project
         into the parent imgstore folder, so they become part of the imgstore dataset
