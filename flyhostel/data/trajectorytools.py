@@ -50,7 +50,7 @@ def load_trajectories(trajectories_paths, interval, timestamps_paths=None, **kwa
     )
     logger.info(
         "flyhostel has loaded" \
-        f"{round((tr._s.shape[0]+2)/3600/12, digits=2)} hours of data successfully",
+        f"{round((tr._s.shape[0]+2)/3600/12, 2)} hours of data successfully",
     )  # / seconds in hour and frames in second
 
     # Since we have the frames per second stored int the tr.params dictionary we will use
