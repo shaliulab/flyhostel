@@ -1,7 +1,7 @@
 import argparse
 from flyhostel.data.idtrackerai import copy_idtrackerai_data
 
-def get_parser(ap):
+def get_parser(ap=None):
     if ap is None:
         ap = argparse.ArgumentParser()
 
