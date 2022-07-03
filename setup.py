@@ -29,7 +29,7 @@ setup(
         "dropbox": ["dropy"]
     },
     install_requires=[
-        "zeitgeber",
+        "zeitgeber>=0.0.2",
         "matplotlib",
         "pyaml",
         "imgstore-shaliulab>=0.4.0"
