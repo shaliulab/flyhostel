@@ -2,14 +2,17 @@ import json
 import logging
 import os.path
 import yaml
+import re
 import pickle
 import shutil
+import sqlite3
 
 from tqdm import tqdm
+import numpy as np
 
 from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
-
+ANALYSIS_FOLDER="idtrackerai"
 logger = logging.getLogger(__name__)
 
 def add_suffix(filename, suffix=""):
@@ -72,7 +75,7 @@ def copy_files_to_store(imgstore_folder, files, overwrite=False):
         if file_exists and not overwrite:
             logger.warning("f{file} exists. Not overwriting")
         else:
-            shutil.copy(file, dest_path)
+            clean_copy(file, dest_path)
             trajectories_source[file]=os.path.basename(dest_path)
 
     with open(trajectories_source_path, "wb") as filehandle:
@@ -81,3 +84,47 @@ def copy_files_to_store(imgstore_folder, files, overwrite=False):
     with open(trajectories_source_path.replace(".pkl", ".yml"), "w") as filehandle:
         yaml.dump(trajectories_source, filehandle)
 
+
+
+def raw_copy(file, dest_path):
+    shutil.copy(file, dest_path)
+
+def find_chunk_from_filename(file):
+
+    match=int(re.search("session_(\d{6})", file).group(1))
+    return match
+
+def find_start_and_end_of_chunk(session_folder, chunk):
+
+    with sqlite3.connect(os.path.join(session_folder, "..", "..", "index.db")) as con:
+            cur = con.cursor()
+            cur.execute(f"SELECT frame_number FROM frames WHERE chunk={chunk};")
+            start= cur.fetchone()[0]
+            end = cur.fetchall()[-1][0]
+
+    return start, end
+
+
+
+def clean_copy(file, dest_path):
+
+    data=np.load(file, allow_pickle=True).item()
+    
+
+    if "chunk" in data:
+        chunk = data["chunk"]
+    else:
+        logger.warning(f"Trajectories file {file} does not carry the source chunk")
+        chunk = find_chunk_from_filename(file)
+        data["chunk"] = chunk
+
+    session_folder = os.path.dirname(os.path.dirname(file))
+    start, end = find_start_and_end_of_chunk(session_folder, chunk)
+
+    data["trajectories"]=data["trajectories"][start:(end)+1]
+    data["id_probabilities"]=data["id_probabilities"][start:(end)+1]
+    data["areas"]=data["areas"][start:(end)+1]
+
+    #logger.info(f"Copying {file} --> {dest_path}")
+    print(f"Copying {file} --> {dest_path}")
+    np.save(dest_path, data, allow_pickle=True)
