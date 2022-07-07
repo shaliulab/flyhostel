@@ -17,6 +17,8 @@ def get_parser(ap=None):
         help="Makes a new copy of the idtrackerai's trajectory file"
         " even if a copy already exists, overwriting it"
     )
+
+    ap.add_argument("--interval", nargs="+", type=int)
     
     return ap
 

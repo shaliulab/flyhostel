@@ -77,6 +77,3 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, from_idtrackera
 
     store_metadata["chunks"] = chunks
     return tr, velocities, chunks, store_metadata, chunk_metadata
-
-if __name__ == "__main__":
-    copy()

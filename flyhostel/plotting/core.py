@@ -12,7 +12,7 @@ import zeitgeber
 try:
     matplotlib.use('TkAgg')
 except Exception:
-    warnings.warn("matplotlib cannot use TkAgg backend")
+    warnings.warn("matplotlib cannot use TkAgg backend", stacklevel=2)
 
 logger = logging.getLogger(__name__)
 

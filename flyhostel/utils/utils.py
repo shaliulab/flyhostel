@@ -6,7 +6,8 @@ import re
 import pickle
 import shutil
 import sqlite3
-
+import joblib
+from confapp import conf
 from tqdm import tqdm
 import numpy as np
 
@@ -51,38 +52,50 @@ def load_config(path=CONFIG_FILE):
     return config
 
 
-def copy_files_to_store(imgstore_folder, files, overwrite=False):
+def copy_files_to_store(imgstore_folder, files, overwrite=False, n_jobs=None):
 
     trajectories_source_path = os.path.join(imgstore_folder, f"{TRAJECTORIES_SOURCE}.pkl")
-    trajectories_source={}
 
     if os.path.exists(trajectories_source_path):
         with open(trajectories_source_path, "rb") as filehandle:
             trajectories_source.update(pickle.load(filehandle))
 
-    for file in tqdm(files):
 
-        # NOTE
-        # some_folder/session_N/trajectories/trajectories.npy
-        session = file.split("/")[::-1][2]
-        chunk = int(session.replace("session_", ""))
-    
-        dest_filename = str(chunk).zfill(6) + ".npy"
-        dest_path = os.path.join(imgstore_folder, dest_filename)
+    if n_jobs is None:
+        n_jobs = conf.NUMBER_OF_JOBS_FOR_COPYING_TRAJECTORIES
 
-        file_exists = os.path.exists(dest_path)
+    output = joblib.Parallel(n_jobs=n_jobs)(
+        joblib.delayed(copy_file_to_store)(
+            file, imgstore_folder, overwrite, trajectories_source_path
+        ) for file in files
+    )
 
-        if file_exists and not overwrite:
-            logger.warning("f{file} exists. Not overwriting")
-        else:
-            clean_copy(file, dest_path)
-            trajectories_source[file]=os.path.basename(dest_path)
+    trajectories_source={k: v for k, v in output}
 
     with open(trajectories_source_path, "wb") as filehandle:
         pickle.dump(trajectories_source, filehandle)
 
     with open(trajectories_source_path.replace(".pkl", ".yml"), "w") as filehandle:
         yaml.dump(trajectories_source, filehandle)
+
+
+def copy_file_to_store(file, imgstore_folder, overwrite, trajectories_source_path):
+
+    # NOTE
+    # some_folder/session_N/trajectories/trajectories.npy
+    session = file.split("/")[::-1][2]
+    chunk = int(session.replace("session_", ""))
+
+    dest_filename = str(chunk).zfill(6) + ".npy"
+    dest_path = os.path.join(imgstore_folder, dest_filename)
+
+    file_exists = os.path.exists(dest_path)
+
+    if file_exists and not overwrite:
+        logger.warning("f{file} exists. Not overwriting")
+    else:
+        clean_copy(file, dest_path)
+        return file, os.path.basename(dest_path)
 
 
 
