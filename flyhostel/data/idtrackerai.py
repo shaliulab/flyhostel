@@ -13,8 +13,11 @@ from .trajectorytools import load_trajectories
 
 logger = logging.getLogger(__name__)
 
-def copy_idtrackerai_data(imgstore_folder, analysis_folder, overwrite=True):
+def copy_idtrackerai_data(imgstore_folder, analysis_folder, interval=None, overwrite=True):
     trajectories_paths = get_trajectory_files(analysis_folder)
+    if interval is not None:
+        import ipdb; ipdb.set_trace()
+    
     if not trajectories_paths:
         warnings.warn(f"No trajectory files found in {analysis_folder}")
     copy_files_to_store(imgstore_folder, trajectories_paths, overwrite=overwrite)
