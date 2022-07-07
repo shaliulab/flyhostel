@@ -57,7 +57,7 @@ def get_parser():
         # LED-driver module
         ldriver_parser = subparsers.add_parser(
             "ldriver",
-            parents=[flyhostel.ldriver.bin.get_parser()],
+            parents=[flyhostel.ldriver.bin.parser.get_parser()],
             add_help=False,
             help="Command the LED driver in the setup",
         )
