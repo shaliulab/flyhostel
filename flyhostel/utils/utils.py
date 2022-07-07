@@ -56,6 +56,8 @@ def copy_files_to_store(imgstore_folder, files, overwrite=False, n_jobs=None):
 
     trajectories_source_path = os.path.join(imgstore_folder, f"{TRAJECTORIES_SOURCE}.pkl")
 
+    trajectories_source={}
+
     if os.path.exists(trajectories_source_path):
         with open(trajectories_source_path, "rb") as filehandle:
             trajectories_source.update(pickle.load(filehandle))
@@ -70,7 +72,7 @@ def copy_files_to_store(imgstore_folder, files, overwrite=False, n_jobs=None):
         ) for file in files
     )
 
-    trajectories_source={k: v for k, v in output}
+    trajectories_source.update({k: v for k, v in output})
 
     with open(trajectories_source_path, "wb") as filehandle:
         pickle.dump(trajectories_source, filehandle)

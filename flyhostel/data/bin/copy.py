@@ -29,4 +29,4 @@ def main(args=None, ap=None):
         ap = get_parser(ap)
         args = ap.parse_args()
 
-    copy_idtrackerai_data(args.imgstore_folder, args.analysis_folder, args.overwrite)
+    copy_idtrackerai_data(args.imgstore_folder, args.analysis_folder, interval=args.interval, overwrite=args.overwrite)

@@ -1,11 +1,14 @@
 __version__ = '1.1.3'
 
 from confapp import conf
-conf += "idtrackerai.constants"
+import os
+import sys
+sys.path.append(os.getcwd())
 
 try:
-    import local_settings #type: ignore
+    import local_settings
     conf += local_settings
-
-except Exception:
+except:
     pass
+
+conf += "flyhostel.constants"

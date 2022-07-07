@@ -16,15 +16,18 @@ logger = logging.getLogger(__name__)
 def copy_idtrackerai_data(imgstore_folder, analysis_folder, interval=None, overwrite=True):
     trajectories_paths = get_trajectory_files(analysis_folder)
     if interval is not None:
-        import ipdb; ipdb.set_trace()
+        sessions = [f"session_{str(chunk).zfill(6)}" for chunk in range(*interval)]
+        files = []
+        for file in trajectories_paths:
+            for session in sessions:
+                if session in file:
+                    files.append(file)
     
     if not trajectories_paths:
         warnings.warn(f"No trajectory files found in {analysis_folder}")
-    copy_files_to_store(imgstore_folder, trajectories_paths, overwrite=overwrite)
+    copy_files_to_store(imgstore_folder, files, overwrite=overwrite)
 
     
-
-
 #@functools.lru_cache(maxsize=100, typed=False)
 def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
     """
