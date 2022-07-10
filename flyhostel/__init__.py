@@ -1,14 +1,15 @@
 __version__ = '1.1.3'
 
-from confapp import conf
 import os
 import sys
-sys.path.append(os.getcwd())
+sys.path.insert(0, os.getcwd())
+from confapp import conf
 
 try:
-    import local_settings
+    import local_settings # type: ignore
     conf += local_settings
 except:
     pass
 
-conf += "flyhostel.constants"
+import flyhostel.constants
+conf += flyhostel.constants

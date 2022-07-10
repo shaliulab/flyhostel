@@ -111,6 +111,14 @@ def get_parser():
     )
     copy_parser.set_defaults(func=flyhostel.data.bin.copy.main)
 
+
+    df_parser = subparsers.add_parser(
+        "df",
+        parents=[flyhostel.data.bin.df.get_parser()],
+        add_help=False,
+    )
+    df_parser.set_defaults(func=flyhostel.data.bin.df.main)
+
     return ap
 
 
