@@ -14,7 +14,6 @@ class DataView:
         self._fig_path = os.path.join(f"{experiment}_{name}.png")
 
     def save(self, output, suffix):
-
         columns = self.data.columns.tolist()
         columns.pop(columns.index(FLYHOSTEL_ID))
         columns.insert(0, FLYHOSTEL_ID)

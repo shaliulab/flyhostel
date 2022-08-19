@@ -1,9 +1,13 @@
 import os.path
 import logging
 
+from sklearn.inspection import plot_partial_dependence
+
 from flyhostel.data.idtrackerai import read_data
 from flyhostel.plotting.synchrony import synchrony_plot
 from flyhostel.plotting.sleep import sleep_plot
+from flyhostel.plotting.velocity import velocity_plot
+
 from flyhostel.plotting.ethogram import ethogram_plot
 from flyhostel.constants import (
     BINNED,
@@ -49,13 +53,7 @@ def main(args=None, ap=None):
         ap = get_parser(ap)
         args = ap.parse_args()
 
-    if args.output is None:
-        output = os.path.join(
-            args.imgstore_folder,
-            "output"
-        )
-    else:
-        output = args.output
+    output = args.output
 
 
     if args.interval is None:
@@ -81,22 +79,10 @@ def main(args=None, ap=None):
     # TODO: Format this into a clean function or something
     import numpy as np
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_trajectories.npy"), tr._s)
+    np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_frames.npy"), chunk_metadata[0])
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_timestamps.npy"), chunk_metadata[1])
     #####
     noa = velocities.shape[1]
-
-    # import itertools
-    # import numpy as np
-    # from scipy.spatial import distance
-    # combs = itertools.combinations(np.arange(noa), 2)
-    # for pair in combs:
-    #     A = tr.s[:, pair[0], :]
-    #     B = tr.s[:, pair[1], :]
-        
-    #     distance.euclidean(
-    #         A,
-    #         B
-    #     )
 
     analysis_params, plotting_params = load_params(store_metadata)
     suffix = make_suffix(analysis_params)
@@ -109,7 +95,7 @@ def main(args=None, ap=None):
     # make and save plots and data
     fig1 = sleep_plot(dt_binned,plotting_params=plotting_params)
     sleep_view = DataView(experiment_name, BINNED, dt_binned, fig1)
-    sleep_view.save(output, suffix=suffix)
+    sleep_view.save(output, suffix="")
 
     fig2 = ethogram_plot(
         dt_ethogram, analysis_params, plotting_params, 
@@ -118,15 +104,16 @@ def main(args=None, ap=None):
     )
     
     ethogram_view = DataView(experiment_name, "ethogram", dt_ethogram, fig2)
-    ethogram_view.save(output, suffix=suffix)
+    ethogram_view.save(output, suffix="")
 
     fig3 = synchrony_plot(dt_binned, plotting_params=plotting_params, y="asleep")
     synchrony_view = DataView(experiment_name, "synchrony", dt_binned, fig3)
-    synchrony_view.save(output, suffix=suffix)
+    synchrony_view.save(output, suffix="")
 
-    raw_view = DataView(experiment_name, "raw", dt_raw, None)
-    raw_view.save(output, suffix="raw")
+    fig4 = velocity_plot(dt_raw, plotting_params=plotting_params)
+    raw_view = DataView(experiment_name, "raw", dt_raw, fig4)
+    raw_view.save(output, suffix="")
     
     annotation_view = DataView(experiment_name, "annotation",dt_sleep, None)
-    annotation_view.save(output, suffix="annotation")
+    annotation_view.save(output, suffix="")
     return 0

@@ -70,6 +70,7 @@ def tidy_dataset(velocity, chunk_metadata, analysis_params):
     data["frame_time"] = [frame_time[i] for i, _ in enumerate(data["frame_number"])]
     data["t"] = data["frame_time"]
     data["t"] /= 1000  # to seconds
+    data["t_raw"] = data["t"]
     data["t"] += analysis_params.offset
     data["L"] = ["T" if e else "F" for e in ((data["t"] / 3600) % 24) < 12]
     data["t_round"] = (

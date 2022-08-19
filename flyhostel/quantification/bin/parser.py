@@ -1,4 +1,8 @@
 import argparse
+import os.path
+
+from flyhostel.constants import ANALYSIS_FOLDER
+from flyhostel.constants import OUTPUT_FOLDER
 
 def get_parser(ap=None):
 
@@ -7,12 +11,12 @@ def get_parser(ap=None):
 
     
     ap.add_argument(
-        "--imgstore-folder", dest="imgstore_folder", required=True, type=str
+        "--imgstore-folder", dest="imgstore_folder", default=os.getcwd(), type=str
     )
 
     ap.add_argument("--interval", nargs="+", type=int, required=False, default=None)
 
-    ap.add_argument("--output", dest="output", default=None, type=str)
+    ap.add_argument("--output", dest="output", default=os.path.join(os.getcwd(), OUTPUT_FOLDER), type=str)
     ap.add_argument(
         "--ld-annotation",
         dest="ld_annotation",

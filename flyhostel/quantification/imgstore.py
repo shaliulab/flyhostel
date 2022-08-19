@@ -1,7 +1,9 @@
 import logging
 import itertools
 import os.path
+import re
 import glob
+import sqlite3
 import numpy as np
 import yaml
 from flyhostel.constants import INDEX_FORMAT
@@ -11,12 +13,23 @@ logger = logging.getLogger(__name__)
 
 
 
-def get_chunk_metadata(chunk_filename):
+def get_chunk_metadata(chunk_filename, source="sqlite"):
+    index = {"frame_time": [], "frame_number": []}
+    if source=="npz":
+        data = np.load(chunk_filename)
+        index["frame_time"] = data["frame_time"]
+        index["frame_number"] = data["frame_number"]
+    if source=="sqlite":
+        sqlite_file = os.path.join(os.path.dirname(chunk_filename), "index.db")
+        chunk = int(re.search(".*/([0-9][0-9][0-9][0-9][0-9][0-9]).npz*", chunk_filename).group(1))
+        with sqlite3.connect(sqlite_file) as conn:
+            cur = conn.cursor()
+            cur.execute(f"SELECT frame_time, frame_number FROM frames WHERE chunk = {chunk};")
+            fetch = cur.fetchall()
+            for row in fetch:
+                index["frame_time"].append(row[0])
+                index["frame_number"].append(row[1])
 
-    data = np.load(chunk_filename)
-    index = {}
-    index["frame_time"] = data["frame_time"]
-    index["frame_number"] = data["frame_number"]
     return index
 
 def read_store_metadata(imgstore_folder):
@@ -66,6 +79,5 @@ def read_store_description(imgstore_folder, chunk_numbers=None):
     frame_time = list(
         itertools.chain(*[m["frame_time"] for m in chunk_metadata.values()])
     )
-
     chunk_metadata = (frame_number, frame_time)
     return chunks, chunk_metadata
