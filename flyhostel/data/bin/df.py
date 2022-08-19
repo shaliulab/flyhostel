@@ -26,9 +26,15 @@ def main(args=None, ap=None):
 
         args = ap.parse_args()
 
-    free_fraction = round(get_free_fraction(VIDEOS_FOLDER) * 100, 2)
-
-    if free_fraction < THRESHOLD:
-        logger.warning(f"Less than {THRESHOLD} % of flyhostel partition is free")
-        notify_free_fraction(free_fraction, EMAIL_ADDRESS)
+    try:
+        free_fraction = round(get_free_fraction(VIDEOS_FOLDER) * 100, 2)
+        logger.debug(f"Free fraction: {free_fraction}")
+    
+        if free_fraction < THRESHOLD:
+            logger.warning(f"Less than {THRESHOLD} % of flyhostel partition is free")
+            notify_free_fraction(free_fraction, EMAIL_ADDRESS)
+            logger.debug("Sent email")
+    except Exception as error:
+        logger.error(error)
+        raise error
 
