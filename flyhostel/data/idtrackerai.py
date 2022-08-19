@@ -23,6 +23,8 @@ def copy_idtrackerai_data(imgstore_folder, analysis_folder, interval=None, overw
                 if session in file:
                     files.append(file)
     
+    else:
+        files = trajectories_paths
     if not trajectories_paths:
         warnings.warn(f"No trajectory files found in {analysis_folder}")
     copy_files_to_store(imgstore_folder, files, overwrite=overwrite)
