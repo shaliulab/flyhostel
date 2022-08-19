@@ -11,8 +11,9 @@ from flyhostel.data.trajectorytools import get_trajectory_files
 from flyhostel.utils import copy_files_to_store
 from flyhostel.quantification.imgstore import read_store_description, read_store_metadata
 from .trajectorytools import load_trajectories
-from feed_integration.idtrackerai.paths import blobs2trajectories
 from trajectorytools.trajectories import import_idtrackerai_dict
+from feed_integration.idtrackerai.paths import blobs2trajectories
+
 logger = logging.getLogger(__name__)
 
 def copy_idtrackerai_data(imgstore_folder, analysis_folder, interval=None, overwrite=True):
@@ -49,19 +50,23 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
 
     
     video=np.load(os.path.join(session_folder, "video_object.npy"), allow_pickle=True).item()
-
-    traj_dict = {
-        "trajectories": np.vstack([blobs2trajectories(
+    
+    trajectories = np.vstack([
+        blobs2trajectories(
             blobs_path,
             video.user_defined_parameters["number_of_animals"]
-        )["trajectories"] for blobs_path in blob_collections]),
+        )["trajectories"]
+        for blobs_path in blob_collections
+    ])
+
+    traj_dict = {
+        "trajectories": trajectories,
         "frames_per_second": video.frames_per_second,
         "body_length": video.median_body_length_full_resolution,
     }
 
     tr=import_idtrackerai_dict(traj_dict)
     tr.new_length_unit(pixels_per_cm, "cm")
-
     return (tr, chunks)
 
 
