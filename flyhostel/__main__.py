@@ -8,9 +8,7 @@ try:
 except Exception as error:
     SENSOR_AVAILABLE=False
 
-
 import flyhostel.sensors.io.bin
-
 
 try:
     import flyhostel.ldriver.bin
@@ -21,11 +19,6 @@ except Exception as error:
 import flyhostel.quantification.bin
 import flyhostel.quantification.modelling.bin
 import flyhostel.data.bin
-
-import logging
-logging.getLogger("flyhostel.data").setLevel(logging.DEBUG)
-logging.getLogger("flyhostel.quantification").setLevel(logging.DEBUG)
-
 
 def get_parser():
     ap = argparse.ArgumentParser(
