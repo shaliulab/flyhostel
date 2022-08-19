@@ -26,5 +26,6 @@ def get_parser(ap=None):
         default=True,
     )
 
+    ap.add_argument("--source", default="trajectories", choices=["trajectories", "blobs", "csv"])
     ap.add_argument("--interpolate-nans", action="store_true", default=False)   
     return ap

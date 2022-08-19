@@ -75,8 +75,7 @@ def main(args=None, ap=None):
         os.path.realpath(os.path.basename(args.imgstore_folder.rstrip("/")))
     )
 
-
-    tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, interval, interpolate_nans=args.interpolate_nans)
+    tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, interval, source=args.source, interpolate_nans=args.interpolate_nans)
 
     # TODO: Format this into a clean function or something
     import numpy as np
