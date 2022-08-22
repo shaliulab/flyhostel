@@ -1,8 +1,5 @@
 import pathlib
-import os.path
-import os
 from setuptools import setup, find_packages
-import json
 
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent
@@ -11,10 +8,7 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
 PKG_NAME = "flyhostel"
-version = "1.1.3"
-
-with open(f"{PKG_NAME}/__init__.py", "w") as fh:
-    fh.write(f"__version__ = '{version}'\n")
+version = "1.1.4"
 
 setup(
     name=PKG_NAME,
@@ -34,6 +28,7 @@ setup(
         "pyaml",
         "imgstore-shaliulab>=0.4.0",
         "confapp-shaliulab",
+        "feed_integration",
     ],
     entry_points={
         "console_scripts": [
