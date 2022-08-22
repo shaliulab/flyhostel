@@ -11,9 +11,8 @@ from confapp import conf
 from tqdm import tqdm
 import numpy as np
 
-from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG
+from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG, ANALYSIS_FOLDER
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
-ANALYSIS_FOLDER="idtrackerai"
 logger = logging.getLogger(__name__)
 
 def add_suffix(filename, suffix=""):
@@ -93,10 +92,16 @@ def copy_file_to_store(file, imgstore_folder, overwrite, trajectories_source_pat
 
     file_exists = os.path.exists(dest_path)
 
-    if file_exists and not overwrite:
-        logger.warning("f{file} exists. Not overwriting")
-    else:
+    if not file_exists:
         clean_copy(file, dest_path)
+    elif os.path.getmtime(dest_path) >= os.path.getmtime(file):
+        logger.debug(f"{file} is updated")
+    else:
+        if overwrite:
+        clean_copy(file, dest_path)
+        else:
+            logger.debug(f"{dest_path} exists. Not overwriting")
+        
         return file, os.path.basename(dest_path)
 
 
