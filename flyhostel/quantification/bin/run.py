@@ -58,11 +58,14 @@ def main(args=None, ap=None):
 
     if args.interval is None:
         trajectories_source = os.path.join(args.imgstore_folder, f"{TRAJECTORIES_SOURCE}.yml")
-        with open(trajectories_source, "r") as filehandle:
-            trajectories_source = yaml.load(filehandle, yaml.SafeLoader)
-            trajectories = list(trajectories_source.values())
-            trajectories = [int(t.replace(".npy", "")) for t in trajectories]
-            interval = [min(trajectories), max(trajectories)]
+        if os.path.exists(trajectories_source):
+            with open(trajectories_source, "r") as filehandle:
+                trajectories_source = yaml.load(filehandle, yaml.SafeLoader)
+                trajectories = list(trajectories_source.values())
+                trajectories = [int(t.replace(".npy", "")) for t in trajectories]
+                interval = [min(trajectories), max(trajectories)]
+        else:
+            interval = None
        
     else:
         interval = args.interval
