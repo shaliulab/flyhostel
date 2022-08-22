@@ -28,7 +28,9 @@ setup(
         "pyaml",
         "imgstore-shaliulab>=0.4.0",
         "confapp-shaliulab",
-        "feed_integration",
+        "sklearn",
+        "recordtype",
+        #"feed_integration",
     ],
     entry_points={
         "console_scripts": [
