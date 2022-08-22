@@ -48,11 +48,14 @@ def load_trajectories(trajectories_paths, interval, timestamps_paths=None, **kwa
         zero_index=interval[0],
         **kwargs
     )
-    logger.info(
-        "flyhostel has loaded" \
-        f"{round((tr._s.shape[0]+2)/3600/12, 2)} hours of data successfully",
-    )  # / seconds in hour and frames in second
+    
+    #TODO
+    # Eventually trajectorytools should have a chunk key
+    # so we know from which chunk each data point comes
+    non_nan_rows = tr._s.shape[0] - np.isnan(tr._s).any(2).all(1).sum().item()
+    hours_of_data = round(non_nan_rows / tr.params["frame_rate"] / 3600, 2)
 
+    logger.info(f"flyhostel has loaded {hours_of_data} hours of data successfully")
     # Since we have the frames per second stored int the tr.params dictionary we will use
     # tr.new_time_unit(tr.params["frame_rate"], "s")
 

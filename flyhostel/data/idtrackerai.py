@@ -2,10 +2,11 @@ import os.path
 import logging
 import glob
 import warnings
-import functools
 import re
 
 import numpy as np
+from imgstore.interface import VideoCapture
+from imgstore.constants import STORE_MD_FILENAME
 
 from flyhostel.data.trajectorytools import get_trajectory_files
 from flyhostel.utils import copy_files_to_store
@@ -65,7 +66,12 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
         "body_length": video.median_body_length_full_resolution,
     }
 
-    tr=import_idtrackerai_dict(traj_dict)
+    
+    store=VideoCapture(os.path.join(imgstore_folder, STORE_MD_FILENAME), chunk=chunks[0])
+    frame_times = store._index.get_timestamps(chunks)
+    timestamps = np.array([row[0] for row in frame_times]) / 1000 # ms to s
+
+    tr=import_idtrackerai_dict(traj_dict, timestamps=timestamps)
     tr.new_length_unit(pixels_per_cm, "cm")
     return (tr, chunks)
 
