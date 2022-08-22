@@ -98,11 +98,11 @@ def copy_file_to_store(file, imgstore_folder, overwrite, trajectories_source_pat
         logger.debug(f"{file} is updated")
     else:
         if overwrite:
-        clean_copy(file, dest_path)
+            clean_copy(file, dest_path)
         else:
             logger.debug(f"{dest_path} exists. Not overwriting")
         
-        return file, os.path.basename(dest_path)
+    return file, os.path.basename(dest_path)
 
 
 

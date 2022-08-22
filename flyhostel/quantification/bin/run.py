@@ -90,7 +90,6 @@ def main(args=None, ap=None):
     plotting_params.ld_annotation = args.ld_annotation
 
     dt_raw, dt_sleep, dt_binned, dt_ethogram = process_data(velocities, chunk_metadata, analysis_params, plotting_params)
-
     # make and save plots and data
     fig1 = sleep_plot(dt_binned,plotting_params=plotting_params)
     sleep_view = DataView(experiment_name, BINNED, dt_binned, fig1)
