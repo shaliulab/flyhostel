@@ -59,7 +59,7 @@ def tidy_dataset(velocity, chunk_metadata, analysis_params):
     """
 
     frame_number, frame_time = chunk_metadata
-    assert len(velocity) == len(frame_number)
+    assert len(velocity) == len(frame_number), f"{len(velocity)} != {len(frame_number)}"
 
     data = pd.DataFrame(
         {"velocity": velocity, "frame_number": frame_number}

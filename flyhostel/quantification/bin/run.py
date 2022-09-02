@@ -1,7 +1,7 @@
 import os.path
 import logging
 
-from sklearn.inspection import plot_partial_dependence
+import numpy as np
 
 from flyhostel.data.idtrackerai import read_data
 from flyhostel.plotting.synchrony import synchrony_plot
@@ -77,9 +77,7 @@ def main(args=None, ap=None):
     )
 
     tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, interval, source=args.source, interpolate_nans=args.interpolate_nans)
-
-    # TODO: Format this into a clean function or something
-    import numpy as np
+    np.savetxt(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_concatenation.csv"), tr.concatenation, fmt="%1.0f")
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_trajectories.npy"), tr._s)
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_frames.npy"), chunk_metadata[0])
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_timestamps.npy"), chunk_metadata[1])

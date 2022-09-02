@@ -11,9 +11,9 @@ from imgstore.constants import STORE_MD_FILENAME
 from flyhostel.data.trajectorytools import get_trajectory_files
 from flyhostel.utils import copy_files_to_store
 from flyhostel.quantification.imgstore import read_store_description, read_store_metadata
+from feed_integration.idtrackerai.paths import blobs2trajectories
 from .trajectorytools import load_trajectories
 from trajectorytools.trajectories import import_idtrackerai_dict
-from feed_integration.idtrackerai.paths import blobs2trajectories
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +84,9 @@ def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None, **kwarg
     trajectories_paths = sorted(
         glob.glob(os.path.join(imgstore_folder, "*.npy"))
     )
-    timestamps_paths = sorted(
-        glob.glob(os.path.join(imgstore_folder, "*.npz"))
-    )
-  
+
     # Load trajectories
-    status, chunks, tr = load_trajectories(trajectories_paths=trajectories_paths, timestamps_paths=timestamps_paths, interval=interval, **kwargs)
+    status, chunks, tr = load_trajectories(trajectories_paths=trajectories_paths, interval=interval, **kwargs)
     tr.new_length_unit(pixels_per_cm, "cm")
     return (tr, chunks)
 
@@ -136,8 +133,9 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
     velocities = np.abs(tr.v).sum(axis=2)
 
     # Load metadata
-    chunks, chunk_metadata = read_store_description(
-        imgstore_folder, chunk_numbers=chunks
+    _, chunk_metadata = read_store_description(
+        imgstore_folder, chunk_numbers=list(range(0, chunks[-1]+1))
+        # imgstore_folder, chunk_numbers=chunks
     )
 
     store_metadata["chunks"] = chunks

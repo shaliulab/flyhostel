@@ -19,7 +19,7 @@ def get_trajectory_files(experiment_folder):
     return trajectories_paths
 
 
-def load_trajectories(trajectories_paths, interval, timestamps_paths=None, **kwargs):
+def load_trajectories(trajectories_paths, interval, **kwargs):
 
 
     chunks = [int(os.path.basename(p).replace(
@@ -32,22 +32,47 @@ def load_trajectories(trajectories_paths, interval, timestamps_paths=None, **kwa
         indices = (chunks.index(interval[0]), chunks.index(interval[1]-1))
         chunks = chunks[indices[0]:indices[1]+1]
         trajectories_paths = trajectories_paths[indices[0]:indices[1]+1]
-        if timestamps_paths is not None:
-            timestamps_paths = timestamps_paths[indices[0]:indices[1]+1]
+    
+    
+    timestamps_paths = [
+        os.path.join(
+            os.path.dirname(trajectories_paths[i]),
+            f"{str(chunk).zfill(6)}.npz"
+        )
+        for i, chunk in enumerate(chunks)
+    ]
+    
+    missing_timestamps_paths = [
+        os.path.join(
+            os.path.dirname(trajectories_paths[0]),
+            f"{str(chunk).zfill(6)}.npz"
+        )
+        for chunk in list(range(0, chunks[0]))
+    ]
 
+    timestamps = []
+    missing_timestamps = []
+    
+    for path in timestamps_paths:
+        timestamps.extend(np.load(path, allow_pickle=True)["frame_time"] / 1000)
 
-    if timestamps_paths is not None:
-        timestamps = []
-        for path in timestamps_paths:
-            timestamps.extend(np.load(path, allow_pickle=True)["frame_time"] / 1000)
+    for path in missing_timestamps_paths:
+        missing_timestamps.extend(np.load(path, allow_pickle=True)["frame_time"] / 1000)
+        
+
+    timestamps=np.array(timestamps)
 
     status, tr = concatenate.from_several_idtracker_files(
         trajectories_paths,
-        timestamps=np.array(timestamps),
+        timestamps=timestamps,
         strict=False,
         zero_index=interval[0],
         **kwargs
     )
+    
+    number_of_points_missing = len(missing_timestamps)
+    tr.pad_at_beginning(number_of_points_missing)
+    tr._number_of_points_missing = number_of_points_missing
     
     #TODO
     # Eventually trajectorytools should have a chunk key

@@ -128,8 +128,7 @@ def find_start_and_end_of_chunk(session_folder, chunk):
 
 def clean_copy(file, dest_path):
 
-    data=np.load(file, allow_pickle=True).item()
-    
+    data=np.load(file, allow_pickle=True).item()._trajectories
 
     if "chunk" in data:
         chunk = data["chunk"]
@@ -137,13 +136,6 @@ def clean_copy(file, dest_path):
         logger.warning(f"Trajectories file {file} does not carry the source chunk")
         chunk = find_chunk_from_filename(file)
         data["chunk"] = chunk
-
-    session_folder = os.path.dirname(os.path.dirname(file))
-    start, end = find_start_and_end_of_chunk(session_folder, chunk)
-
-    data["trajectories"]=data["trajectories"][start:(end)+1]
-    data["id_probabilities"]=data["id_probabilities"][start:(end)+1]
-    data["areas"]=data["areas"][start:(end)+1]
 
     #logger.info(f"Copying {file} --> {dest_path}")
     print(f"Copying {file} --> {dest_path}")

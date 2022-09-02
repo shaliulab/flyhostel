@@ -17,6 +17,7 @@ except Exception as error:
     LED_DRIVER_AVAILABLE=False
 
 import flyhostel.quantification.bin
+import flyhostel.computer_vision.bin
 import flyhostel.quantification.modelling.bin
 import flyhostel.data.bin
 
@@ -73,7 +74,18 @@ def get_parser():
         """
     )
     quantification_parser.set_defaults(func=flyhostel.quantification.bin.run.main)
-
+    
+    # Quantification module (to quantify behaviors in flyhostel datasets)
+    cv_parser = subparsers.add_parser(
+        "cv",
+        parents=[flyhostel.computer_vision.bin.parser.get_parser()],
+        add_help=False,
+        help="""
+        
+        """
+    )
+    cv_parser.set_defaults(func=flyhostel.computer_vision.bin.run.main)
+    
     modelling_parser = subparsers.add_parser(
         "modelling",
         parents=[flyhostel.quantification.modelling.bin.parser.get_parser()],
