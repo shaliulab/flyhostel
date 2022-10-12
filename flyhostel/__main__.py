@@ -124,6 +124,14 @@ def get_parser():
     )
     df_parser.set_defaults(func=flyhostel.data.bin.df.main)
 
+
+    df_parser = subparsers.add_parser(
+            "download",
+            parents=[flyhostel.data.bin.download.get_parser()],
+            add_help=False,
+        )
+    df_parser.set_defaults(func=flyhostel.data.bin.download.main)
+
     return ap
 
 

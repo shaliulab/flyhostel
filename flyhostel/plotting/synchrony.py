@@ -13,7 +13,9 @@ def synchrony_plot(dt_binned, y, plotting_params):
     dt_binned["diff"]=dt_binned.groupby(FLYHOSTEL_ID)[[y]].diff()
     # drop the first bin, for which no diff with the previous bin can be computed 
     dt_binned.dropna(inplace=True)
-    sync_dt = pd.DataFrame(1 / (1 + dt_binned.groupby("t")["diff"].std())).rename(columns={"diff": "sync"})
+    sync_dt = pd.DataFrame(dt_binned.groupby("t")["diff"].std()).rename(columns={"diff": "std"})
+    sync_dt["sync"] = 1 / (1 + sync_dt["std"])
+    # sync_dt = pd.DataFrame(1 / (1 + dt_binned.groupby("t")["diff"].std())).rename(columns={"diff": "sync"})
     sync_dt.reset_index(inplace=True)
     sync_dt["L"] = [
         "F" if e else "T" for e in (sync_dt["t"] / 3600) % 24 > 12

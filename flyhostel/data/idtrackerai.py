@@ -1,19 +1,17 @@
 import os.path
 import logging
 import glob
+import copy
 import warnings
-import re
 
 import numpy as np
-from imgstore.interface import VideoCapture
-from imgstore.constants import STORE_MD_FILENAME
 
 from flyhostel.data.trajectorytools import get_trajectory_files
 from flyhostel.utils import copy_files_to_store
 from flyhostel.quantification.imgstore import read_store_description, read_store_metadata
-from feed_integration.idtrackerai.paths import blobs2trajectories
-from .trajectorytools import load_trajectories
-from trajectorytools.trajectories import import_idtrackerai_dict
+from .blobtools import read_blobs_data
+from .trajectorytools import load_trajectories, pad_beginning_so_always_referenced_to_record_start
+from .csvtools import read_csv_data
 
 logger = logging.getLogger(__name__)
 
@@ -33,48 +31,6 @@ def copy_idtrackerai_data(imgstore_folder, analysis_folder, interval=None, overw
         warnings.warn(f"No trajectory files found in {analysis_folder}")
     copy_files_to_store(imgstore_folder, files, overwrite=overwrite)
 
-    
-def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
-    """
-    """
-    
-    blob_collections = sorted(
-        glob.glob(os.path.join(imgstore_folder, "idtrackerai", "session_*", "preprocessing", "blobs_collection.npy"))
-    )
-    chunks = [int(re.search(f".*{os.path.sep}session_(.*){os.path.sep}preprocessing.*", p).group(1)) for p in blob_collections]
-    if interval is not None:
-        indices = (chunks.index(interval[0]), chunks.index(interval[1]-1))
-        chunks = chunks[indices[0]:indices[1]+1]
-        blob_collections = blob_collections[indices[0]:indices[1]+1]
-        
-    session_folder=os.path.dirname(os.path.dirname(blob_collections[0]))
-
-    
-    video=np.load(os.path.join(session_folder, "video_object.npy"), allow_pickle=True).item()
-    
-    trajectories = np.vstack([
-        blobs2trajectories(
-            blobs_path,
-            video.user_defined_parameters["number_of_animals"]
-        )["trajectories"]
-        for blobs_path in blob_collections
-    ])
-
-    traj_dict = {
-        "trajectories": trajectories,
-        "frames_per_second": video.frames_per_second,
-        "body_length": video.median_body_length_full_resolution,
-    }
-
-    
-    store=VideoCapture(os.path.join(imgstore_folder, STORE_MD_FILENAME), chunk=chunks[0])
-    frame_times = store._index.get_timestamps(chunks)
-    timestamps = np.array([row[0] for row in frame_times]) / 1000 # ms to s
-
-    tr=import_idtrackerai_dict(traj_dict, timestamps=timestamps)
-    tr.new_length_unit(pixels_per_cm, "cm")
-    return (tr, chunks)
-
 
 
 def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
@@ -86,14 +42,11 @@ def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None, **kwarg
     )
 
     # Load trajectories
-    status, chunks, tr = load_trajectories(trajectories_paths=trajectories_paths, interval=interval, **kwargs)
+    (status, chunks, tr), (timestamps, missing_timestamps) = load_trajectories(trajectories_paths=trajectories_paths, interval=interval, **kwargs)
     tr.new_length_unit(pixels_per_cm, "cm")
-    return (tr, chunks)
+    return (tr, chunks), (timestamps, missing_timestamps)
 
 
-
-def read_csv_data(csv_file, pixels_per_cm, interval=None):
-    raise NotImplementedError
 
 def read_data(imgstore_folder, interval, interpolate_nans=False, source="trajectories"):
 
@@ -104,7 +57,7 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
 
    
     if source=="trajectories":
-        tr, chunks = read_idtrackerai_data(
+        (tr, chunks), (timestamps, missing_timestamps) = read_idtrackerai_data(
             imgstore_folder,
             interval=interval,
             pixels_per_cm=pixels_per_cm,
@@ -115,7 +68,7 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
 
         assert "1X" in imgstore_folder
 
-        tr, chunks = read_blobs_data(
+        (tr, chunks), (timestamps, missing_timestamps) = read_blobs_data(
             imgstore_folder,
             interval=interval,
             pixels_per_cm=pixels_per_cm,
@@ -123,20 +76,37 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
         )
 
     elif source=="csv":
-        tr, chunks = read_csv_data(
+        (tr, chunks), (timestamps, missing_timestamps) = read_csv_data(
             csv_file=None,
             interval=interval,
             pixels_per_cm=pixels_per_cm
         )
+        
+    tr_raw = copy.deepcopy(tr)
+    # import ipdb; ipdb.set_trace()
+    tr = pad_beginning_so_always_referenced_to_record_start(tr, missing_timestamps)
 
+
+    #TODO
+    # Eventually trajectorytools should have a chunk key
+    # so we know from which chunk each data point comes
+    non_nan_rows = tr._s.shape[0] - np.isnan(tr._s).any(2).all(1).sum().item()
+    hours_of_data = round(non_nan_rows / tr.params["frame_rate"] / 3600, 2)
+
+    logger.info(f"flyhostel has loaded {hours_of_data} hours of data successfully")
+    
     logger.info("Computing velocity")
-    velocities = np.abs(tr.v).sum(axis=2)
+    velocities = np.sqrt(((tr.v)**2).sum(axis=2))
+    # velocities = np.abs(tr.v).sum(axis=2)
 
     # Load metadata
     _, chunk_metadata = read_store_description(
         imgstore_folder, chunk_numbers=list(range(0, chunks[-1]+1))
         # imgstore_folder, chunk_numbers=chunks
     )
-
+    if not tr.s.shape[0] == len(chunk_metadata[0]):
+        import ipdb; ipdb.set_trace()
+     
     store_metadata["chunks"] = chunks
+    # import ipdb; ipdb.set_trace()
     return tr, velocities, chunks, store_metadata, chunk_metadata

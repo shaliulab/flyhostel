@@ -77,7 +77,9 @@ def main(args=None, ap=None):
     )
 
     tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, interval, source=args.source, interpolate_nans=args.interpolate_nans)
-    np.savetxt(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_concatenation.csv"), tr.concatenation, fmt="%1.0f")
+
+    if getattr(tr, "concatenation", None) is not None: 
+        np.savetxt(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_concatenation.csv"), tr.concatenation, fmt="%1.0f")
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_trajectories.npy"), tr._s)
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_frames.npy"), chunk_metadata[0])
     np.save(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_timestamps.npy"), chunk_metadata[1])
@@ -89,8 +91,10 @@ def main(args=None, ap=None):
     plotting_params.number_of_animals = noa
     plotting_params.experiment_name = experiment_name
     plotting_params.ld_annotation = args.ld_annotation
-
+    
+    
     dt_raw, dt_sleep, dt_binned, dt_ethogram = process_data(velocities, chunk_metadata, analysis_params, plotting_params)
+    
     # make and save plots and data
     fig1 = sleep_plot(dt_binned,plotting_params=plotting_params)
     sleep_view = DataView(experiment_name, BINNED, dt_binned, fig1)

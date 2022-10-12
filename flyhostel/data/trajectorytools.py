@@ -69,19 +69,16 @@ def load_trajectories(trajectories_paths, interval, **kwargs):
         zero_index=interval[0],
         **kwargs
     )
+
+    # Since we have the frames per second stored int the tr.params dictionary we will use
+    # tr.new_time_unit(tr.params["frame_rate"], "s")
+
+    return (status, chunks, tr), (timestamps, missing_timestamps)
+
+def pad_beginning_so_always_referenced_to_record_start(tr, missing_timestamps):
     
     number_of_points_missing = len(missing_timestamps)
     tr.pad_at_beginning(number_of_points_missing)
     tr._number_of_points_missing = number_of_points_missing
-    
-    #TODO
-    # Eventually trajectorytools should have a chunk key
-    # so we know from which chunk each data point comes
-    non_nan_rows = tr._s.shape[0] - np.isnan(tr._s).any(2).all(1).sum().item()
-    hours_of_data = round(non_nan_rows / tr.params["frame_rate"] / 3600, 2)
+    return tr
 
-    logger.info(f"flyhostel has loaded {hours_of_data} hours of data successfully")
-    # Since we have the frames per second stored int the tr.params dictionary we will use
-    # tr.new_time_unit(tr.params["frame_rate"], "s")
-
-    return (status, chunks, tr)

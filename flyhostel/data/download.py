@@ -49,12 +49,12 @@ def sync(src, dst, *args, **kwargs):
     return sync_(src, dst, *args, **kwargs)
 
 
-def generate_analysis_patterns(folder, session, version):
+def generate_idtrackerai_patterns(folder, session, version):
 
     if version == 1:
         pass
     elif version == 2:
-        folder = os.path.jon(folder, "idtrackerai")
+        folder = os.path.join(folder, "idtrackerai")
 
 
     files = [
@@ -62,7 +62,11 @@ def generate_analysis_patterns(folder, session, version):
         os.path.join(folder, f"session_{session}/video_object.npy"),
         os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_no_gaps.npy"),
         os.path.join(folder, f"session_{session}/preprocessing/blobs_collection.npy"),
+        os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_raw.npy"),
+        os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_feed_integration.npy"),
         os.path.join(folder, f"session_{session}/preprocessing/fragments.npy"),
+        os.path.join(folder, f"session_{session}/preprocessing/fragments_raw.npy"),
+        os.path.join(folder, f"session_{session}/preprocessing/fragments_feed_integration.npy"),
         os.path.join(folder, f"session_{session}/trajectories/trajectories.npy"),
         os.path.join(folder, f"session_{session}/trajectories/trajectories_wo_gaps.npy"),
     ]
@@ -71,38 +75,22 @@ def generate_analysis_patterns(folder, session, version):
     return files
 
 
-def generate_imgstore_meta_patterns(folder, session, subfolder = "", version=None):
+def generate_imgstore_patterns(folder, session, version=None):
 
     files = [
-        os.path.join(folder, subfolder, "metadata.yaml"),
-        os.path.join(folder, subfolder, f"{session}.extra.json"),
-        os.path.join(folder, subfolder, f"{session}.npz"),
-        os.path.join(folder, subfolder, f"{session}.png"),
-        # os.path.join(folder, "lowres", "metadata.yaml"),
-        # os.path.join(folder, "lowres", f"{session}.extra.json"),
-        # os.path.join(folder, "lowres", f"{session}.npz"),
-        # os.path.join(folder, "lowres", f"{session}.png"),
+        os.path.join(folder, "metadata.yaml"),
+        os.path.join(folder, f"{session}.extra.json"),
+        os.path.join(folder, f"{session}.npz"),
+        os.path.join(folder, f"{session}.png"),
+        os.path.join(folder, f"{session}.avi"),
+        os.path.join(folder, f"{session}.mp4"),
     ]
 
     files = list(map(sanitize_path, files))
     return files
-
-def generate_imgstore_patterns(folder, session, subfolder = "", version=None):
-
-    files = [
-        os.path.join(folder, subfolder, f"{session}.avi"),
-        # os.path.join(folder, subfolder, f"{session}.mp4"),
-        # os.path.join(folder, "lowres", f"{session}.avi"),
-        # os.path.join(folder, "lowres", f"{session}.mp4"),
-    ]
-
-    files = list(map(sanitize_path, files))
-    return files
-
 
 PATTERNS = {
-    "analysis": generate_analysis_patterns,
-    "imgstore_meta": generate_imgstore_meta_patterns,
+    "idtrackerai": generate_idtrackerai_patterns,
     "imgstore": generate_imgstore_patterns,
 }
 
