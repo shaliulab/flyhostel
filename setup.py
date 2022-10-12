@@ -8,7 +8,7 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
 PKG_NAME = "flyhostel"
-version = "1.1.4"
+version = "1.1.5"
 
 setup(
     name=PKG_NAME,
