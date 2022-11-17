@@ -20,6 +20,7 @@ AnalysisParams = recordtype(
         "min_time_immobile",
         "summary_time_window",
         "sumary_FUN",
+        "max_brief_awakening",
         "reference_hour",
         "offset",
     ],
@@ -73,6 +74,7 @@ def get_analysis_params(store_metadata):
         min_time_immobile,
         summary_time_window,
         summary_FUN,
+        max_brief_awakening,
         reference_hour,
         offset,
     )
