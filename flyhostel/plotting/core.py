@@ -50,8 +50,7 @@ def geom_ld_annotation(data, ax, yrange=(0, 100), xtick_freq=6):
     light_states, positions = zeitgeber.rle.decompose(data["L"].values.tolist())
     transitions = []
     for i in positions:
-        transitions.append(round(data.loc[i]["t"], 2))
-
+        transitions.append(round(data.iloc[i]["t"], 2))
 
     max_t = data["t"].tail().values[-1]
     min_t = transitions[0]
