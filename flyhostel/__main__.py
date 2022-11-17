@@ -19,7 +19,9 @@ except Exception as error:
 import flyhostel.quantification.bin
 import flyhostel.computer_vision.bin
 import flyhostel.quantification.modelling.bin
-import flyhostel.data.bin
+import flyhostel.data.bin.df
+import flyhostel.data.bin.copy
+import flyhostel.data.bin.download
 
 def get_parser():
     ap = argparse.ArgumentParser(
@@ -125,12 +127,13 @@ def get_parser():
     df_parser.set_defaults(func=flyhostel.data.bin.df.main)
 
 
-    df_parser = subparsers.add_parser(
+    download_parser = subparsers.add_parser(
             "download",
             parents=[flyhostel.data.bin.download.get_parser()],
             add_help=False,
+            help="Transfer files from Dropbox to the local computer",
         )
-    df_parser.set_defaults(func=flyhostel.data.bin.download.main)
+    download_parser.set_defaults(func=flyhostel.data.bin.download.main)
 
     return ap
 

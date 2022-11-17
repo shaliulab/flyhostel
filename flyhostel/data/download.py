@@ -59,6 +59,8 @@ def generate_idtrackerai_patterns(folder, session, version):
 
     files = [
         os.path.join(folder, f"session_{session}_error.txt"),
+        os.path.join(folder, os.path.dirname(folder.rstrip(os.path.sep)) + ".conf"),
+        os.path.join(folder, "lowres.conf"),
         os.path.join(folder, f"session_{session}/video_object.npy"),
         os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_no_gaps.npy"),
         os.path.join(folder, f"session_{session}/preprocessing/blobs_collection.npy"),
@@ -84,6 +86,7 @@ def generate_imgstore_patterns(folder, session, version=None):
         os.path.join(folder, f"{session}.png"),
         os.path.join(folder, f"{session}.avi"),
         os.path.join(folder, f"{session}.mp4"),
+        os.path.join(folder, "a2A3840-45umPRO.pfs"),
     ]
 
     files = list(map(sanitize_path, files))

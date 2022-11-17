@@ -8,8 +8,8 @@ def get_parser(ap=None):
     if ap is None:
         ap = argparse.ArgumentParser()
 
-    ap.add_argument("--root", type=str, required=True)
-    ap.add_argument("--store-path", type=str, required=True)
+    ap.add_argument("--root", type=str, required=True, help="Absolute path to root of flyhostel videos in local computer")
+    ap.add_argument("--store-path", type=str, required=True, help="Path to metadata.yaml relative to the root (should be identical regardless of whether the local or remote path is specified")
     ap.add_argument("--imgstore", action="store_true", default=False)
     ap.add_argument("--idtrackerai", action="store_true", default=False)
     ap.add_argument("--flyhostel", action="store_true", default=False)
@@ -18,8 +18,9 @@ def get_parser(ap=None):
 
 def main(args=None, ap=None):
     
-    ap = get_parser(ap=ap)
-    args= ap.parse_args()
+    if args is None:
+        ap = get_parser(ap=ap)
+        args= ap.parse_args()
     DROPBOX_VIDEOS_ROOT="/Data/flyhostel_data/videos"
 
 
