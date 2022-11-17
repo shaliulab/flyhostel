@@ -10,6 +10,14 @@ DEFAULT_VELOCITY_CORRECTION_COEF=0.2
 DEFAULT_MIN_TIME_IMMOBILE=300
 DEFAULT_SUMMARY_TIME_WINDOW=30*60
 DEFAULT_REFERENCE_HOUR=6
+DEFAULT_MAX_BRIEF_AWAKENING=30 # seconds
+
+ANNOTATION_PARAMETERS = {
+    "min_time_immobile": DEFAULT_MIN_TIME_IMMOBILE,
+    "velocity_correction_coef": DEFAULT_VELOCITY_CORRECTION_COEF,
+    "time_window_length": DEFAULT_TIME_WINDOW_LENGTH,
+    "max_brief_awakening": DEFAULT_MAX_BRIEF_AWAKENING,
+}
 
 
 CONFIG_FILE = os.path.join(os.environ.get("HOME", "."), ".config", "flyhostel", "config.conf")

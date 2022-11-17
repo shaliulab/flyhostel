@@ -1,6 +1,6 @@
 import os.path
 import logging
-
+import shutil
 import numpy as np
 
 from flyhostel.data.idtrackerai import read_data
@@ -21,19 +21,22 @@ from flyhostel.quantification.sleep import sleep_annotation_all
 
 
 from flyhostel.quantification.utils import tidy_dataset_all, bin_apply, make_suffix, annotate_id
-from flyhostel.quantification.params import load_params
+from flyhostel.quantification.params import ANALYSIS_PARAMS, load_params
 from flyhostel.quantification.data_view import DataView
 
 logger = logging.getLogger(__name__)
 
 
-def process_data(velocities, chunk_metadata, analysis_params, plotting_params):
+def process_data(positions, velocities, chunk_metadata, analysis_params, plotting_params):
     dt_raw, data = tidy_dataset_all(
         velocities,
         chunk_metadata=chunk_metadata,
         analysis_params=analysis_params,
         experiment_name=plotting_params.experiment_name
     )
+    positions=positions.reshape((-1, 2))
+    dt_raw["x"] = positions[:, 0]
+    dt_raw["y"] = positions[:, 1]
 
     dt_sleep = sleep_annotation_all(data, analysis_params=analysis_params)
     dt_binned = bin_apply(dt_sleep, "asleep", analysis_params, keep_cols=["fly_no"])
@@ -41,7 +44,8 @@ def process_data(velocities, chunk_metadata, analysis_params, plotting_params):
     dt_binned["L"] = [
         "F" if e else "T" for e in (dt_binned["t"] / 3600) % 24 > 12
     ]
-    dt_ethogram = prepare_data_for_ethogram_plot(data, analysis_params)        
+    dt_ethogram = prepare_data_for_ethogram_plot(data, analysis_params)
+     
     return dt_raw, dt_sleep, dt_binned, dt_ethogram
 
 
@@ -71,6 +75,7 @@ def main(args=None, ap=None):
         interval = args.interval
 
     os.makedirs(output, exist_ok=True)
+    shutil.copyfile(ANALYSIS_PARAMS, os.path.join(output, ANALYSIS_PARAMS))
 
     experiment_name = os.path.basename(
         os.path.realpath(os.path.basename(args.imgstore_folder.rstrip("/")))
@@ -93,7 +98,7 @@ def main(args=None, ap=None):
     plotting_params.ld_annotation = args.ld_annotation
     
     
-    dt_raw, dt_sleep, dt_binned, dt_ethogram = process_data(velocities, chunk_metadata, analysis_params, plotting_params)
+    dt_raw, dt_sleep, dt_binned, dt_ethogram = process_data(tr.s, velocities, chunk_metadata, analysis_params, plotting_params)
     
     # make and save plots and data
     fig1 = sleep_plot(dt_binned,plotting_params=plotting_params)
