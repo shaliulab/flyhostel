@@ -29,7 +29,38 @@ def sleep_annotation(data, analysis_params):
     
     dt_sleep["moving"] = (data["velocity"] > analysis_params.velocity_correction_coef)
     dt_sleep["window_number"] = np.arange(data.shape[0])
-    rle = zeitgeber.rle.encode((~dt_sleep["moving"]).tolist())
+    rle = zeitgeber.rle.encode((dt_sleep["moving"]).tolist())
+
+    dt_sleep["brief_awakening"] =  list(
+        itertools.chain(
+            *[
+                # its asleep if
+                # 1. it is not moving (x[0])
+                # 2. if the length of the not moving state (x[1]) is >= the ratio between
+                # min_time_immobile and time_window_length (i.e. the minimum number of windows)
+                [
+                    moving
+                    and duration
+                    <= (
+                        analysis_params.max_brief_awakening
+                        / analysis_params.time_window_length
+                    ),
+                ]
+                * duration
+                for moving, duration in rle
+            ]
+        )
+    )
+
+
+    dt_sleep["moving_and_not_in_brief_awakening"] = np.bitwise_and(dt_sleep["moving"], ~np.bitwise_and(dt_sleep["brief_awakening"], dt_sleep["moving"]))
+
+    # Activate this line to enable brief awakenings
+    rle = zeitgeber.rle.encode((~dt_sleep["moving_and_not_in_brief_awakening"]).tolist()) 
+    # Activate this line to disable brief awakenings
+    # rle = zeitgeber.rle.encode((~dt_sleep["moving"]).tolist()) 
+
+
     dt_sleep["asleep"] = list(
         itertools.chain(
             *[
@@ -38,18 +69,18 @@ def sleep_annotation(data, analysis_params):
                 # 2. if the length of the not moving state (x[1]) is >= the ratio between
                 # min_time_immobile and time_window_length (i.e. the minimum number of windows)
                 [
-                    x[0]
-                    and x[1]
+                    not_moving == True
+                    and duration
                     >= (
                         analysis_params.min_time_immobile
                         / analysis_params.time_window_length
                     ),
                 ]
-                * x[1]
-                for x in rle
+                * duration
+                for not_moving, duration in rle
             ]
         )
-    )
+    )    
 
 
     dt_sleep["t"] = data["t_round"].tolist()

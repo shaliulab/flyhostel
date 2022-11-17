@@ -19,9 +19,9 @@ except Exception as error:
 import flyhostel.quantification.bin
 import flyhostel.computer_vision.bin
 import flyhostel.quantification.modelling.bin
+import flyhostel.data.bin.download
 import flyhostel.data.bin.df
 import flyhostel.data.bin.copy
-import flyhostel.data.bin.download
 
 def get_parser():
     ap = argparse.ArgumentParser(

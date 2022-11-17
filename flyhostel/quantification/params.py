@@ -20,6 +20,7 @@ AnalysisParams = recordtype(
         "min_time_immobile",
         "summary_time_window",
         "sumary_FUN",
+        "max_brief_awakening",
         "reference_hour",
         "offset",
     ],
@@ -37,6 +38,8 @@ PlottingParams = recordtype(
     ],
 )
 
+ANALYSIS_PARAMS="analysis_params.yaml"
+
 
 def get_analysis_params(store_metadata):
 
@@ -52,10 +55,10 @@ def get_analysis_params(store_metadata):
     )
 
     try:
-        with open("./analysis_params.yaml", "r") as filehandle:
+        with open(ANALYSIS_PARAMS, "r") as filehandle:
             data = yaml.load(filehandle, yaml.SafeLoader)
     except:
-        logger.warning("No analysis_params.yaml detected. Using defaults")
+        logger.warning(f"No {ANALYSIS_PARAMS} detected. Using defaults")
         data = {}
 
     time_window_length = data.get("TIME_WINDOW_LENGTH", DEFAULT_TIME_WINDOW_LENGTH)
@@ -63,6 +66,7 @@ def get_analysis_params(store_metadata):
     min_time_immobile = data.get("MIN_TIME_IMMOBILE", DEFAULT_MIN_TIME_IMMOBILE)
     summary_time_window = data.get("SUMMARY_TIME_WINDOW", DEFAULT_SUMMARY_TIME_WINDOW)
     reference_hour = data.get("REFERENCE_HOUR", DEFAULT_REFERENCE_HOUR)
+    max_brief_awakening = data.get("MAX_BRIEF_AWAKENING", DEFAULT_MAX_BRIEF_AWAKENING)
     offset = store_hour_start - reference_hour
     offset *= 3600
     summary_FUN = data.get("summary_FUN", "mean")
@@ -73,6 +77,7 @@ def get_analysis_params(store_metadata):
         min_time_immobile,
         summary_time_window,
         summary_FUN,
+        max_brief_awakening,
         reference_hour,
         offset,
     )
