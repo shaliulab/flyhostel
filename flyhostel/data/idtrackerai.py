@@ -15,8 +15,8 @@ from .csvtools import read_csv_data
 
 logger = logging.getLogger(__name__)
 
-def copy_idtrackerai_data(imgstore_folder, analysis_folder, interval=None, overwrite=True):
-    trajectories_paths = get_trajectory_files(analysis_folder)
+def copy_idtrackerai_data(imgstore_folder, analysis_folder, allow_wo_gaps=True, interval=None, overwrite=True):
+    trajectories_paths = get_trajectory_files(analysis_folder, allow_wo_gaps=allow_wo_gaps)
     if interval is not None:
         sessions = [f"session_{str(chunk).zfill(6)}" for chunk in range(*interval)]
         files = []
@@ -83,7 +83,6 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
         )
         
     tr_raw = copy.deepcopy(tr)
-    # import ipdb; ipdb.set_trace()
     tr = pad_beginning_so_always_referenced_to_record_start(tr, missing_timestamps)
 
 
@@ -105,8 +104,11 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
         # imgstore_folder, chunk_numbers=chunks
     )
     if not tr.s.shape[0] == len(chunk_metadata[0]):
-        import ipdb; ipdb.set_trace()
-     
+        min_chunk = min(chunks)
+        max_chunk = max(chunks)
+        target = set(list(range(min_chunk, max_chunk+1)))
+        missing = sorted(list(target-set(chunks)))
+        raise ValueError(f"Missing data for chunks {missing}")
+
     store_metadata["chunks"] = chunks
-    # import ipdb; ipdb.set_trace()
     return tr, velocities, chunks, store_metadata, chunk_metadata
