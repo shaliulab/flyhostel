@@ -81,7 +81,7 @@ def main(args=None, ap=None):
         os.path.realpath(os.path.basename(args.imgstore_folder.rstrip("/")))
     )
 
-    tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, interval, source=args.source, interpolate_nans=args.interpolate_nans)
+    tr, velocities, chunks, store_metadata, chunk_metadata = read_data(args.imgstore_folder, interval, source=args.source, interpolate_nans=args.interpolate_nans, n_jobs=args.n_jobs)
 
     if getattr(tr, "concatenation", None) is not None: 
         np.savetxt(os.path.join(output, f"{os.path.basename(os.path.realpath(args.imgstore_folder))}_concatenation.csv"), tr.concatenation, fmt="%1.0f")

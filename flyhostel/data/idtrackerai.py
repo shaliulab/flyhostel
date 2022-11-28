@@ -48,7 +48,7 @@ def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None, **kwarg
 
 
 
-def read_data(imgstore_folder, interval, interpolate_nans=False, source="trajectories"):
+def read_data(imgstore_folder, interval, interpolate_nans=False, source="trajectories", n_jobs=1):
 
     store_metadata = read_store_metadata(
         imgstore_folder
@@ -62,6 +62,7 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
             interval=interval,
             pixels_per_cm=pixels_per_cm,
             interpolate_nans=interpolate_nans
+            n_jobs=n_jobs
         )
 
     elif source=="blobs":
@@ -72,7 +73,8 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
             imgstore_folder,
             interval=interval,
             pixels_per_cm=pixels_per_cm,
-            interpolate_nans=interpolate_nans
+            interpolate_nans=interpolate_nans,
+            n_jobs=n_jobs
         )
 
     elif source=="csv":

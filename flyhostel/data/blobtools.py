@@ -13,8 +13,39 @@ from feed_integration.idtrackerai.paths import blobs2trajectories
 from trajectorytools.trajectories import import_idtrackerai_dict
 
 logger = logging.getLogger(__name__)
+
+def read_blobs_collection(blobs_path, index, number_of_animals)
+   fts = index.get_chunk_metadata(chunk)["frame_number"]
+
+   if chunk in missing_chunks:
+       warnings.warn(f"Blobs for chunk {chunk} not found")
+       assert number_of_animals == 1
+       trajectory = np.array([[
+           np.nan, np.nan
+       ]] * len(fts)).reshape((-1, number_of_animals, 2))
+
+   else:
+       trajectory = blobs2trajectories(
+           blobs_path,
+           number_of_animals
+       )["trajectories"]
+   
+   
+   # frame_times_all.append(fts)
+   missing_last_frames =len(fts) -  trajectory.shape[0]
+   if missing_last_frames != 0: 
+       logger.warning(f"Blobs missing at the end of chunk {chunk}")
+       for _ in range(missing_last_frames):
+           trajectory=np.vstack([
+               trajectory,
+               trajectory[-1:]
+           ])
+   return trajectory
+       
+
+
     
-def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
+def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **kwargs):
     """
     """
     # import ipdb; ipdb.set_trace()
@@ -54,37 +85,17 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
     missing_timestamps = np.array([row[0] for row in missing_frame_times]) / 1000 # ms to s
 
 
-    trajectories = []
-    # frame_times_all = []
-    for i, chunk in enumerate(chunks):
-        blobs_path = blob_collections[i]
-        fts = store._index.get_chunk_metadata(chunk)["frame_number"]
+    trajectories=joblib.Parallel(n_jobs=n_jobs)(
+        joblib.delayed(read_blobs_collection)(
+            blob_collections[i], store._index, video.user_defined_parameters["number_of_animals"]
+        )
+        for i, chunk in enumerate(chunks)
+    )
 
-        if chunk in missing_chunks:
-            warnings.warn(f"Blobs for chunk {chunk} not found")
-            assert number_of_animals == 1
-            trajectory = np.array([[
-                np.nan, np.nan
-            ]] * len(fts)).reshape((-1, number_of_animals, 2))
-
-        else:
-            trajectory = blobs2trajectories(
-                blobs_path,
-                video.user_defined_parameters["number_of_animals"]
-            )["trajectories"]
-        
-        
-        # frame_times_all.append(fts)
-        missing_last_frames =len(fts) -  trajectory.shape[0]
-        if missing_last_frames != 0: 
-            logger.warning(f"Blobs missing at the end of chunk {chunk}")
-            for _ in range(missing_last_frames):
-                trajectory=np.vstack([
-                    trajectory,
-                    trajectory[-1:]
-                ])
-            
-        trajectories.append(trajectory)
+    #for i, chunk in enumerate(chunks):
+    #    blobs_path = blob_collections[i]
+    #    trajectory=read_blobs_collection(blobs_path, store._index, video.user_defined_parameters["number_of_animals"])
+    #    trajectories.append(trajectory)
 
     trajectories = np.vstack(trajectories)
     # frame_times_all = np.stack(frame_times_all)
