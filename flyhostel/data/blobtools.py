@@ -14,7 +14,7 @@ from trajectorytools.trajectories import import_idtrackerai_dict
 
 logger = logging.getLogger(__name__)
 
-def read_blobs_collection(blobs_path, index, number_of_animals)
+def read_blobs_collection(blobs_path, index, number_of_animals):
    fts = index.get_chunk_metadata(chunk)["frame_number"]
 
    if chunk in missing_chunks:

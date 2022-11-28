@@ -61,7 +61,7 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
             imgstore_folder,
             interval=interval,
             pixels_per_cm=pixels_per_cm,
-            interpolate_nans=interpolate_nans
+            interpolate_nans=interpolate_nans,
             n_jobs=n_jobs
         )
 
