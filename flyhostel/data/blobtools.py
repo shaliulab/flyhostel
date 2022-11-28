@@ -3,6 +3,7 @@ import logging
 import re
 import glob
 import warnings
+import joblib
 
 import numpy as np
 from imgstore.interface import VideoCapture
