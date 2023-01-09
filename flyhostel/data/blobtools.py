@@ -50,35 +50,6 @@ def read_blobs_collection(blobs_path, chunk, store_dir, number_of_animals, missi
            ])
 
    return trajectory
-=======
-def read_blobs_collection(blobs_path, chunk, index, number_of_animals):
-   
-    fts = index.get_chunk_metadata(chunk)["frame_number"]
-    warnings.warn(f"Blobs for chunk {chunk} not found")
-    assert number_of_animals == 1
-    trajectory = np.array([[
-        np.nan, np.nan
-    ]] * len(fts)).reshape((-1, number_of_animals, 2))
-
-
-    trajectory = blobs2trajectories(
-        blobs_path,
-        number_of_animals
-    )["trajectories"]
-   
-   
-    # frame_times_all.append(fts)
-    missing_last_frames =len(fts) -  trajectory.shape[0]
-    if missing_last_frames != 0: 
-        logger.warning(f"Blobs missing at the end of chunk {chunk}")
-        for _ in range(missing_last_frames):
-            trajectory=np.vstack([
-                trajectory,
-                trajectory[-1:]
-            ])
-    return trajectory
->>>>>>> 70766ca8992ed8b3e3af3c121995f2597e507125
-       
 
 
     
@@ -123,14 +94,10 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **k
 
     trajectories=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(read_blobs_collection)(
-<<<<<<< HEAD
             blob_collections[i], chunk,
             store._basedir,
             video.user_defined_parameters["number_of_animals"],
             missing_chunks
-=======
-            blob_collections[i], chunk, store._index, video.user_defined_parameters["number_of_animals"]
->>>>>>> 70766ca8992ed8b3e3af3c121995f2597e507125
         )
         for i, chunk in enumerate(chunks)
     )
