@@ -4,6 +4,7 @@ import re
 import glob
 import warnings
 import joblib
+import sqlite3
 
 import numpy as np
 from imgstore.interface import VideoCapture
@@ -15,9 +16,15 @@ from trajectorytools.trajectories import import_idtrackerai_dict
 
 logger = logging.getLogger(__name__)
 
-def read_blobs_collection(blobs_path, index, number_of_animals):
-   fts = index.get_chunk_metadata(chunk)["frame_number"]
+def read_blobs_collection(blobs_path, chunk, store_dir, number_of_animals, missing_chunks):
 
+   index_file = os.path.join(store_dir, "index.db")
+   db = sqlite3.connect(index_file, check_same_thread=False)
+   cur=db.cursor()
+   cur.execute(f"SELECT frame_number FROM frames WHERE chunk={chunk};")
+   fts = [e[0] for e in cur.fetchall()]
+   db.close()
+   
    if chunk in missing_chunks:
        warnings.warn(f"Blobs for chunk {chunk} not found")
        assert number_of_animals == 1
@@ -41,6 +48,7 @@ def read_blobs_collection(blobs_path, index, number_of_animals):
                trajectory,
                trajectory[-1:]
            ])
+
    return trajectory
        
 
@@ -49,7 +57,6 @@ def read_blobs_collection(blobs_path, index, number_of_animals):
 def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **kwargs):
     """
     """
-    # import ipdb; ipdb.set_trace()
 
     if interval is None:
         blob_collections = sorted(
@@ -88,18 +95,15 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **k
 
     trajectories=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(read_blobs_collection)(
-            blob_collections[i], store._index, video.user_defined_parameters["number_of_animals"]
+            blob_collections[i], chunk,
+            store._basedir,
+            video.user_defined_parameters["number_of_animals"],
+            missing_chunks
         )
         for i, chunk in enumerate(chunks)
     )
 
-    #for i, chunk in enumerate(chunks):
-    #    blobs_path = blob_collections[i]
-    #    trajectory=read_blobs_collection(blobs_path, store._index, video.user_defined_parameters["number_of_animals"])
-    #    trajectories.append(trajectory)
-
     trajectories = np.vstack(trajectories)
-    # frame_times_all = np.stack(frame_times_all)
     
     try:
         median_body_length_full_resolution=video.median_body_length_full_resolution
