@@ -15,6 +15,7 @@ def get_parser(ap=None):
     )
 
     ap.add_argument("--interval", nargs="+", type=int, required=False, default=None)
+    ap.add_argument("--n-jobs", dest="n_jobs", type=int, default=1, required=False)
 
     ap.add_argument("--output", dest="output", default=os.path.join(os.getcwd(), OUTPUT_FOLDER), type=str)
     ap.add_argument(

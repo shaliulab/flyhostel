@@ -3,7 +3,7 @@ import logging
 import re
 import glob
 import warnings
-
+import joblib
 import numpy as np
 from imgstore.interface import VideoCapture
 from imgstore.constants import STORE_MD_FILENAME
@@ -13,8 +13,38 @@ from feed_integration.idtrackerai.paths import blobs2trajectories
 from trajectorytools.trajectories import import_idtrackerai_dict
 
 logger = logging.getLogger(__name__)
+
+def read_blobs_collection(blobs_path, chunk, index, number_of_animals):
+   
+    fts = index.get_chunk_metadata(chunk)["frame_number"]
+    warnings.warn(f"Blobs for chunk {chunk} not found")
+    assert number_of_animals == 1
+    trajectory = np.array([[
+        np.nan, np.nan
+    ]] * len(fts)).reshape((-1, number_of_animals, 2))
+
+
+    trajectory = blobs2trajectories(
+        blobs_path,
+        number_of_animals
+    )["trajectories"]
+   
+   
+    # frame_times_all.append(fts)
+    missing_last_frames =len(fts) -  trajectory.shape[0]
+    if missing_last_frames != 0: 
+        logger.warning(f"Blobs missing at the end of chunk {chunk}")
+        for _ in range(missing_last_frames):
+            trajectory=np.vstack([
+                trajectory,
+                trajectory[-1:]
+            ])
+    return trajectory
+       
+
+
     
-def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
+def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **kwargs):
     """
     """
 
@@ -53,60 +83,12 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
     missing_timestamps = np.array([row[0] for row in missing_frame_times]) / 1000 # ms to s
 
 
-    trajectories = []
-    # frame_times_all = []
-    for i, chunk in enumerate(chunks):
-
-        blobs_path = blob_collections[i]
-        session_folder=os.path.dirname(os.path.dirname(blobs_path))
-        
-        video_path = os.path.join(session_folder, "video_object.npy")
-        if not os.path.exists(video_path):
-            warnings.warn(f"Chunk {chunk} not available")
-            trajectory = np.zeros((int(store._metadata["chunksize"]), number_of_animals, 2))
-            trajectories.append(trajectory)
-            continue
-        
-        video=np.load(video_path, allow_pickle=True).item()
-        tr_path = os.path.join("idtrackerai", video.session_folder, "trajectories", "trajectories.npy")
-        
-        if os.path.exists(tr_path):
-            trajectories.append(np.load(tr_path, allow_pickle=True).item()["trajectories"])
-            continue
-
-        fts = store._index.get_chunk_metadata(chunk)["frame_number"]
-
-        if chunk in missing_chunks:
-            warnings.warn(f"Blobs for chunk {chunk} not found")
-            assert number_of_animals == 1
-            trajectory = np.array([[
-                np.nan, np.nan
-            ]] * len(fts)).reshape((-1, number_of_animals, 2))
-
-        else:
-            trajectory = blobs2trajectories(
-                blobs_path,
-                video.user_defined_parameters["number_of_animals"]
-            )["trajectories"]
-        
-        
-        # frame_times_all.append(fts)
-        missing_last_frames =len(fts) -  trajectory.shape[0]
-        if missing_last_frames != 0: 
-            logger.warning(f"Blobs missing at the end of chunk {chunk}")
-            for _ in range(missing_last_frames):
-                trajectory=np.vstack([
-                    trajectory,
-                    trajectory[-1:]
-                ])
-            
-        trajectories.append(trajectory)
-        print(tr_path)
-        os.makedirs(os.path.dirname(tr_path), exist_ok=True)
-        np.save(tr_path,
-                {"trajectories": trajectory, "chunk": chunk,
-                 "frames_per_second": video.frames_per_second, "body_length": video.median_body_length,
-                 })
+    trajectories=joblib.Parallel(n_jobs=n_jobs)(
+        joblib.delayed(read_blobs_collection)(
+            blob_collections[i], chunk, store._index, video.user_defined_parameters["number_of_animals"]
+        )
+        for i, chunk in enumerate(chunks)
+    )
 
     trajectories = np.vstack(trajectories)
     # frame_times_all = np.stack(frame_times_all)
