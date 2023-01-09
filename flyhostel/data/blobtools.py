@@ -5,8 +5,8 @@ import glob
 import warnings
 import joblib
 import sqlite3
-
 import numpy as np
+
 from imgstore.interface import VideoCapture
 from imgstore.constants import STORE_MD_FILENAME
 from idtrackerai.list_of_blobs import ListOfBlobs
@@ -50,6 +50,34 @@ def read_blobs_collection(blobs_path, chunk, store_dir, number_of_animals, missi
            ])
 
    return trajectory
+=======
+def read_blobs_collection(blobs_path, chunk, index, number_of_animals):
+   
+    fts = index.get_chunk_metadata(chunk)["frame_number"]
+    warnings.warn(f"Blobs for chunk {chunk} not found")
+    assert number_of_animals == 1
+    trajectory = np.array([[
+        np.nan, np.nan
+    ]] * len(fts)).reshape((-1, number_of_animals, 2))
+
+
+    trajectory = blobs2trajectories(
+        blobs_path,
+        number_of_animals
+    )["trajectories"]
+   
+   
+    # frame_times_all.append(fts)
+    missing_last_frames =len(fts) -  trajectory.shape[0]
+    if missing_last_frames != 0: 
+        logger.warning(f"Blobs missing at the end of chunk {chunk}")
+        for _ in range(missing_last_frames):
+            trajectory=np.vstack([
+                trajectory,
+                trajectory[-1:]
+            ])
+    return trajectory
+>>>>>>> 70766ca8992ed8b3e3af3c121995f2597e507125
        
 
 
@@ -78,7 +106,6 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **k
             missing_chunks.append(chunk)
 
     session_folder=os.path.dirname(os.path.dirname(blob_collections[0]))
-
     video=np.load(os.path.join(session_folder, "video_object.npy"), allow_pickle=True).item()
     number_of_animals=video._user_defined_parameters["number_of_animals"]
 
@@ -88,6 +115,7 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **k
     
     store=VideoCapture(os.path.join(imgstore_folder, STORE_MD_FILENAME), chunk=chunks[0])
     frame_times = store._index.get_timestamps(chunks)
+    
     timestamps = np.array([row[0] for row in frame_times]) / 1000 # ms to s
     missing_frame_times = store._index.get_timestamps(list(range(chunks[0])))
     missing_timestamps = np.array([row[0] for row in missing_frame_times]) / 1000 # ms to s
@@ -95,10 +123,14 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **k
 
     trajectories=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(read_blobs_collection)(
+<<<<<<< HEAD
             blob_collections[i], chunk,
             store._basedir,
             video.user_defined_parameters["number_of_animals"],
             missing_chunks
+=======
+            blob_collections[i], chunk, store._index, video.user_defined_parameters["number_of_animals"]
+>>>>>>> 70766ca8992ed8b3e3af3c121995f2597e507125
         )
         for i, chunk in enumerate(chunks)
     )
@@ -109,7 +141,7 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **k
         median_body_length_full_resolution=video.median_body_length_full_resolution
     except:
         logger.debug("Video has not defined median_body_length_full_resolution")
-        list_of_blobs = ListOfBlobs.load(blob_collections[0])
+        list_of_blobs = ListOfBlobs.load(blob_collections[i])
         median_body_length_full_resolution=compute_model_area_and_body_length(list_of_blobs, video.user_defined_parameters["number_of_animals"])[1]
 
     traj_dict = {
