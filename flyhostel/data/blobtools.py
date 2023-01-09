@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
     """
     """
-    # import ipdb; ipdb.set_trace()
 
     if interval is None:
         blob_collections = sorted(
@@ -39,7 +38,6 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
             missing_chunks.append(chunk)
 
     session_folder=os.path.dirname(os.path.dirname(blob_collections[0]))
-
     video=np.load(os.path.join(session_folder, "video_object.npy"), allow_pickle=True).item()
     number_of_animals=video._user_defined_parameters["number_of_animals"]
 
@@ -49,6 +47,7 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
     
     store=VideoCapture(os.path.join(imgstore_folder, STORE_MD_FILENAME), chunk=chunks[0])
     frame_times = store._index.get_timestamps(chunks)
+    
     timestamps = np.array([row[0] for row in frame_times]) / 1000 # ms to s
     missing_frame_times = store._index.get_timestamps(list(range(chunks[0])))
     missing_timestamps = np.array([row[0] for row in missing_frame_times]) / 1000 # ms to s
@@ -57,7 +56,24 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
     trajectories = []
     # frame_times_all = []
     for i, chunk in enumerate(chunks):
+
         blobs_path = blob_collections[i]
+        session_folder=os.path.dirname(os.path.dirname(blobs_path))
+        
+        video_path = os.path.join(session_folder, "video_object.npy")
+        if not os.path.exists(video_path):
+            warnings.warn(f"Chunk {chunk} not available")
+            trajectory = np.zeros((int(store._metadata["chunksize"]), number_of_animals, 2))
+            trajectories.append(trajectory)
+            continue
+        
+        video=np.load(video_path, allow_pickle=True).item()
+        tr_path = os.path.join("idtrackerai", video.session_folder, "trajectories", "trajectories.npy")
+        
+        if os.path.exists(tr_path):
+            trajectories.append(np.load(tr_path, allow_pickle=True).item()["trajectories"])
+            continue
+
         fts = store._index.get_chunk_metadata(chunk)["frame_number"]
 
         if chunk in missing_chunks:
@@ -85,6 +101,12 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
                 ])
             
         trajectories.append(trajectory)
+        print(tr_path)
+        os.makedirs(os.path.dirname(tr_path), exist_ok=True)
+        np.save(tr_path,
+                {"trajectories": trajectory, "chunk": chunk,
+                 "frames_per_second": video.frames_per_second, "body_length": video.median_body_length,
+                 })
 
     trajectories = np.vstack(trajectories)
     # frame_times_all = np.stack(frame_times_all)
@@ -93,7 +115,7 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
         median_body_length_full_resolution=video.median_body_length_full_resolution
     except:
         logger.debug("Video has not defined median_body_length_full_resolution")
-        list_of_blobs = ListOfBlobs.load(blob_collections[0])
+        list_of_blobs = ListOfBlobs.load(blob_collections[i])
         median_body_length_full_resolution=compute_model_area_and_body_length(list_of_blobs, video.user_defined_parameters["number_of_animals"])[1]
 
     traj_dict = {
