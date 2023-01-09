@@ -35,7 +35,8 @@ def read_blobs_collection(blobs_path, chunk, store_dir, number_of_animals, missi
    else:
        trajectory = blobs2trajectories(
            blobs_path,
-           number_of_animals
+           number_of_animals,
+           chunk=chunk,
        )["trajectories"]
    
    
