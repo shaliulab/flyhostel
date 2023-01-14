@@ -5,7 +5,7 @@ import yaml
 import datetime
 import logging
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import cv2
 import numpy as np
 
