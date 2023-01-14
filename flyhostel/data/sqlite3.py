@@ -32,11 +32,14 @@ class IdtrackeraiExporter:
 
         list_of_blobs = ListOfBlobs.load(self.build_blobs_collection(chunk))
 
-        for blobs_in_frame in tqdm(list_of_blobs.blobs_in_video, desc=f"Exporting chunk {chunk}"):
-            for blob in blobs_in_frame:
-                self.add_blob(dbfile, blob)
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
 
-    def add_blob(self, dbfile, blob):
+            for blobs_in_frame in tqdm(list_of_blobs.blobs_in_video, desc=f"Exporting chunk {chunk}"):
+                for blob in blobs_in_frame:
+                    self.add_blob(cur, blob)
+
+    def add_blob(self, cur, blob):
 
         frame_number = blob.frame_number
         blob_index = blob.blob_index
@@ -48,12 +51,10 @@ class IdtrackeraiExporter:
             identity = 0
 
 
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            command = "INSERT INTO ROI_0 (frame_number, blob_index, x, y, area, modified) VALUES(?, ?, ?, ?, ?, ?);"
-            cur.execute(command, [frame_number, blob_index, x, y, area, modified])
-            command = "INSERT INTO IDENTITY (frame_number, blob_index, identity) VALUES(?, ?, ?);"
-            cur.execute(command, [frame_number, blob_index, identity])
+        command = "INSERT INTO ROI_0 (frame_number, blob_index, x, y, area, modified) VALUES(?, ?, ?, ?, ?, ?);"
+        cur.execute(command, [frame_number, blob_index, x, y, area, modified])
+        command = "INSERT INTO IDENTITY (frame_number, blob_index, identity) VALUES(?, ?, ?);"
+        cur.execute(command, [frame_number, blob_index, identity])
 
 
 class SQLiteExporter(IdtrackeraiExporter):
