@@ -103,7 +103,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_roi_map_table(dbfile)
         self.init_var_map_table(dbfile)
         self.init_identity_table(dbfile)
-        self.init_roi_table(dbfile)
+        self.init_data(dbfile)
 
     @staticmethod
     def build_blobs_collection(self, chunk):
