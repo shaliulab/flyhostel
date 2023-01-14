@@ -4,6 +4,8 @@ import sqlite3
 import yaml
 import datetime
 import logging
+
+from tqdm import tqdm
 import cv2
 import numpy as np
 
@@ -30,7 +32,7 @@ class IdtrackeraiExporter:
 
         list_of_blobs = ListOfBlobs.load(self.build_blobs_collection(chunk))
 
-        for blobs_in_frame in list_of_blobs.blobs_in_video:
+        for blobs_in_frame in tqdm(list_of_blobs.blobs_in_video, desc=f"Exporting chunk {chunk}"):
             for blob in blobs_in_frame:
                 self.add_blob(dbfile, blob)
 
