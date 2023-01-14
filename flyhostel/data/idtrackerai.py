@@ -67,7 +67,8 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
 
     elif source=="blobs":
 
-        assert "1X" in imgstore_folder
+        if not "1X" in imgstore_folder:
+            logger.warning("Loading a multi-fly dataset from blobs. Identity maintenance is not guaranteed")
 
         (tr, chunks), (timestamps, missing_timestamps) = read_blobs_data(
             imgstore_folder,

@@ -78,7 +78,8 @@ def load_trajectories(trajectories_paths, interval, **kwargs):
 def pad_beginning_so_always_referenced_to_record_start(tr, missing_timestamps):
     
     number_of_points_missing = len(missing_timestamps)
-    tr.pad_at_beginning(number_of_points_missing)
+    if number_of_points_missing > 0:
+        tr.pad_at_beginning(number_of_points_missing)
     tr._number_of_points_missing = number_of_points_missing
     return tr
 
