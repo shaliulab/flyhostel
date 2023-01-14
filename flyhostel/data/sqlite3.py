@@ -141,7 +141,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             for val in values:
 
                 cur.execute(
-                    f"INSERT INTO METADATA (field, value) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+                    f"INSERT INTO METADATA (field, value) VALUES (?, ?);",
                     val
                 )
 
