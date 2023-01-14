@@ -97,11 +97,11 @@ class SQLiteExporter(IdtrackeraiExporter):
     
     def init_tables(self, dbfile):
 
-        self.init_var_map_table(dbfile)
         self.init_metadata_table(dbfile)
         # self.init_start_events_table()
         # self.init_qc_table()
         self.init_roi_map_table(dbfile)
+        self.init_var_map_table(dbfile)
         self.init_identity_table(dbfile)
         self.init_roi_table(dbfile)
 
@@ -114,7 +114,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_metadata_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE METADATA field char(100), value varchar(4000);")
+            cur.execute(f"CREATE TABLE METADATA (field char(100), value varchar(4000));")
 
     def write_metadata_table(self, dbfile):
 
@@ -149,7 +149,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_roi_map_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE ROI_MAP roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), mask longblob;")
+            cur.execute(f"CREATE TABLE ROI_MAP (roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), mask longblob);")
 
 
     def write_roi_map_table(self, dbfile):
@@ -169,7 +169,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_var_map_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE VAR_MAP var_name char(100), sql_type char(100), functional_type char(100);")
+            cur.execute(f"CREATE TABLE VAR_MAP (var_name char(100), sql_type char(100), functional_type char(100));")
 
 
     def write_var_map_table(self, dbfile):
@@ -195,5 +195,5 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_identity_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE IDENTITY frame_number int(11), blob_index int(2), identity int(2);")
+            cur.execute(f"CREATE TABLE IDENTITY (frame_number int(11), blob_index int(2), identity int(2));")
 
