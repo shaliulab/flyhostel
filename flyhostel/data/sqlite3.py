@@ -86,7 +86,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     
         for chunk in chunks:
             logger.debug(f"Exporting chunk {chunk}")
-            super(self, SQLiteExporter).write_data(dbfile, chunk)
+            super(SQLiteExporter, self).write_data(dbfile, chunk)
 
 
     @property
