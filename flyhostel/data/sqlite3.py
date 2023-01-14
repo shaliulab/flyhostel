@@ -3,7 +3,7 @@ import warnings
 import sqlite3
 import yaml
 import datetime
-
+import logging
 import cv2
 import numpy as np
 
@@ -11,6 +11,7 @@ from idtrackerai.list_of_blobs import ListOfBlobs
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from imgstore.constants import STORE_MD_FILENAME
 
+logger = logging.getLogger(__name__)
 
 class IdtrackeraiExporter:
 
@@ -65,13 +66,27 @@ class SQLiteExporter(IdtrackeraiExporter):
         self._number_of_animals = None
 
 
-    def export(self, dbfile, mode=["w", "a"]):
+    def export(self, dbfile, mode=["w", "a"], **kwargs):
         assert dbfile.endswith(".db")
         if os.path.exists(dbfile):
             if mode == "w":
                 warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
             elif mode == "a":
                 warnings.warn(f"{dbfile} exists. Appending (mode=a)")
+
+
+        self.init_tables(dbfile)
+        self.write_metadata_table(dbfile)
+        self.write_roi_map_table(dbfile)
+        self.write_var_map_table(dbfile)
+        self.write_data(dbfile, **kwargs)
+
+
+    def write_data(self, dbfile, chunks):
+    
+        for chunk in chunks:
+            logger.debug(f"Exporting chunk {chunk}")
+            super(self, SQLiteExporter).write_data(dbfile, chunk)
 
 
     @property
