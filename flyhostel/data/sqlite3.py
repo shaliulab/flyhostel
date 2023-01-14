@@ -22,7 +22,7 @@ class IdtrackeraiExporter:
             cur = conn.cursor()
             table_name = "ROI_0"
 
-            cols_list = ["frame_number int(11)", "blob_index int(2)", "x real(10)", "area int(11)", "y real(10)", "modified int(1)"]
+            cols_list = ["frame_number int(11)", "in_frame_index int(2)", "x real(10)", "area int(11)", "y real(10)", "modified int(1)"]
             
             formated_cols_names = ", ".join(cols_list)
             command = "CREATE TABLE %s (%s)" % (table_name ,formated_cols_names)
@@ -42,7 +42,7 @@ class IdtrackeraiExporter:
     def add_blob(self, cur, blob):
 
         frame_number = blob.frame_number
-        blob_index = blob.blob_index
+        in_frame_index = blob.in_frame_index
         x, y = blob.centroid
         area = int(round(blob.area))
         modified = blob.modified
@@ -51,10 +51,10 @@ class IdtrackeraiExporter:
             identity = 0
 
 
-        command = "INSERT INTO ROI_0 (frame_number, blob_index, x, y, area, modified) VALUES(?, ?, ?, ?, ?, ?);"
-        cur.execute(command, [frame_number, blob_index, x, y, area, modified])
-        command = "INSERT INTO IDENTITY (frame_number, blob_index, identity) VALUES(?, ?, ?);"
-        cur.execute(command, [frame_number, blob_index, identity])
+        command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, area, modified) VALUES(?, ?, ?, ?, ?, ?);"
+        cur.execute(command, [frame_number, in_frame_index, x, y, area, modified])
+        command = "INSERT INTO IDENTITY (frame_number, in_frame_index, identity) VALUES(?, ?, ?);"
+        cur.execute(command, [frame_number, in_frame_index, identity])
 
 
 class SQLiteExporter(IdtrackeraiExporter):
@@ -121,7 +121,8 @@ class SQLiteExporter(IdtrackeraiExporter):
     def write_metadata_table(self, dbfile):
 
         machine_id = "0" * 32
-        machine_name = ""
+        machine_name = os.path.basename(os.path.dirname(os.path.dirname(self._basedir)))
+
         created_utc=self._store_metadata["created_utc"].split(".")[0]
         date_time = datetime.datetime.strptime(created_utc, "%Y-%m-%dT%H:%M:%S").timestamp()
 
@@ -131,11 +132,15 @@ class SQLiteExporter(IdtrackeraiExporter):
             ("machine_name", machine_name),
             ("date_time", date_time),
             ("frame_width", self._store_metadata["imgshape"][1]),
+            ("framerate", self._store_metadata["framerate"]),
+            ("chunksize", self._store_metadata["chunksize"]),
+            ("pixels_per_cm", self._store_metadata.get("pixels_per_cm", None)),
             ("version", self._store_metadata["imgshape"][0]),
             ("experimental_info", ""),
             ("selected_options", ""),
             # TODO
             ("ethoscope_metadata", "")
+            ("camera_metadata")
         ]
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -151,7 +156,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_roi_map_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE ROI_MAP (roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), mask longblob);")
+            cur.execute(f"CREATE TABLE ROI_MAP (roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), roi longblob);")
 
 
     def write_roi_map_table(self, dbfile):
@@ -163,8 +168,8 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur = conn.cursor()
             for i in range(1, self.number_of_animals+1):
                 cur.execute(
-                    f"INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, mask) VALUES (?, ?, ?, ?, ?, ?, ?);",
-                    [i, i, x, y, w, h, roi]
+                    f"INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, roi) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                    [i, i, x, y, w, h, sqlite3.Binary(roi)]
                 )
 
     # VAR_MAP
@@ -180,7 +185,7 @@ class SQLiteExporter(IdtrackeraiExporter):
 
             values = [
                 ("frame_number", "INT", "count"),
-                ("blob_index", "INT", "count"),
+                ("in_frame_index", "INT", "count"),
                 ("x", "REAL", "distance"),
                 ("y", "REAL", "distance"),
                 ("area", "INT", "count"),
@@ -197,5 +202,5 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_identity_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE IDENTITY (frame_number int(11), blob_index int(2), identity int(2));")
+            cur.execute(f"CREATE TABLE IDENTITY (frame_number int(11), in_frame_index int(2), identity int(2));")
 
