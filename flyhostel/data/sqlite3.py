@@ -120,7 +120,7 @@ class SQLiteExporter(IdtrackeraiExporter):
 
         machine_id = "0" * 32
         machine_name = ""
-        created_utc=self.store_metadata["created_utc"].split(".")[0]
+        created_utc=self._store_metadata["created_utc"].split(".")[0]
         date_time = datetime.datetime.strptime(created_utc, "%Y-%m-%dT%H:%M:%S").timestamp()
 
 
