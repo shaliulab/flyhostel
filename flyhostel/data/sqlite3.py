@@ -14,8 +14,8 @@ from imgstore.constants import STORE_MD_FILENAME
 
 class IdtrackeraiExporter:
 
-    def init_data(self):
-        with sqlite3.connect(self._output, check_same_thread=False) as conn:
+    def init_data(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor(buffered=True)
             table_name = "ROI_0"
 
@@ -25,15 +25,15 @@ class IdtrackeraiExporter:
             command = "CREATE TABLE %s (%s)" % (table_name ,formated_cols_names)
             cur.execute(command)
 
-    def write_data(self, chunk):
+    def write_data(self, dbfile, chunk):
 
         list_of_blobs = ListOfBlobs.load(self.build_blobs_collection(chunk))
 
         for blobs_in_frame in list_of_blobs.blobs_in_video:
             for blob in blobs_in_frame:
-                self.add_blob(blob)
+                self.add_blob(dbfile, blob)
 
-    def add_blob(self, blob):
+    def add_blob(self, dbfile, blob):
 
         frame_number = blob.frame_number
         blob_index = blob.blob_index
@@ -45,7 +45,7 @@ class IdtrackeraiExporter:
             identity = 0
 
 
-        with sqlite3.connect(self._output, check_same_thread=False) as conn:
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor(buffered=True)
             command = "INSERT INTO ROI_0 (frame_number, blob_index, x, y, area, modified) VALUES(?, ?, ?, ?, ?, ?);"
             cur.execute(command, [frame_number, blob_index, x, y, area, modified])
@@ -55,22 +55,24 @@ class IdtrackeraiExporter:
 
 class SQLiteExporter(IdtrackeraiExporter):
 
-    def __init__(self, basedir, output, mode=["w", "a"]):
-
-        assert output.endswith(".db")
-        if os.path.exists(output):
-            if mode == "w":
-                warnings.warn(f"{output} exists. Overwriting (mode=w)")
-            elif mode == "a":
-                warnings.warn(f"{output} exists. Appending (mode=a)")
+    def __init__(self, basedir):
 
         self._basedir = os.path.realpath(basedir)
-        self._output = output
         self._store_metadata = _extract_store_metadata(os.path.join(self._basedir, STORE_MD_FILENAME)) 
         with open(os.path.join(self._basedir, f"{os.path.basename(self._basedir)}.conf"), "r") as filehandle:
             self._idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
 
         self._number_of_animals = None
+
+
+    def export(self, dbfile, mode=["w", "a"]):
+        assert dbfile.endswith(".db")
+        if os.path.exists(dbfile):
+            if mode == "w":
+                warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
+            elif mode == "a":
+                warnings.warn(f"{dbfile} exists. Appending (mode=a)")
+
 
     @property
     def number_of_animals(self):
@@ -78,15 +80,15 @@ class SQLiteExporter(IdtrackeraiExporter):
             self._number_of_animals = int(self._idtrackerai_conf["_number_of_animals"]["value"])
         return self._number_of_animals
     
-    def init_tables(self):
+    def init_tables(self, dbfile):
 
-        self.init_var_map_table()
-        self.init_metadata_table()
+        self.init_var_map_table(dbfile)
+        self.init_metadata_table(dbfile)
         # self.init_start_events_table()
         # self.init_qc_table()
-        self.init_roi_map_table()
-        self.init_identity_table()
-        self.init_roi_table()
+        self.init_roi_map_table(dbfile)
+        self.init_identity_table(dbfile)
+        self.init_roi_table(dbfile)
 
     @staticmethod
     def build_blobs_collection(self, chunk):
@@ -94,12 +96,12 @@ class SQLiteExporter(IdtrackeraiExporter):
 
 
     # METADATA
-    def init_metadata_table(self):
-        with sqlite3.connect(self._output, check_same_thread=False) as conn:
+    def init_metadata_table(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor(buffered=True)
             cur.execute(f"CREATE TABLE METADATA field char(100), value varchar(4000);")
 
-    def write_metadata_table(self):
+    def write_metadata_table(self, dbfile):
 
         machine_id = "0" * 32
         machine_name = ""
@@ -119,7 +121,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             ("ethoscope_metadata", "")
         ]
 
-        with sqlite3.connect(self._output, check_same_thread=False) as conn:
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor(buffered=True)
             for val in values:
 
@@ -129,18 +131,18 @@ class SQLiteExporter(IdtrackeraiExporter):
                 )
 
     # ROI_MAP
-    def init_roi_map_table(self):
-        with sqlite3.connect(self._output, check_same_thread=False) as conn:
+    def init_roi_map_table(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor(buffered=True)
             cur.execute(f"CREATE TABLE ROI_MAP roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), mask longblob;")
 
 
-    def write_roi_map_table(self):
+    def write_roi_map_table(self, dbfile):
 
         roi = np.array(eval(self._idtrackerai_conf["_roi"]["value"][0][0]))
 
         x, y, w, h = cv2.boundingRect(roi)
-        with sqlite3.connect(self._output, check_same_thread=False) as conn:
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor(buffered=True)
             for i in range(1, self.number_of_animals+1):
                 cur.execute(
@@ -149,14 +151,14 @@ class SQLiteExporter(IdtrackeraiExporter):
                 )
 
     # VAR_MAP
-    def init_var_map_table(self):
-        with sqlite3.connect(self._output, check_same_thread=False) as conn:
+    def init_var_map_table(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor(buffered=True)
             cur.execute(f"CREATE TABLE VAR_MAP var_name char(100), sql_type char(100), functional_type char(100);")
 
 
-    def write_var_map_table(self):
-       with sqlite3.connect(self._output, check_same_thread=False) as conn:
+    def write_var_map_table(self, dbfile):
+       with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor(buffered=True)
 
             values = [
@@ -175,8 +177,8 @@ class SQLiteExporter(IdtrackeraiExporter):
                 )
 
     # IDENTITY
-    def init_identity_table(self):
-        with sqlite3.connect(self._output, check_same_thread=False) as conn:
+    def init_identity_table(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor(buffered=True)
             cur.execute(f"CREATE TABLE IDENTITY frame_number int(11), blob_index int(2), identity int(2);")
 
