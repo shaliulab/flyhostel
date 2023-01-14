@@ -17,7 +17,7 @@ class IdtrackeraiExporter:
 
     def init_data(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor(buffered=True)
+            cur = conn.cursor()
             table_name = "ROI_0"
 
             cols_list = ["frame_number int(11)", "blob_index int(2)", "x real(10)", "area int(11)", "y real(10)", "modified int(1)"]
@@ -47,7 +47,7 @@ class IdtrackeraiExporter:
 
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor(buffered=True)
+            cur = conn.cursor()
             command = "INSERT INTO ROI_0 (frame_number, blob_index, x, y, area, modified) VALUES(?, ?, ?, ?, ?, ?);"
             cur.execute(command, [frame_number, blob_index, x, y, area, modified])
             command = "INSERT INTO IDENTITY (frame_number, blob_index, identity) VALUES(?, ?, ?);"
@@ -113,7 +113,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     # METADATA
     def init_metadata_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor(buffered=True)
+            cur = conn.cursor()
             cur.execute(f"CREATE TABLE METADATA field char(100), value varchar(4000);")
 
     def write_metadata_table(self, dbfile):
@@ -137,7 +137,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         ]
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor(buffered=True)
+            cur = conn.cursor()
             for val in values:
 
                 cur.execute(
@@ -148,7 +148,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     # ROI_MAP
     def init_roi_map_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor(buffered=True)
+            cur = conn.cursor()
             cur.execute(f"CREATE TABLE ROI_MAP roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), mask longblob;")
 
 
@@ -158,7 +158,7 @@ class SQLiteExporter(IdtrackeraiExporter):
 
         x, y, w, h = cv2.boundingRect(roi)
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor(buffered=True)
+            cur = conn.cursor()
             for i in range(1, self.number_of_animals+1):
                 cur.execute(
                     f"INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, mask) VALUES (?, ?, ?, ?, ?, ?, ?);",
@@ -168,13 +168,13 @@ class SQLiteExporter(IdtrackeraiExporter):
     # VAR_MAP
     def init_var_map_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor(buffered=True)
+            cur = conn.cursor()
             cur.execute(f"CREATE TABLE VAR_MAP var_name char(100), sql_type char(100), functional_type char(100);")
 
 
     def write_var_map_table(self, dbfile):
        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor(buffered=True)
+            cur = conn.cursor()
 
             values = [
                 ("frame_number", "INT", "count"),
@@ -194,6 +194,6 @@ class SQLiteExporter(IdtrackeraiExporter):
     # IDENTITY
     def init_identity_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor(buffered=True)
+            cur = conn.cursor()
             cur.execute(f"CREATE TABLE IDENTITY frame_number int(11), blob_index int(2), identity int(2);")
 
