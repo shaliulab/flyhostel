@@ -40,7 +40,7 @@ def read_blobs_collection(blobs_path, chunk, store_dir, number_of_animals, missi
    
    
    # frame_times_all.append(fts)
-   missing_last_frames =len(fts) -  trajectory.shape[0]
+   missing_last_frames=len(fts) -  trajectory.shape[0]
    if missing_last_frames != 0: 
        logger.warning(f"Blobs missing at the end of chunk {chunk}")
        for _ in range(missing_last_frames):
