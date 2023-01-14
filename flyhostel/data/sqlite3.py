@@ -105,7 +105,6 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_identity_table(dbfile)
         self.init_data(dbfile)
 
-    @staticmethod
     def build_blobs_collection(self, chunk):
         return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "blobs_collection.npy")
 
