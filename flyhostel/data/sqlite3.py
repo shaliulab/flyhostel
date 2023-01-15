@@ -85,6 +85,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             self._camera_metadata_path = matches[0]
         else:
             warnings.warn(f"Camera metadata (.pfs file) not found")
+            self._camera_metadata_path = None
 
             
         self._temp_path = tempfile.mktemp(prefix="flyhostel_", suffix=".jpg")
@@ -158,8 +159,12 @@ class SQLiteExporter(IdtrackeraiExporter):
             idtrackerai_conf_str = filehandle.read()
 
         
-        with open(self._camera_metadata_path, "r") as filehandle:
-            camera_metadata_str = filehandle.read()
+        if self._camera_metadata_path is not None and os.path.exists(self._camera_metadata_path):
+            with open(self._camera_metadata_path, "r") as filehandle:
+                camera_metadata_str = filehandle.read()
+        else:
+            camera_metadata_str=""
+
         
         ethoscope_metadata_path = os.path.join(self._basedir, "metadata.csv")
         if os.path.exists(ethoscope_metadata_path):
