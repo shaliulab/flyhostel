@@ -158,6 +158,36 @@ class SQLiteExporter(IdtrackeraiExporter):
                     val
                 )
 
+    def init_snapshot_table(self, dbfile):
+
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+
+            cur = conn.cursor()
+            cur.execute("CREATE TABLE IMG_SNAPSHOTS (frame_number int(11), img longblob)")
+
+    def write_snapshot_table(self, dbfile, chunks):
+
+        index_dbfile = os.path.join(self._basedir, "index.db")
+
+        with sqlite3.connect(index_dbfile, check_same_thread=False) as index_db:
+            index_cursor = index_db.cursor()
+
+            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                cur = conn.cursor()
+
+                for chunk in chunks:
+                    index_cursor.execute("SELECT frame_number FROM frames WHERE chunk = {chunk} AND frame_idx = 0;")
+                    frame_number = int(index_cursor.fetchone()[0])
+
+                    snapshot_path = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.png")
+                    arr=cv2.imread(snapshot_path)
+                    bstring = self.serialize_arr(arr, self._temp_path)
+
+                    cur.execute(
+                        "INSERT INTO IMG_SNAPSHOTS (frame_number, img) VALUES (?, ?)",
+                        (frame_number, bstring)
+                    )
+
     # ROI_MAP
     def init_roi_map_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -191,13 +221,13 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur = conn.cursor()
             cur.execute(
                 f"INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, mask) VALUES (?, ?, ?, ?, ?, ?, ?);",
-                [0, 0, x, y, w, h, mask]
+                (0, 0, x, y, w, h, mask)
             )
 
     def init_environment_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE ENVIRONMENT (frame_number smallint(6), camera_temperature real(6), temperature real(6), humidity real(6), light real(6));")
+            cur.execute(f"CREATE TABLE ENVIRONMENT (frame_number int(11), camera_temperature real(6), temperature real(6), humidity real(6), light real(6));")
 
 
     def write_environment_table(self, dbfile, chunks):
