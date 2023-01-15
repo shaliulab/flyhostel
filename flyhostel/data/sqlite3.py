@@ -6,6 +6,7 @@ import datetime
 import json
 import logging
 import tempfile
+import glob
 
 from tqdm.auto import tqdm
 import cv2
@@ -64,10 +65,15 @@ class SQLiteExporter(IdtrackeraiExporter):
     def __init__(self, basedir):
 
         self._basedir = os.path.realpath(basedir)
-        self._store_metadata = _extract_store_metadata(os.path.join(self._basedir, STORE_MD_FILENAME)) 
-        with open(os.path.join(self._basedir, f"{os.path.basename(self._basedir)}.conf"), "r") as filehandle:
+        
+        self._store_metadata_path = os.path.join(self._basedir, STORE_MD_FILENAME)
+        self._store_metadata = _extract_store_metadata(self._store_metadata_path) 
+        
+        self._idtrackerai_conf_path = os.path.join(self._basedir, f"{os.path.basename(self._basedir)}.conf")
+        with open(self._idtrackerai_conf_path, "r") as filehandle:
             self._idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
-            
+
+        self._camera_metadata_path = glob.glob(os.path.join(self._basedir, ".*pfs"))[0]
             
         self._temp_path = tempfile.mktemp(prefix="flyhostel_", suffix=".jpg")
         self._number_of_animals = None
@@ -136,6 +142,21 @@ class SQLiteExporter(IdtrackeraiExporter):
         date_time = datetime.datetime.strptime(created_utc, "%Y-%m-%dT%H:%M:%S").timestamp()
 
 
+        with open(self._idtrackerai_conf_path, "r") as filehandle:
+            idtrackerai_conf_str = filehandle.read()
+
+        
+        with open(self._camera_metadata_path, "r") as filehandle:
+            camera_metadata_str = filehandle.read()
+        
+        ethoscope_metadata_path = os.path.join(self._basedir, "metadata.csv")
+        if os.path.exists(ethoscope_metadata_path):
+            with open(ethoscope_metadata_path, "r") as filehandle:
+                ethoscope_metadata_str = filehandle.read()
+
+        else:
+            ethoscope_metadata_str = ""
+
         values = [
             ("machine_id", machine_id),
             ("machine_name", machine_name),
@@ -148,8 +169,9 @@ class SQLiteExporter(IdtrackeraiExporter):
             ("experimental_info", ""),
             ("selected_options", ""),
             # TODO
-            # ("ethoscope_metadata", "")
-            # ("camera_metadata", "")
+            ("ethoscope_metadata", ethoscope_metadata_str)
+            ("camera_metadata", camera_metadata_str)
+            ("idtrackerai_conf", idtrackerai_conf_str)
         ]
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -241,6 +263,11 @@ class SQLiteExporter(IdtrackeraiExporter):
             for chunk in chunks:
                 
                 extra_json = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.extra.json")
+                
+                if not os.path.exists(extra_json):
+                    warnings.warn(f"No environmental data available for chunk {chunk}")
+                    return
+
 
                 with open(extra_json, "r") as filehandle:
                     extra_data = json.load(filehandle)
