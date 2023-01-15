@@ -179,7 +179,7 @@ class SQLiteExporter(IdtrackeraiExporter):
                 cur = conn.cursor()
 
                 for chunk in chunks:
-                    index_cursor.execute("SELECT frame_number FROM frames WHERE chunk = {chunk} AND frame_idx = 0;")
+                    index_cursor.execute(f"SELECT frame_number FROM frames WHERE chunk = {chunk} AND frame_idx = 0;")
                     frame_number = int(index_cursor.fetchone()[0])
 
                     snapshot_path = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.png")
