@@ -22,6 +22,7 @@ import flyhostel.quantification.modelling.bin
 import flyhostel.data.bin.download
 import flyhostel.data.bin.df
 import flyhostel.data.bin.copy
+import flyhostel.data.bin.export
 
 def get_parser():
     ap = argparse.ArgumentParser(
@@ -126,7 +127,6 @@ def get_parser():
     )
     df_parser.set_defaults(func=flyhostel.data.bin.df.main)
 
-
     download_parser = subparsers.add_parser(
             "download",
             parents=[flyhostel.data.bin.download.get_parser()],
@@ -134,6 +134,15 @@ def get_parser():
             help="Transfer files from Dropbox to the local computer",
         )
     download_parser.set_defaults(func=flyhostel.data.bin.download.main)
+
+
+    export_parser = subparsers.add_parser(
+            "export",
+            parents=[flyhostel.data.bin.export.get_parser()],
+            add_help=False,
+            help="Export data to SQLite database",
+        )
+    export_parser.set_defaults(func=flyhostel.data.bin.export.main)
 
     return ap
 

@@ -327,3 +327,16 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur = conn.cursor()
             cur.execute(f"CREATE TABLE IDENTITY (frame_number int(11), in_frame_index int(2), identity int(2));")
 
+
+def export_dataset(metadata, chunks):
+
+    basedir = os.path.dirname(metadata)
+    dbfile_basename = "_".join(basedir.split(os.path.sep)[-3:]) + ".db"
+
+    dbfile = os.path.join(basedir, dbfile_basename)
+
+    if os.path.exists(dbfile):
+        warnings.warn(f"{dbfile} exists. Export cancelled")
+    else:
+        dataset = SQLiteExporter(basedir)
+        dataset.export(dbfile=dbfile, mode="w", chunks=chunks)
