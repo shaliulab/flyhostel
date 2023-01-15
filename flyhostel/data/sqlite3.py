@@ -84,6 +84,8 @@ class SQLiteExporter(IdtrackeraiExporter):
 
         self.init_tables(dbfile)
         self.write_metadata_table(dbfile)
+        self.write_snapshot_table(dbfile, **kwargs)
+
         self.write_roi_map_table(dbfile)
         self.write_environment_table(dbfile, **kwargs)
         self.write_var_map_table(dbfile)
@@ -108,6 +110,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_metadata_table(dbfile)
         # self.init_start_events_table()
         # self.init_qc_table()
+        self.init_snapshot_table(dbfile)
         self.init_roi_map_table(dbfile)
         self.init_environment_table(dbfile)
         self.init_var_map_table(dbfile)
