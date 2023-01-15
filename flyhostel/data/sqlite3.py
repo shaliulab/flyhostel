@@ -85,7 +85,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_tables(dbfile)
         self.write_metadata_table(dbfile)
         self.write_roi_map_table(dbfile)
-        self.write_roi_map_table(dbfile, **kwargs)
+        self.write_environment_table(dbfile, **kwargs)
         self.write_var_map_table(dbfile)
         self.write_data(dbfile, **kwargs)
 
@@ -190,7 +190,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             cur.execute(
-                f"INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, roi) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                f"INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, mask) VALUES (?, ?, ?, ?, ?, ?, ?);",
                 [0, 0, x, y, w, h, mask]
             )
 
