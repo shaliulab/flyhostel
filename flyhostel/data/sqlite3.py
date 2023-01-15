@@ -3,7 +3,9 @@ import warnings
 import sqlite3
 import yaml
 import datetime
+import json
 import logging
+import tempfile
 
 from tqdm.auto import tqdm
 import cv2
@@ -65,7 +67,9 @@ class SQLiteExporter(IdtrackeraiExporter):
         self._store_metadata = _extract_store_metadata(os.path.join(self._basedir, STORE_MD_FILENAME)) 
         with open(os.path.join(self._basedir, f"{os.path.basename(self._basedir)}.conf"), "r") as filehandle:
             self._idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
-
+            
+            
+        self._temp_path = tempfile.mktemp(prefix="flyhostel_", suffix=".jpg")
         self._number_of_animals = None
 
 
@@ -81,6 +85,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_tables(dbfile)
         self.write_metadata_table(dbfile)
         self.write_roi_map_table(dbfile)
+        self.write_roi_map_table(dbfile, **kwargs)
         self.write_var_map_table(dbfile)
         self.write_data(dbfile, **kwargs)
 
@@ -104,6 +109,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         # self.init_start_events_table()
         # self.init_qc_table()
         self.init_roi_map_table(dbfile)
+        self.init_environment_table(dbfile)
         self.init_var_map_table(dbfile)
         self.init_identity_table(dbfile)
         self.init_data(dbfile)
@@ -156,21 +162,66 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_roi_map_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE ROI_MAP (roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), roi longblob);")
+            cur.execute(f"CREATE TABLE ROI_MAP (roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), mask longblob);")
+
+    @staticmethod
+    def serialize_arr(arr, path):
+        """
+        Transform an image (np.array) to bytes for export in SQLite
+        """
+
+        cv2.imwrite(path, arr, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+
+        with open(path, "rb") as f:
+            bstring = f.read()
+        
+        return bstring
 
 
     def write_roi_map_table(self, dbfile):
 
         roi = np.array(eval(self._idtrackerai_conf["_roi"]["value"][0][0]))
-
         x, y, w, h = cv2.boundingRect(roi)
+
+        mask = np.zeros(self._store_metadata["imgshape"])
+        mask = cv2.drawContours(mask, [roi], -1, 255, -1)
+        mask = self.serialize_arr(mask, self._temp_path)
+
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            for i in range(1, self.number_of_animals+1):
-                cur.execute(
-                    f"INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, roi) VALUES (?, ?, ?, ?, ?, ?, ?);",
-                    [i, i, x, y, w, h, sqlite3.Binary(roi)]
-                )
+            cur.execute(
+                f"INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, roi) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                [0, 0, x, y, w, h, mask]
+            )
+
+    def init_environment_table(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(f"CREATE TABLE ENVIRONMENT (frame_number smallint(6), camera_temperature real(6), temperature real(6), humidity real(6), light real(6));")
+
+
+    def write_environment_table(self, dbfile, chunks):
+
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+
+            for chunk in chunks:
+                
+                extra_json = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.extra.json")
+
+                with open(extra_json, "r") as filehandle:
+                    extra_data = json.load(extra_json)
+
+                for row in extra_data:
+
+                    values = (row["frame_number"], row["camera_temperature"], row["temperature"], row["humidity"], row["light"])
+
+                    cur.execute(
+                        f"INSERT INTO ENVIRONMENT (frame_number, camera_temperature, temperature, humidity, light) VALUES (?, ?, ?, ?, ?);",
+                        values
+                    )
+
+
 
     # VAR_MAP
     def init_var_map_table(self, dbfile):
