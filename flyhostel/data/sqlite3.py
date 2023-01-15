@@ -210,7 +210,7 @@ class SQLiteExporter(IdtrackeraiExporter):
                 extra_json = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.extra.json")
 
                 with open(extra_json, "r") as filehandle:
-                    extra_data = json.load(extra_json)
+                    extra_data = json.load(filehandle)
 
                 for row in extra_data:
 
