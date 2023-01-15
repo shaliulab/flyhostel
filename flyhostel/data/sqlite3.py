@@ -33,14 +33,21 @@ class IdtrackeraiExporter:
 
     def write_data(self, dbfile, chunk):
 
-        list_of_blobs = ListOfBlobs.load(self.build_blobs_collection(chunk))
+        blobs_collection = self.build_blobs_collection(chunk)
 
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
+        if os.path.exists(blobs_collection):
 
-            for blobs_in_frame in tqdm(list_of_blobs.blobs_in_video, desc=f"Exporting chunk {chunk}"):
-                for blob in blobs_in_frame:
-                    self.add_blob(cur, blob)
+            list_of_blobs = ListOfBlobs.load(blobs_collection)
+
+            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                cur = conn.cursor()
+
+                for blobs_in_frame in tqdm(list_of_blobs.blobs_in_video, desc=f"Exporting chunk {chunk}"):
+                    for blob in blobs_in_frame:
+                        self.add_blob(cur, blob)
+        
+        else:
+            warnings.warn(f"{blobs_collection} not found")
 
     def add_blob(self, cur, blob):
 
