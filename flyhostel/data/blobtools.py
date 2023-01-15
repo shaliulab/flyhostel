@@ -24,6 +24,15 @@ def read_blobs_collection(blobs_path, chunk, store_dir, number_of_animals, missi
    cur.execute(f"SELECT frame_number FROM frames WHERE chunk={chunk};")
    fts = [e[0] for e in cur.fetchall()]
    db.close()
+
+   chunk_padded = str(chunk).zfill(6)
+
+   tr_path = os.path.join(
+       store_dir,
+       "idtrackerai",
+       f"session_{chunk_padded}",
+       "trajectories_from_blobs", 
+       "trajectories_from_blobs.npy")
    
    if chunk in missing_chunks:
        warnings.warn(f"Blobs for chunk {chunk} not found")
@@ -32,24 +41,35 @@ def read_blobs_collection(blobs_path, chunk, store_dir, number_of_animals, missi
            np.nan, np.nan
        ]] * len(fts)).reshape((-1, number_of_animals, 2))
 
+   elif os.path.exists(tr_path):
+       logger.debug(f"Loading {tr_path}")
+       trajectory = np.load(tr_path, allow_pickle=True)
    else:
-       trajectory = blobs2trajectories(
-           blobs_path,
-           number_of_animals,
-           chunk=chunk,
-       )["trajectories"]
-   
-   
-   # frame_times_all.append(fts)
-   missing_last_frames =len(fts) -  trajectory.shape[0]
-   if missing_last_frames != 0: 
-       logger.warning(f"Blobs missing at the end of chunk {chunk}")
-       for _ in range(missing_last_frames):
-           trajectory=np.vstack([
-               trajectory,
-               trajectory[-1:]
-           ])
 
+       try:
+           trajectory = blobs2trajectories(
+               blobs_path,
+               number_of_animals,
+               chunk=chunk,
+           )["trajectories"]
+       
+       except:
+           trajectory = np.tile(np.array([np.nan]), (len(fts), number_of_animals, 2))
+           return trajectory
+   
+       # frame_times_all.append(fts)
+       missing_last_frames =len(fts) -  trajectory.shape[0]
+       if missing_last_frames != 0: 
+           logger.warning(f"Blobs missing at the end of chunk {chunk}")
+           for _ in range(missing_last_frames):
+               trajectory=np.vstack([
+                   trajectory,
+                   trajectory[-1:]
+               ])
+
+       os.makedirs(os.path.dirname(tr_path), exist_ok=True)
+       np.save(tr_path, trajectory) 
+    
    return trajectory
 
 
@@ -109,7 +129,7 @@ def read_blobs_data(imgstore_folder, pixels_per_cm, interval=None, n_jobs=1, **k
         median_body_length_full_resolution=video.median_body_length_full_resolution
     except:
         logger.debug("Video has not defined median_body_length_full_resolution")
-        list_of_blobs = ListOfBlobs.load(blob_collections[i])
+        list_of_blobs = ListOfBlobs.load(blob_collections[0])
         median_body_length_full_resolution=compute_model_area_and_body_length(list_of_blobs, video.user_defined_parameters["number_of_animals"])[1]
 
     traj_dict = {
