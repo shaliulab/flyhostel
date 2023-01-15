@@ -174,9 +174,9 @@ class SQLiteExporter(IdtrackeraiExporter):
             ("experimental_info", ""),
             ("selected_options", ""),
             # TODO
-            ("ethoscope_metadata", ethoscope_metadata_str)
-            ("camera_metadata", camera_metadata_str)
-            ("idtrackerai_conf", idtrackerai_conf_str)
+            ("ethoscope_metadata", ethoscope_metadata_str),
+            ("camera_metadata", camera_metadata_str),
+            ("idtrackerai_conf", idtrackerai_conf_str),
         ]
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
