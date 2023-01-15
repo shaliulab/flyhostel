@@ -73,7 +73,12 @@ class SQLiteExporter(IdtrackeraiExporter):
         with open(self._idtrackerai_conf_path, "r") as filehandle:
             self._idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
 
-        self._camera_metadata_path = glob.glob(os.path.join(self._basedir, ".*pfs"))[0]
+        matches = glob.glob(os.path.join(self._basedir, "*pfs"))
+        if matches:
+            self._camera_metadata_path = matches[0]
+        else:
+            warnings.warn(f"Camera metadata (.pfs file) not found")
+
             
         self._temp_path = tempfile.mktemp(prefix="flyhostel_", suffix=".jpg")
         self._number_of_animals = None
