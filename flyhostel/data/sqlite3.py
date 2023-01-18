@@ -21,7 +21,29 @@ from imgstore.constants import STORE_MD_FILENAME
 logger = logging.getLogger(__name__)
 
 METADATA_FILE = "metadata.csv"
-DOWNLOAD_BEHAVIORAL_DATA="/home/vibflysleep/anaconda3/envs/google/bin/download-behavioral-data"
+RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
+
+try:
+    CONDA_ENVS=os.environ["CONDA_ENVS"]
+    DOWNLOAD_BEHAVIORAL_DATA=os.path.join(CONDA_ENVS, "google/bin/download-behavioral-data")
+    assert os.path.exists(DOWNLOAD_BEHAVIORAL_DATA)
+except KeyError:
+    warnings.warn("CONDA_ENVS not defined. Automatic download of metadata not available")
+    DOWNLOAD_BEHAVIORAL_DATA = None
+except AssertionError:
+    warnings.warn(f"{DOWNLOAD_BEHAVIORAL_DATA} not found. Automatic download of metadata not available")
+    DOWNLOAD_BEHAVIORAL_DATA = None
+
+    
+
+
+
+def metadata_not_found(message):
+
+    if RAISE_EXCEPTION_IF_METADATA_NOT_FOUND:
+        raise Exception(message)
+    else:
+        warnings.warn(message)
 
 
 
@@ -91,7 +113,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         if matches:
             self._camera_metadata_path = matches[0]
         else:
-            warnings.warn(f"Camera metadata (.pfs file) not found")
+            metadata_not_found(f"Camera metadata (.pfs file) not found")
             self._camera_metadata_path = None
 
             
@@ -113,25 +135,24 @@ class SQLiteExporter(IdtrackeraiExporter):
             cmd_list = shlex.split(cmd)
             process = subprocess.Popen(cmd_list)
             process.communicate()
+            print(f"Downloading metadata to {path}")
             return 0
         except:
-            warnings.warn(f"Could not download metadata to {path}")
+            metadata_not_found(f"Could not download metadata to {path}")
             return 1
 
 
     def export(self, dbfile, mode=["w", "a"], overwrite=False, **kwargs):
         assert dbfile.endswith(".db")
-        if os.path.exists(dbfile) and not overwrite:
-            if mode == "w":
+        if os.path.exists(dbfile):
+            if overwrite:
+                warnings.warn(f"{dbfile} exists. Remaking from scratch and ignoring mode")
+                os.remove(dbfile)
+            elif mode == "w":
                 warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
             elif mode == "a":
                 warnings.warn(f"{dbfile} exists. Appending (mode=a)")
-        else:
-            warnings.warn(f"{dbfile} exists. Remaking from scratch")
-            os.remove(dbfile)
-            
-
-
+           
         self.init_tables(dbfile)
         self.write_metadata_table(dbfile)
         self.write_snapshot_table(dbfile, **kwargs)
@@ -369,8 +390,5 @@ def export_dataset(metadata, chunks, overwrite=False):
 
     dbfile = os.path.join(basedir, dbfile_basename)
 
-    if os.path.exists(dbfile):
-        warnings.warn(f"{dbfile} exists. Export cancelled")
-    else:
-        dataset = SQLiteExporter(basedir)
-        dataset.export(dbfile=dbfile, mode="w", chunks=chunks, overwrite=overwrite)
+    dataset = SQLiteExporter(basedir)
+    dataset.export(dbfile=dbfile, mode="w", chunks=chunks, overwrite=overwrite)
