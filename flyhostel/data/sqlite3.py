@@ -7,6 +7,8 @@ import json
 import logging
 import tempfile
 import glob
+import subprocess
+import shlex
 
 from tqdm.auto import tqdm
 import cv2
@@ -17,6 +19,11 @@ from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from imgstore.constants import STORE_MD_FILENAME
 
 logger = logging.getLogger(__name__)
+
+METADATA_FILE = "metadata.csv"
+DOWNLOAD_BEHAVIORAL_DATA="/home/vibflysleep/anaconda3/envs/google/bin/download-behavioral-data"
+
+
 
 class IdtrackeraiExporter:
 
@@ -90,6 +97,26 @@ class SQLiteExporter(IdtrackeraiExporter):
             
         self._temp_path = tempfile.mktemp(prefix="flyhostel_", suffix=".jpg")
         self._number_of_animals = None
+
+    @staticmethod
+    def download_metadata(path):
+        """
+        Download the metadata from a Google Sheets database
+        """
+
+        try:
+            if DOWNLOAD_BEHAVIORAL_DATA is None:
+                raise Exception("Please define DOWNLOAD_BEHAVIORAL_DATA as the path to the download-behavioral-data Python binary")
+
+            path=path.replace(" ", "_")
+            cmd = f'{DOWNLOAD_BEHAVIORAL_DATA} --metadata {path}'
+            cmd_list = shlex.split(cmd)
+            process = subprocess.Popen(cmd_list)
+            process.communicate()
+            return 0
+        except:
+            warnings.warn(f"Could not download metadata to {path}")
+            return 1
 
 
     def export(self, dbfile, mode=["w", "a"], **kwargs):
@@ -165,9 +192,9 @@ class SQLiteExporter(IdtrackeraiExporter):
         else:
             camera_metadata_str=""
 
-        
-        ethoscope_metadata_path = os.path.join(self._basedir, "metadata.csv")
-        if os.path.exists(ethoscope_metadata_path):
+        ethoscope_metadata_path = os.path.join(self._basedir, METADATA_FILE)
+
+        if os.path.exists(ethoscope_metadata_path) or self.download_metadata(ethoscope_metadata_path) == 0:
             with open(ethoscope_metadata_path, "r") as filehandle:
                 ethoscope_metadata_str = filehandle.read()
 
