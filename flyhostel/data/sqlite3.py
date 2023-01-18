@@ -119,13 +119,17 @@ class SQLiteExporter(IdtrackeraiExporter):
             return 1
 
 
-    def export(self, dbfile, mode=["w", "a"], **kwargs):
+    def export(self, dbfile, mode=["w", "a"], overwrite=False, **kwargs):
         assert dbfile.endswith(".db")
-        if os.path.exists(dbfile):
+        if os.path.exists(dbfile) and not overwrite:
             if mode == "w":
                 warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
             elif mode == "a":
                 warnings.warn(f"{dbfile} exists. Appending (mode=a)")
+        else:
+            warnings.warn(f"{dbfile} exists. Remaking from scratch")
+            os.remove(dbfile)
+            
 
 
         self.init_tables(dbfile)
@@ -358,7 +362,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur.execute(f"CREATE TABLE IDENTITY (frame_number int(11), in_frame_index int(2), identity int(2));")
 
 
-def export_dataset(metadata, chunks):
+def export_dataset(metadata, chunks, overwrite=False):
 
     basedir = os.path.dirname(metadata)
     dbfile_basename = "_".join(basedir.split(os.path.sep)[-3:]) + ".db"
@@ -369,4 +373,4 @@ def export_dataset(metadata, chunks):
         warnings.warn(f"{dbfile} exists. Export cancelled")
     else:
         dataset = SQLiteExporter(basedir)
-        dataset.export(dbfile=dbfile, mode="w", chunks=chunks)
+        dataset.export(dbfile=dbfile, mode="w", chunks=chunks, overwrite=overwrite)
