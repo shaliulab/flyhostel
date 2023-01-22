@@ -93,9 +93,13 @@ def write_angle(label_file, top_detections=1):
     return angles
     
 
-def main():
-    ap = get_parser()
-    args = ap.parse_args()
+def main(args=None, ap=None):
 
-    dataset=os.path.join(os.path.dirname(args.store_path), "angles", "FlyHead")
+    if args is None:
+        if ap is None:
+            ap = get_parser()
+        args = ap.parse_args()
+
+    basedir=os.path.dirname(args.store_path)
+    dataset=os.path.join(basedir, "angles", "FlyHead")
     write_angle_to_dataset(dataset, args.n_jobs)
