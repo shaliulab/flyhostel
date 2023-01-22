@@ -13,10 +13,12 @@ def write_angle_to_dataset(dataset, n_jobs=1):
     label_files = glob.glob(os.path.join(dataset, "*"))
     print(f"{len(label_files)} label files to be processed")
     
-    Output=joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(compute_angle)(
+    angles=joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(write_angle)(
         file
         ) for file in label_files
     )
+
+    return angles
     
     
 def get_parser():
@@ -25,8 +27,6 @@ def get_parser():
     ap.add_argument("--n-jobs", default=-2, type=int)
     return ap
 
-
-    
     
 def compute_angle(detection):
     """
@@ -65,11 +65,10 @@ def compute_all_angles(label_file):
     for line in lines:
         detections.append([float(e) for e in line.strip("\n").split(" ")])
     
-    # detections = sorted(detections, key=lambda detection: detection[-1])[::-1]
     angles = [compute_angle(detection) for detection in detections]        
     return angles
 
-def write_angle(label_file):
+def write_angle(label_file, top_detections=1):
     """
     Edit the label file so the angle of each object is appended to the line
     See compute_angle
@@ -80,12 +79,20 @@ def write_angle(label_file):
     with open(label_file, "r") as filehandle:
         lines = filehandle.readlines()
     
+    new_lines=[]
     with open(label_file, "w") as filehandle:
         for i, line in enumerate(lines):
             angle=round(angles[i], 2)
             line = f"{line.strip()} {angle}"
             filehandle.write(line + "\n")
-            
+            new_lines.append(line)
+
+    new_lines=[line.strip().split(" ") for line in new_lines]
+    new_lines=sorted(new_lines, key=lambda line: int(line[5]))[::-1]
+    angles = [line[5] for line in new_lines[:top_detections]]
+    return angles
+    
+
 def main():
     ap = get_parser()
     args = ap.parse_args()
