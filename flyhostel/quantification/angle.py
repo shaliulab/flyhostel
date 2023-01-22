@@ -58,8 +58,12 @@ def compute_all_angles(label_file):
     See compute_angle
     """
 
-    with open(label_file, "r") as filehandle:
-        lines = filehandle.readlines()
+    try:
+        with open(label_file, "r") as filehandle:
+            lines = filehandle.readlines()
+    except Exception as error:
+        print(f"Cannot read {label_file}")
+        raise error
     
     detections = []
     for line in lines:
@@ -88,7 +92,7 @@ def write_angle(label_file, top_detections=1):
             new_lines.append(line)
 
     new_lines=[line.strip().split(" ") for line in new_lines]
-    new_lines=sorted(new_lines, key=lambda line: int(line[5]))[::-1]
+    new_lines=sorted(new_lines, key=lambda line: float(line[5]))[::-1]
     angles = [line[5] for line in new_lines[:top_detections]]
     return angles
     
@@ -101,5 +105,5 @@ def main(args=None, ap=None):
         args = ap.parse_args()
 
     basedir=os.path.dirname(args.store_path)
-    dataset=os.path.join(basedir, "angles", "FlyHead")
+    dataset=os.path.join(basedir, "angles", "FlyHead", "labels")
     write_angle_to_dataset(dataset, args.n_jobs)
