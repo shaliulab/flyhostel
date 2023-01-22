@@ -384,7 +384,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_orientation_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE IF NOT EXISTS ORIENTATION (frame_number int(11), in_frame_index int(2), angle float(5)), is_inferred int(1);")
+            cur.execute(f"CREATE TABLE IF NOT EXISTS ORIENTATION (frame_number int(11), in_frame_index int(2), angle float(5), is_inferred int(1));")
 
 
     @staticmethod
