@@ -60,7 +60,7 @@ class IdtrackeraiExporter:
             command = "CREATE TABLE %s (%s)" % (table_name ,formated_cols_names)
             cur.execute(command)
 
-    def write_data(self, dbfile, chunk):
+    def write_trajectory_and_identity(self, dbfile, chunk, **kwargs):
 
         blobs_collection = self.build_blobs_collection(chunk)
 
@@ -73,12 +73,12 @@ class IdtrackeraiExporter:
 
                 for blobs_in_frame in tqdm(list_of_blobs.blobs_in_video, desc=f"Exporting chunk {chunk}"):
                     for blob in blobs_in_frame:
-                        self.add_blob(cur, blob)
+                        self.add_blob(cur, blob, **kwargs)
         
         else:
             warnings.warn(f"{blobs_collection} not found")
 
-    def add_blob(self, cur, blob):
+    def add_blob(self, cur, blob, w_trajectory=True, w_identity=True):
 
         frame_number = blob.frame_number
         in_frame_index = blob.in_frame_index
@@ -90,10 +90,13 @@ class IdtrackeraiExporter:
             identity = 0
 
 
-        command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, area, modified) VALUES(?, ?, ?, ?, ?, ?);"
-        cur.execute(command, [frame_number, in_frame_index, x, y, area, modified])
-        command = "INSERT INTO IDENTITY (frame_number, in_frame_index, identity) VALUES(?, ?, ?);"
-        cur.execute(command, [frame_number, in_frame_index, identity])
+        if w_trajectory:
+            command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, area, modified) VALUES(?, ?, ?, ?, ?, ?);"
+            cur.execute(command, [frame_number, in_frame_index, x, y, area, modified])
+        
+        if w_identity:
+            command = "INSERT INTO IDENTITY (frame_number, in_frame_index, identity) VALUES(?, ?, ?);"
+            cur.execute(command, [frame_number, in_frame_index, identity])
 
 
 class SQLiteExporter(IdtrackeraiExporter):
@@ -160,14 +163,14 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.write_roi_map_table(dbfile)
         self.write_environment_table(dbfile, **kwargs)
         self.write_var_map_table(dbfile)
-        self.write_data(dbfile, **kwargs)
+        self.write_trajectory_and_identity(dbfile, **kwargs)
 
 
-    def write_data(self, dbfile, chunks):
+    def write_trajectory_and_identity(self, dbfile, chunks):
     
         for chunk in chunks:
             logger.debug(f"Exporting chunk {chunk}")
-            super(SQLiteExporter, self).write_data(dbfile, chunk)
+            super(SQLiteExporter, self).write_trajectory_and_identity(dbfile, chunk)
 
 
     @property
@@ -186,6 +189,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_environment_table(dbfile)
         self.init_var_map_table(dbfile)
         self.init_identity_table(dbfile)
+        self.init_orientation_table(dbfile)
         self.init_data(dbfile)
 
     def build_blobs_collection(self, chunk):
@@ -349,7 +353,6 @@ class SQLiteExporter(IdtrackeraiExporter):
                     )
 
 
-
     # VAR_MAP
     def init_var_map_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -376,11 +379,61 @@ class SQLiteExporter(IdtrackeraiExporter):
                     val
                 )
 
+
+    # ORIENTATION
+    def init_orientation_table(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(f"CREATE TABLE IF NOT EXISTS ORIENTATION (frame_number int(11), in_frame_index int(2), angle float(5)), is_inferred int(1);")
+
+
+    @staticmethod
+    def fetch_angle(label_file):
+
+        with open(label_file, "r") as filehandle:
+            lines = filehandle.readlines()
+
+        data = []
+        for line in lines:
+            line = line.strip().split(" ")
+            assert len(line) == 7 # id, x, y, w, h, conf, angle
+            data.append(line)
+        
+        data=sorted(data, key=lambda line: int(line[-2]))[::-1]
+        return data[0][-1]
+
+    def write_orientation_table(self, dbfile):
+
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            
+            frame_numbers = cur.execute("SELECT frame_number FROM ROI_0;")
+
+            for frame_number in frame_numbers:
+                for in_frame_index in range(self._number_of_animals):
+
+                    label_file=glob.glob(os.path.join(self._basedir, "angles", "FlyHead", "labels", f"{frame_number}_*-{in_frame_index}.txt"))
+                    if os.path.exists(label_file):
+                        angle = self.fetch_angle(label_file)
+                        is_inferred=False
+                    else:
+                        angle = None
+                        is_inferred=True
+
+                    cur.execute(
+                        f"INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
+                        (frame_number, in_frame_index, angle, is_inferred)
+                    )
+    
     # IDENTITY
     def init_identity_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             cur.execute(f"CREATE TABLE IDENTITY (frame_number int(11), in_frame_index int(2), identity int(2));")
+
+
+    def write_identity_table(self, dbfile):
+        raise NotImplementedError
 
 
 def export_dataset(metadata, chunks, overwrite=False):
