@@ -410,7 +410,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             frame_numbers = cur.execute("SELECT frame_number FROM ROI_0;")
 
             for frame_number in frame_numbers:
-                for in_frame_index in range(self._number_of_animals):
+                for in_frame_index in range(self.number_of_animals):
 
                     label_file=glob.glob(os.path.join(self._basedir, "angles", "FlyHead", "labels", f"{frame_number}_*-{in_frame_index}.txt"))
                     if os.path.exists(label_file):
