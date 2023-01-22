@@ -412,7 +412,10 @@ class SQLiteExporter(IdtrackeraiExporter):
             for frame_number in frame_numbers:
                 for in_frame_index in range(self.number_of_animals):
 
-                    label_file=glob.glob(os.path.join(self._basedir, "angles", "FlyHead", "labels", f"{frame_number}_*-{in_frame_index}.txt"))
+                    matches=glob.glob(os.path.join(self._basedir, "angles", "FlyHead", "labels", f"{frame_number}_*-{in_frame_index}.txt"))
+                    assert len(matches) == 1
+                    label_file = matches[0]
+
                     if os.path.exists(label_file):
                         angle = self.fetch_angle(label_file)
                         is_inferred=False
