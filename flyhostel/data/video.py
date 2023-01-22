@@ -68,7 +68,6 @@ class SingleVideoMaker:
         return angle
 
     def init_video_writer(self, frameSize):
-        os.makedirs(folder, exist_ok=True)
 
         # self.video_writer = cv2cuda.VideoWriter(
         #     os.path.join(folder, os.path.splitext(os.path.basename(self._flyhostel_dataset))[0], +".mp4"),
