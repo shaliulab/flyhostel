@@ -23,6 +23,7 @@ import flyhostel.data.bin.download
 import flyhostel.data.bin.df
 import flyhostel.data.bin.copy
 import flyhostel.data.bin.export
+import flyhostel.data.bin.video
 
 def get_parser():
     ap = argparse.ArgumentParser(
@@ -152,6 +153,14 @@ def get_parser():
             help="Write detection angle",
         )
     write_angle.set_defaults(func=flyhostel.quantification.bin.angle.main)
+
+    make_single_animal_video = subparsers.add_parser(
+            "make_video",
+            parents=[flyhostel.data.bin.video.get_parser()],
+            add_help=False,
+            help="Make single video from FlyHostel.db",
+        )
+    make_single_animal_video.set_defaults(func=flyhostel.data.bin.video.main)
 
     return ap
 
