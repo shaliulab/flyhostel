@@ -9,6 +9,7 @@ import tempfile
 import glob
 import subprocess
 import shlex
+import math
 
 from tqdm.auto import tqdm
 import cv2
@@ -389,6 +390,9 @@ class SQLiteExporter(IdtrackeraiExporter):
 
     @staticmethod
     def fetch_angle(label_file):
+        """
+        Return the angle of the best detection
+        """
 
         with open(label_file, "r") as filehandle:
             lines = filehandle.readlines()
@@ -399,35 +403,49 @@ class SQLiteExporter(IdtrackeraiExporter):
             assert len(line) == 7 # id, x, y, w, h, conf, angle
             data.append(line)
         
-        data=sorted(data, key=lambda line: int(line[-2]))[::-1]
+        data=sorted(data, key=lambda line: float(line[5]))[::-1]
         return data[0][-1]
 
-    def write_orientation_table(self, dbfile):
+    def _write_orientation_table(self, conn, dbfile, in_frame_index=0):
 
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            
-            frame_numbers = cur.execute("SELECT frame_number FROM ROI_0;")
+        label_database_path = os.path.join(self._basedir, "angles", "FlyHead", "labels")
+        label_files = glob.glob(os.path.join(label_database_path, f"*-{in_frame_index}.txt"))
+        assert len(label_files) > 0, f"No label database found under {label_database_path} for in_frame_index {in_frame_index}"
+        label_database = [(int(os.path.basename(label_file).split("_")[0]), label_file) for label_file in label_files]
+        label_database = sorted(label_database, key=lambda entry: entry[0])
+        pointer = 0
+        report_every_n_lines=math.inf
+ 
+        fns = conn.cursor()
+        frame_numbers = fns.execute("SELECT frame_number FROM ROI_0;")
+        cur = conn.cursor()
 
-            for frame_number in frame_numbers:
-                for in_frame_index in range(self.number_of_animals):
-
-                    matches=glob.glob(os.path.join(self._basedir, "angles", "FlyHead", "labels", f"{frame_number}_*-{in_frame_index}.txt"))
-                    assert len(matches) == 1
-                    label_file = matches[0]
-
-                    if os.path.exists(label_file):
-                        angle = self.fetch_angle(label_file)
-                        is_inferred=False
-                    else:
-                        angle = None
-                        is_inferred=True
-
-                    cur.execute(
-                        f"INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
-                        (frame_number, in_frame_index, angle, is_inferred)
-                    )
+        for row in tqdm(frame_numbers, desc=f"Writing orientation data from in_frame_index {in_frame_index} to {dbfile}"):
+            frame_number = row[0]
+            entry = label_database[pointer]
+            if frame_number == entry[0]:
+                label_file = entry[1]
+                angle = self.fetch_angle(label_file)
+                is_inferred=False
+                pointer+=1
+                if pointer % report_every_n_lines == 0:
+                    print(f"{pointer} labels have been added to {dbfile}")
+            else: # no matches
+                angle = None
+                is_inferred=True
     
+            cur.execute(
+                f"INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
+                (frame_number, in_frame_index, angle, is_inferred)
+            )
+            if pointer == len(label_database):
+                return
+
+    def write_orientation_table(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            for in_frame_index in range(self.number_of_animals):
+                self._write_orientation_table(conn, dbfile, in_frame_index)
+
     # IDENTITY
     def init_identity_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
