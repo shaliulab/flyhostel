@@ -9,7 +9,8 @@ import h5py
 import numpy as np
 from tqdm.auto import tqdm
 import imgstore
-from imgstore.constants import ENCODER_FORMAT_CPU, ENCODER_FORMAT_GPU
+ENCODER_FORMAT_GPU="h264_nvenc/mp4"
+
 
 class SingleVideoMaker:
 
