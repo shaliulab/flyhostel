@@ -69,8 +69,6 @@ class SingleVideoMaker:
         return angle
 
     def init_video_writer(self, frameSize):
-        folder = os.path.join(self._basedir, "flyhostel")
-        os.makedirs(folder, exist_ok=True)
 
         # self.video_writer = cv2cuda.VideoWriter(
         #     os.path.join(folder, os.path.splitext(os.path.basename(self._flyhostel_dataset))[0], +".mp4"),
@@ -80,11 +78,13 @@ class SingleVideoMaker:
         #     frameSize=frameSize,
         #     isColor=False,
         # )
+        basedir = os.path.join(self._basedir, "flyhostel", "single_animal")
+
         self.video_writer = imgstore.new_for_format(
             mode="w",
             fmt=ENCODER_FORMAT_GPU,
             framerate=self.framerate,
-            basedir=os.path.join(folder, "flyhostel", "single_animal"),
+            basedir=basedir,
             imgshape=frameSize[::-1],
             chunksize=self.chunksize,
             imgdtype=np.uint8,
