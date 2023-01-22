@@ -144,6 +144,15 @@ def get_parser():
         )
     export_parser.set_defaults(func=flyhostel.data.bin.export.main)
 
+
+    write_angle = subparsers.add_parser(
+            "write_angle",
+            parents=[flyhostel.quantification.bin.angle.get_parser()],
+            add_help=False,
+            help="Write detection angle",
+        )
+    write_angle.set_defaults(func=flyhostel.quantification.bin.angle.main)
+
     return ap
 
 
