@@ -137,6 +137,7 @@ class SingleVideoMaker:
 
             for chunk in chunks:
                 episode_images = sorted(glob.glob(f"idtrackerai/session_{str(chunk).zfill(6)}/segmentation_data/episode_images*"), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
+                print(f"{len(episode_images)} hdf5 files found for chunk {chunk}")
                 for episode_image in tqdm(episode_images, desc=f"Producing single animal video for {os.path.basename(self._flyhostel_dataset)}. Chunk {chunk}"):
                     key_counter=0
                     with h5py.File(episode_image, "r") as file:
