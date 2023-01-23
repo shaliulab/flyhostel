@@ -104,7 +104,7 @@ class SingleVideoMaker:
 
     def make_single_video_multi_process(self, n_jobs=-2, **kwargs):
 
-        chunks=range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1)
+        chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
         nproc=len(os.sched_getaffinity(0))
 
         if n_jobs>0:
