@@ -104,25 +104,28 @@ class SingleVideoMaker:
 
     def make_single_video_multi_process(self, n_jobs=-2, **kwargs):
 
-            chunks=range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1)
-            nproc=len(os.sched_getaffinity(0))
-            
-            if n_jobs>0:
-                jobs = n_jobs
-            else:
-                jobs = nproc + n_jobs
-            
-            
-            partitions = math.ceil(len(chunks) / jobs)
-            
-            chunk_partition = [chunks[i:(i+jobs)] for i in range(partitions)]
+        chunks=range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1)
+        nproc=len(os.sched_getaffinity(0))
 
-            joblib.Parallel(n_jobs=jobs)(
-                joblib.delayed(self._make_single_video)(
-                    chunk_partition[i], first_chunk=chunk_partition[i][0], **kwargs
-                )
-                for i in range(len(chunk_partition))
+        if n_jobs>0:
+            jobs = n_jobs
+        else:
+            jobs = nproc + n_jobs
+
+        partitions = math.ceil(len(chunks) / jobs)
+        
+        chunk_partition = [chunks[i:(i+jobs)] for i in range(partitions)]
+        
+        print("Chunk partition:")
+        for partition in chunk_partition:
+            print(partition)
+
+        joblib.Parallel(n_jobs=jobs)(
+            joblib.delayed(self._make_single_video)(
+                chunk_partition[i], first_chunk=chunk_partition[i][0], **kwargs
             )
+            for i in range(len(chunk_partition))
+        )
 
 
     def make_single_video_single_process(self, **kwargs):
