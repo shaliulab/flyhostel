@@ -230,6 +230,12 @@ class SQLiteExporter(IdtrackeraiExporter):
 
         else:
             ethoscope_metadata_str = ""
+            
+        
+        try:
+            pixels_per_cm = self._store_metadata["pixels_per_cm"]
+        except KeyError:
+            raise Exception(f"Please enter the pixels_per_cm parameter in {self._store_metadata_path}")
 
         values = [
             ("machine_id", machine_id),
@@ -239,8 +245,8 @@ class SQLiteExporter(IdtrackeraiExporter):
             ("frame_height", self._store_metadata["imgshape"][0]),
             ("framerate", self._store_metadata["framerate"]),
             ("chunksize", self._store_metadata["chunksize"]),
-            ("pixels_per_cm", self._store_metadata.get("pixels_per_cm", None)),
-            ("version", ""),
+            ("pixels_per_cm", pixels_per_cm),
+            ("version", "1"),
             ("ethoscope_metadata", ethoscope_metadata_str),
             ("camera_metadata", camera_metadata_str),
             ("idtrackerai_conf", idtrackerai_conf_str),
