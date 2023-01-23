@@ -111,10 +111,10 @@ class SingleVideoMaker:
             jobs = n_jobs
         else:
             jobs = nproc + n_jobs
+            
+        partition_size = math.ceil(len(chunks) / jobs)
 
-        partitions = math.ceil(len(chunks) / jobs)
-        
-        chunk_partition = [chunks[i:(i+jobs)] for i in range(partitions)]
+        chunk_partition = [chunks[partition_size*i:(partition_size*(i+partition_size))] for i in range(jobs)]
         
         print("Chunk partition:")
         for partition in chunk_partition:
