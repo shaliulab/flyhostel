@@ -147,6 +147,7 @@ class SQLiteExporter(IdtrackeraiExporter):
 
 
     def export(self, dbfile, mode=["w", "a"], overwrite=False, **kwargs):
+        print(f"Saving to --> {dbfile}")
         assert dbfile.endswith(".db")
         if os.path.exists(dbfile):
             if overwrite:
@@ -283,9 +284,10 @@ class SQLiteExporter(IdtrackeraiExporter):
                     frame_number = int(index_cursor.fetchone()[0])
 
                     snapshot_path = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.png")
+                    if not os.path.exists(snapshot_path):
+                        raise Exception(f"Cannot save chunk {chunk} snapshot. {snapshot_path} does not exist")
                     arr=cv2.imread(snapshot_path)
                     bstring = self.serialize_arr(arr, self._temp_path)
-
                     cur.execute(
                         "INSERT INTO IMG_SNAPSHOTS (frame_number, img) VALUES (?, ?)",
                         (frame_number, bstring)

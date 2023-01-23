@@ -4,6 +4,7 @@ import json
 import glob
 import math
 import warnings
+import logging
 
 import cv2
 import h5py
@@ -15,6 +16,8 @@ ENCODER_FORMAT_GPU="h264_nvenc/mp4"
 ENCODER_FORMAT_CPU="mp4v/mp4"
 
 
+logger = logging.getLogger(__name__)
+
 class SingleVideoMaker:
 
     def __init__(self, flyhostel_dataset, value=None):
@@ -24,10 +27,17 @@ class SingleVideoMaker:
         self._index = os.path.join(self._basedir, "index.db")
 
         self.background_color = 255
+        print(f"Reading {self._flyhostel_dataset}")
 
         with sqlite3.connect(self._flyhostel_dataset, check_same_thread=False) as conn:
 
             cur = conn.cursor()
+            cmd = "SELECT COUNT(frame_number) FROM ROI_0;"
+            cur.execute(cmd)
+            count = int(cur.fetchone()[0])
+            if count == 0:
+                raise Exception(f"{self._flyhostel_dataset} is empty")
+
             cmd = "SELECT MIN(frame_number), MAX(frame_number) FROM ROI_0;"
             cur.execute(cmd)
             self.min_frame_number, self.max_frame_number = cur.fetchone()
@@ -92,6 +102,7 @@ class SingleVideoMaker:
         )
 
     def frame_number2chunk(self, frame_number):
+        assert frame_number is not None
 
         with sqlite3.connect(self._index, check_same_thread=False) as conn:
 
@@ -114,7 +125,7 @@ class SingleVideoMaker:
             
         partition_size = math.ceil(len(chunks) / jobs)
 
-        chunk_partition_ = [chunks[partition_size*i:(partition_size*(i+partition_size))] for i in range(jobs)]
+        chunk_partition_ = [chunks[partition_size*i:((partition_size*i)+partition_size)] for i in range(jobs)]
         chunk_partition = []
         for partition in chunk_partition_:
             if len(partition)>0:
@@ -137,7 +148,7 @@ class SingleVideoMaker:
         self._make_single_video(chunks=chunks, **kwargs)
 
 
-    def _make_single_video(self, chunks, basedir, output, frameSize, **kwargs):
+    def _make_single_video(self, chunks, basedir, output, frameSize, resize=True, **kwargs):
         width, height = frameSize
         with sqlite3.connect(self._index, check_same_thread=False) as conn:
             cur = conn.cursor()
@@ -163,21 +174,35 @@ class SingleVideoMaker:
                                     warnings.warn(f"More blobs than animals in frame_number {frame_number}")
 
                                 img_ = file[key][:]
-                                assert img_.shape[0] <= height
-                                assert img_.shape[1] <= width
+                                #assert img_.shape[0] <= height, f"{img_.shape[0]} > {height}"
+                                #assert img_.shape[1] <= width, f"{img_.shape[1]} > {width}"
+
                                 if self.video_writer is None: self.init_video_writer(basedir=output, frameSize=(width*self._number_of_animals, height), **kwargs)
                                 
                                 # angle=self.fetch_angle(frame_number, blob_index)
                                 # img=self.rotate_image(img, angle)
                                 
-                                img_=cv2.copyMakeBorder(img_, 0, max(0, height-img_.shape[0]), 0, max(0, width-img_.shape[1]), cv2.BORDER_CONSTANT, self.background_color)
-                                if img_.shape[0] > height:
-                                    top = (img_.shape[0] // 2 - height // 2)
-                                    img_=img_[top:(top+height), :]
-                                if img_.shape[1] > width:
-                                    left = (img_.shape[1] // 2 - width // 2)
-                                    img_=img_[:, left:(left+width)]
+                                img_=cv2.copyMakeBorder(img_, 0, max(0, height-img_.shape[0]), 0, max(0, width-img_.shape[1]), cv2.BORDER_CONSTANT, None, self.background_color)
 
+                                if resize:
+                                    if img_.shape[0] > height or img_.shape[1] > width:
+                                        longest=np.argmax(img_.shape[:2])
+                                        target_shape=[height, width]
+                                        target_shape[1-longest]=int(target_shape[longest] * img_.shape[1-longest] / img_.shape[longest])
+                                        target_shape=tuple(target_shape)
+                                        logger.debug(f"Chunk {chunk} - frame_number {frame_number}. Resizing {img_.shape} to {target_shape}")
+                                        img_ = cv2.resize(img_, target_shape, cv2.INTER_AREA)
+                                else:
+                                    if img_.shape[0] > height:
+                                        warnings.warn(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[0]-height} pixels along Y dim")
+                                        top = (img_.shape[0] // 2 - height // 2)
+                                        img_=img_[top:(top+height), :]
+                                    if img_.shape[1] > width:
+                                        warnings.warn(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[1]-width} pixels along X dim")
+                                        left = (img_.shape[1] // 2 - width // 2)
+                                        img_=img_[:, left:(left+width)]
+
+                                img_=cv2.copyMakeBorder(img_, 0, max(0, height-img_.shape[0]), 0, max(0, width-img_.shape[1]), cv2.BORDER_CONSTANT, None, self.background_color)
                                 assert img_.shape[0] == height, f"{img_.shape[0]} != {height}"
                                 assert img_.shape[1] == width, f"{img_.shape[1]} != {width}"
 
