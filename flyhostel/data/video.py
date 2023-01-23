@@ -2,11 +2,13 @@ import os.path
 import sqlite3
 import json
 import glob
+import math
 import warnings
 
 import cv2
 import h5py
 import numpy as np
+import joblib
 from tqdm.auto import tqdm
 import imgstore
 ENCODER_FORMAT_GPU="h264_nvenc/mp4"
@@ -68,7 +70,7 @@ class SingleVideoMaker:
         
         return angle
 
-    def init_video_writer(self, basedir, frameSize):
+    def init_video_writer(self, basedir, frameSize, first_chunk=0):
 
         # self.video_writer = cv2cuda.VideoWriter(
         #     os.path.join(folder, os.path.splitext(os.path.basename(self._flyhostel_dataset))[0], +".mp4"),
@@ -86,6 +88,7 @@ class SingleVideoMaker:
             imgshape=frameSize[::-1],
             chunksize=self.chunksize,
             imgdtype=np.uint8,
+            first_chunk=first_chunk,
         )
 
     def frame_number2chunk(self, frame_number):
@@ -99,14 +102,39 @@ class SingleVideoMaker:
             return chunk
 
 
-    def make_single_video(self, basedir, frameSize):
+    def make_single_video_multi_process(self, n_jobs=-2, **kwargs):
 
-        width, height = frameSize
-
-        with sqlite3.connect(self._index, check_same_thread=False) as conn:
-
-            cur = conn.cursor()
             chunks=range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1)
+            nproc=len(os.sched_getaffinity(0))
+            
+            if n_jobs>0:
+                jobs = n_jobs
+            else:
+                jobs = nproc + n_jobs
+            
+            
+            partitions = math.ceil(len(chunks) / jobs)
+            
+            chunk_partition = [chunks[i:(i+jobs)] for i in range(partitions)]
+
+            joblib.Parallel(n_jobs=jobs)(
+                joblib.delayed(self._make_single_video)(
+                    chunk_partition[i], first_chunk=chunk_partition[i][0], **kwargs
+                )
+                for i in range(len(chunk_partition))
+            )
+
+
+    def make_single_video_single_process(self, **kwargs):
+        chunks=range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1)
+        self._make_single_video(chunks=chunks, **kwargs)
+
+
+    def _make_single_video(self, chunks, basedir, frameSize, **kwargs):
+        width, height = frameSize
+        with sqlite3.connect(self._index, check_same_thread=False) as conn:
+            cur = conn.cursor()
+
             for chunk in chunks:
                 episode_images = sorted(glob.glob(f"idtrackerai/session_{str(chunk).zfill(6)}/segmentation_data/episode_images*"), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
                 for episode_image in tqdm(episode_images, desc=f"Producing single animal video for {os.path.basename(self._flyhostel_dataset)}. Chunk {chunk}"):
@@ -128,7 +156,7 @@ class SingleVideoMaker:
                                 img_ = file[key][:]
                                 assert img_.shape[0] <= height
                                 assert img_.shape[1] <= width
-                                if self.video_writer is None: self.init_video_writer(basedir=basedir, frameSize=(width*self._number_of_animals, height))
+                                if self.video_writer is None: self.init_video_writer(basedir=basedir, frameSize=(width*self._number_of_animals, height), **kwargs)
                                 
                                 # angle=self.fetch_angle(frame_number, blob_index)
                                 # img=self.rotate_image(img, angle)
