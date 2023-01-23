@@ -1,4 +1,5 @@
 import argparse
+import os.path
 from flyhostel.data.video import SingleVideoMaker
 
 
@@ -20,7 +21,9 @@ def main(args=None, ap=None):
         args = ap.parse_args()
 
     video_maker=SingleVideoMaker(flyhostel_dataset=args.dataset, value=args.frame_number)
+    basedir = os.path.dirname(args.dataset)
+
     if args.n_jobs == 1:
-        video_maker.make_single_video_single_process(basedir=args.basedir, frameSize=(args.width, args.height))
+        video_maker.make_single_video_single_process(basedir=basedir, output=args.basedir, frameSize=(args.width, args.height))
     else:
-        video_maker.make_single_video_multi_process(n_jobs=args.n_jobs, basedir=args.basedir, frameSize=(args.width, args.height))
+        video_maker.make_single_video_multi_process(n_jobs=args.n_jobs, basedir=basedir, output=args.basedir, frameSize=(args.width, args.height))

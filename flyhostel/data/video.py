@@ -130,13 +130,13 @@ class SingleVideoMaker:
         self._make_single_video(chunks=chunks, **kwargs)
 
 
-    def _make_single_video(self, chunks, basedir, frameSize, **kwargs):
+    def _make_single_video(self, chunks, basedir, output, frameSize, **kwargs):
         width, height = frameSize
         with sqlite3.connect(self._index, check_same_thread=False) as conn:
             cur = conn.cursor()
 
             for chunk in chunks:
-                episode_images = sorted(glob.glob(f"idtrackerai/session_{str(chunk).zfill(6)}/segmentation_data/episode_images*"), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
+                episode_images = sorted(glob.glob(os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "segmentation_data", "episode_images*")), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
                 print(f"{len(episode_images)} hdf5 files found for chunk {chunk}")
                 for episode_image in tqdm(episode_images, desc=f"Producing single animal video for {os.path.basename(self._flyhostel_dataset)}. Chunk {chunk}"):
                     key_counter=0
@@ -158,7 +158,7 @@ class SingleVideoMaker:
                                 img_ = file[key][:]
                                 assert img_.shape[0] <= height
                                 assert img_.shape[1] <= width
-                                if self.video_writer is None: self.init_video_writer(basedir=basedir, frameSize=(width*self._number_of_animals, height), **kwargs)
+                                if self.video_writer is None: self.init_video_writer(basedir=output, frameSize=(width*self._number_of_animals, height), **kwargs)
                                 
                                 # angle=self.fetch_angle(frame_number, blob_index)
                                 # img=self.rotate_image(img, angle)
