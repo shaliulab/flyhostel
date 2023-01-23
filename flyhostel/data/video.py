@@ -141,6 +141,7 @@ class SingleVideoMaker:
                     key_counter=0
                     with h5py.File(episode_image, "r") as file:
                         keys = list(file.keys())
+                        print(f"{len(keys)} keys found for chunk {chunk}")
                         while key_counter < len(keys):
                             imgs=[]
                             for animal in range(self._number_of_animals):                            
