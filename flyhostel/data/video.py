@@ -114,8 +114,12 @@ class SingleVideoMaker:
             
         partition_size = math.ceil(len(chunks) / jobs)
 
-        chunk_partition = [chunks[partition_size*i:(partition_size*(i+partition_size))] for i in range(jobs)]
-        
+        chunk_partition_ = [chunks[partition_size*i:(partition_size*(i+partition_size))] for i in range(jobs)]
+        chunk_partition = []
+        for partition in chunk_partition_:
+            if len(partition)>0:
+                chunk_partition.append(partition)
+
         print("Chunk partition:")
         for partition in chunk_partition:
             print(partition)
