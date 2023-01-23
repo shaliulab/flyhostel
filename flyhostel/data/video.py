@@ -10,6 +10,7 @@ import numpy as np
 from tqdm.auto import tqdm
 import imgstore
 ENCODER_FORMAT_GPU="h264_nvenc/mp4"
+ENCODER_FORMAT_CPU="mp4v/mp4"
 
 
 class SingleVideoMaker:
@@ -82,7 +83,7 @@ class SingleVideoMaker:
 
         self.video_writer = imgstore.new_for_format(
             mode="w",
-            fmt=ENCODER_FORMAT_GPU,
+            fmt=ENCODER_FORMAT_CPU,
             framerate=self.framerate,
             basedir=basedir,
             imgshape=frameSize[::-1],
