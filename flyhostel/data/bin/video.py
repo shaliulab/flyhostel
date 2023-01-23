@@ -6,10 +6,10 @@ def get_parser():
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", required=True, type=str, help="path to FlyHostel.db")
-    ap.add_argument("--frame-number", default=None, type=int, nargs="+")
+    ap.add_argument("--frame-number", default=None, type=int, nargs="+", help="If not passed, all frames will be used")
     ap.add_argument("--width", type=int, default=200)
     ap.add_argument("--height", type=int, default=200)
-    ap.add_argument("--basedir", type=str, required=True)
+    ap.add_argument("--basedir", type=str, required=True, help="Folder where the output will be generated")
     return ap
 
 

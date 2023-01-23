@@ -23,7 +23,7 @@ class SingleVideoMaker:
 
         self.background_color = 255
 
-        with sqlite3.connect(flyhostel_dataset, check_same_thread=False) as conn:
+        with sqlite3.connect(self._flyhostel_dataset, check_same_thread=False) as conn:
 
             cur = conn.cursor()
             cmd = "SELECT MIN(frame_number), MAX(frame_number) FROM ROI_0;"
@@ -152,7 +152,7 @@ class SingleVideoMaker:
 
                             cur.execute(f"SELECT frame_time FROM frames WHERE frame_number = {frame_number}")
                             frame_time = int(cur.fetchone()[0])
-                            self.video_writer.add_image(img, frame_number, frame_time)
+                            self.video_writer.add_image(img, frame_number, frame_time, annotate=False)
 
 
     @staticmethod
