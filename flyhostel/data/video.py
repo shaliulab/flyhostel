@@ -148,7 +148,7 @@ class SingleVideoMaker:
         self._make_single_video(chunks=chunks, **kwargs)
 
 
-    def _make_single_video(self, chunks, basedir, output, frameSize, resize=True, **kwargs):
+    def _make_single_video(self, chunks, basedir, output, frameSize, resolution, **kwargs):
         width, height = frameSize
 
         white_img = np.ones((height, width), np.uint8) * 255
@@ -205,30 +205,32 @@ class SingleVideoMaker:
                                 #assert img_.shape[0] <= height, f"{img_.shape[0]} > {height}"
                                 #assert img_.shape[1] <= width, f"{img_.shape[1]} > {width}"
 
-                                if self.video_writer is None: self.init_video_writer(basedir=output, frameSize=(width*self._number_of_animals, height), **kwargs)
+                                if self.video_writer is None:
+                                    resolution=(resolution[0] * self._number_of_animals, resolution[1])
+                                    self.init_video_writer(basedir=output, frameSize=resolution, **kwargs)
                                 
                                 # angle=self.fetch_angle(frame_number, blob_index)
                                 # img=self.rotate_image(img, angle)
                                 
                                 img_=cv2.copyMakeBorder(img_, 0, max(0, height-img_.shape[0]), 0, max(0, width-img_.shape[1]), cv2.BORDER_CONSTANT, None, self.background_color)
 
-                                if resize:
-                                    if img_.shape[0] > height or img_.shape[1] > width:
-                                        longest=np.argmax(img_.shape[:2])
-                                        target_shape=[height, width]
-                                        target_shape[1-longest]=int(target_shape[longest] * img_.shape[1-longest] / img_.shape[longest])
-                                        target_shape=tuple(target_shape)
-                                        logger.debug(f"Chunk {chunk} - frame_number {frame_number}. Resizing {img_.shape} to {target_shape}")
-                                        img_ = cv2.resize(img_, target_shape, cv2.INTER_AREA)
-                                else:
-                                    if img_.shape[0] > height:
-                                        warnings.warn(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[0]-height} pixels along Y dim")
-                                        top = (img_.shape[0] // 2 - height // 2)
-                                        img_=img_[top:(top+height), :]
-                                    if img_.shape[1] > width:
-                                        warnings.warn(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[1]-width} pixels along X dim")
-                                        left = (img_.shape[1] // 2 - width // 2)
-                                        img_=img_[:, left:(left+width)]
+                                # if resize:
+                                #     if img_.shape[0] > height or img_.shape[1] > width:
+                                #         longest=np.argmax(img_.shape[:2])
+                                #         target_shape=[height, width]
+                                #         target_shape[1-longest]=int(target_shape[longest] * img_.shape[1-longest] / img_.shape[longest])
+                                #         target_shape=tuple(target_shape)
+                                #         logger.debug(f"Chunk {chunk} - frame_number {frame_number}. Resizing {img_.shape} to {target_shape}")
+                                #         img_ = cv2.resize(img_, target_shape, cv2.INTER_AREA)
+                                # else:
+                                if img_.shape[0] > height:
+                                    warnings.warn(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[0]-height} pixels along Y dim")
+                                    top = (img_.shape[0] // 2 - height // 2)
+                                    img_=img_[top:(top+height), :]
+                                if img_.shape[1] > width:
+                                    warnings.warn(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[1]-width} pixels along X dim")
+                                    left = (img_.shape[1] // 2 - width // 2)
+                                    img_=img_[:, left:(left+width)]
 
                                 img_=cv2.copyMakeBorder(img_, 0, max(0, height-img_.shape[0]), 0, max(0, width-img_.shape[1]), cv2.BORDER_CONSTANT, None, self.background_color)
                                 assert img_.shape[0] == height, f"{img_.shape[0]} != {height}"
@@ -252,6 +254,10 @@ class SingleVideoMaker:
 
                             cur.execute(f"SELECT frame_time FROM frames WHERE frame_number = {frame_number}")
                             frame_time = int(cur.fetchone()[0])
+                            
+                            if img.shape != resolution[::-1]:
+                                img = cv2.resize(img, resolution[::-1], cv2.INTER_AREA)
+
                             self.video_writer.add_image(img, frame_number, frame_time, annotate=False)
 
 
