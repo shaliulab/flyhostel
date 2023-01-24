@@ -164,7 +164,7 @@ class SingleVideoMaker:
                     key_counter=0
                     missing=False
                     frame_number=None
-                    switch=False
+
                     with h5py.File(episode_image, "r") as file:
                         end_of_file=False
                         keys = list(file.keys())
@@ -173,13 +173,13 @@ class SingleVideoMaker:
                             imgs=[]
                             fetched_keys=[]
 
-
                             for animal in range(self._number_of_animals):
 #                                if frame_number == 2474599: import ipdb; ipdb.set_trace()
 
                                 # this happens when the next key is in another hdf5 file
                                 # (too few animals)
                                 if key_counter == len(keys):
+                                    target_fn+=1
                                     end_of_file=True
                                     missing=True
                                     break
@@ -201,7 +201,6 @@ class SingleVideoMaker:
                                     blob_index = int(blob_index)
                                     warnings.warn(f"Missing blobs ({last_blob_index} < {self._number_of_animals}). Too few animals in frame_number {target_fn}")
                                     missing=True
-                                    switch=True
                                     break
 
 
@@ -265,8 +264,8 @@ class SingleVideoMaker:
                                 imgs.append(img_)
                                 fetched_keys.append(key)
 
-                            if switch:
-                                switch=False
+                            if end_of_file:
+                                break
 
                             if len(imgs) < self._number_of_animals:
                                 if missing:
