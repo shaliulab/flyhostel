@@ -46,7 +46,6 @@ class SingleVideoMaker:
             cmd = 'SELECT value FROM METADATA WHERE field = "idtrackerai_conf";'
             cur.execute(cmd)
             conf = cur.fetchone()[0]
-            #import ipdb; ipdb.set_trace()
             self._number_of_animals = int(json.loads(conf)["_number_of_animals"]["value"])
             
             cmd = 'SELECT value FROM METADATA WHERE field = "framerate";'
@@ -179,11 +178,11 @@ class SingleVideoMaker:
                                     target_fn = frame_number
 
                                 if target_fn < frame_number:
+                                    #import ipdb; ipdb.set_trace()
                                     frame_number, last_blob_index=keys[key_counter-1].split("-")
                                     frame_number = int(frame_number)
                                     blob_index = int(blob_index)
-                                    
-                                    warnings.warn(f"Missing blobs ({last_blob_index < {self._number_of_animals}}. Too few animals in frame_number {target_fn}")
+                                    warnings.warn(f"Missing blobs ({last_blob_index} < {self._number_of_animals}). Too few animals in frame_number {target_fn}")
                                     missing=True
                                     break
 
