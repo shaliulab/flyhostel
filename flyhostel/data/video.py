@@ -144,8 +144,7 @@ class SingleVideoMaker:
 
     def make_single_video_single_process(self, **kwargs):
         chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
-        print(chunks)
-        self._make_single_video(chunks=chunks, **kwargs)
+        self._make_single_video(chunks=chunks, first_chunk=chunks[0], **kwargs)
 
 
     def _make_single_video(self, chunks, basedir, output, frameSize, resolution, **kwargs):
