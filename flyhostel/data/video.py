@@ -163,11 +163,16 @@ class SingleVideoMaker:
                     key_counter=0
                     missing=False
                     with h5py.File(episode_image, "r") as file:
+                        end_of_file=False
                         keys = list(file.keys())
                         # print(f"{len(keys)} keys found for chunk {chunk}")
                         while key_counter < len(keys):
                             imgs=[]
-                            for animal in range(self._number_of_animals):                            
+                            for animal in range(self._number_of_animals):
+                                if key_counter == len(keys):
+                                    end_of_file=True
+                                    break
+                                
                                 key=keys[key_counter]
                                 frame_number, blob_index = key.split("-")
                                 
@@ -190,12 +195,18 @@ class SingleVideoMaker:
                                 while target_fn > frame_number:
                                     warnings.warn(f"Skipping key {key}. Too many animals in frame_number {frame_number}")
                                     key_counter+=1
-                                    if key_counter == len(keys): return
+                                    if key_counter == len(keys):
+                                        end_of_file=True
+                                        break
+
                                     key=keys[key_counter]
                                     frame_number, blob_index = key.split("-")
                                     
                                     frame_number = int(frame_number)
                                     blob_index = int(blob_index)
+                                
+                                if end_of_file:
+                                    break
 
                                 if blob_index >= self._number_of_animals or blob_index != animal:
                                     warnings.warn(f"More blobs than animals in frame_number {frame_number}")
