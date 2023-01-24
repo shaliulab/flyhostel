@@ -152,6 +152,7 @@ class SingleVideoMaker:
         width, height = frameSize
         with sqlite3.connect(self._index, check_same_thread=False) as conn:
             cur = conn.cursor()
+            target_fn = None
 
             for chunk in chunks:
                 episode_images = sorted(glob.glob(os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "segmentation_data", "episode_images*")), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
@@ -166,9 +167,22 @@ class SingleVideoMaker:
                             for animal in range(self._number_of_animals):                            
                                 key=keys[key_counter]
                                 frame_number, blob_index = key.split("-")
-
+                                
                                 frame_number = int(frame_number)
                                 blob_index = int(blob_index)
+
+                                if target_fn is None:
+                                    target_fn = frame_number
+                                while target_fn != frame_number:
+                                    warnings.warn(f"Skipping key {key}. Too many animals in frame_number {frame_number}")
+                                    key_counter+=1
+                                    if key_counter == len(keys): return
+                                    key=keys[key_counter]
+                                    frame_number, blob_index = key.split("-")
+                                    
+                                    frame_number = int(frame_number)
+                                    blob_index = int(blob_index)
+
 
                                 if blob_index >= self._number_of_animals or blob_index != animal:
                                     warnings.warn(f"More blobs than animals in frame_number {frame_number}")
@@ -211,6 +225,7 @@ class SingleVideoMaker:
                                 imgs.append(img_)
 
                             img = np.hstack(imgs)
+                            target_fn=frame_number+1
 
                             cur.execute(f"SELECT frame_time FROM frames WHERE frame_number = {frame_number}")
                             frame_time = int(cur.fetchone()[0])
