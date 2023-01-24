@@ -143,7 +143,8 @@ class SingleVideoMaker:
 
 
     def make_single_video_single_process(self, **kwargs):
-        chunks=range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1)
+        chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
+        print(chunks)
         self._make_single_video(chunks=chunks, **kwargs)
 
 
@@ -158,19 +159,30 @@ class SingleVideoMaker:
 
             for chunk in chunks:
                 episode_images = sorted(glob.glob(os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "segmentation_data", "episode_images*")), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
+                episode_images=episode_images[37:]
                 # print(f"{len(episode_images)} hdf5 files found for chunk {chunk}")
                 for episode_image in tqdm(episode_images, desc=f"Producing single animal video for {os.path.basename(self._flyhostel_dataset)}. Chunk {chunk}"):
                     key_counter=0
                     missing=False
+                    frame_number=None
+                    switch=False
                     with h5py.File(episode_image, "r") as file:
                         end_of_file=False
                         keys = list(file.keys())
                         # print(f"{len(keys)} keys found for chunk {chunk}")
                         while key_counter < len(keys):
                             imgs=[]
+                            fetched_keys=[]
+
+
                             for animal in range(self._number_of_animals):
+#                                if frame_number == 2474599: import ipdb; ipdb.set_trace()
+
+                                # this happens when the next key is in another hdf5 file
+                                # (too few animals)
                                 if key_counter == len(keys):
                                     end_of_file=True
+                                    missing=True
                                     break
                                 
                                 key=keys[key_counter]
@@ -182,16 +194,20 @@ class SingleVideoMaker:
                                 if target_fn is None:
                                     target_fn = frame_number
 
+                                # this happens when the next key is already for the next frame number
+                                # (too few animals)
                                 if target_fn < frame_number:
-                                    #import ipdb; ipdb.set_trace()
                                     frame_number, last_blob_index=keys[key_counter-1].split("-")
                                     frame_number = int(frame_number)
                                     blob_index = int(blob_index)
                                     warnings.warn(f"Missing blobs ({last_blob_index} < {self._number_of_animals}). Too few animals in frame_number {target_fn}")
                                     missing=True
+                                    switch=True
                                     break
 
 
+                                # this happens when the next key is still not for the next frame number
+                                # (too many animals)
                                 while target_fn > frame_number:
                                     warnings.warn(f"Skipping key {key}. Too many animals in frame_number {frame_number}")
                                     key_counter+=1
@@ -248,6 +264,10 @@ class SingleVideoMaker:
 
                                 key_counter+=1
                                 imgs.append(img_)
+                                fetched_keys.append(key)
+
+                            if switch:
+                                switch=False
 
                             if len(imgs) < self._number_of_animals:
                                 if missing:
@@ -257,7 +277,9 @@ class SingleVideoMaker:
                                     missing=False
                             
                                 else:
-                                    raise Exception(f"Missing blobs in frame_number {frame_number}. Stopping")
+                                    warnings.warn(f"Cannot process frame number {frame_number}")
+                                    imgs = [white_img.copy() for _ in range(self._number_of_animals)]
+                                    #raise Exception(f"Missing blobs in frame_number {frame_number}. Keys = {fetched_keys}. Stopping")
 
                             img = np.hstack(imgs)
                             target_fn=frame_number+1
