@@ -150,6 +150,9 @@ class SingleVideoMaker:
 
     def _make_single_video(self, chunks, basedir, output, frameSize, resize=True, **kwargs):
         width, height = frameSize
+
+        white_img = np.ones((height, width), np.uint8) * 255
+        
         with sqlite3.connect(self._index, check_same_thread=False) as conn:
             cur = conn.cursor()
             target_fn = None
@@ -159,6 +162,7 @@ class SingleVideoMaker:
                 # print(f"{len(episode_images)} hdf5 files found for chunk {chunk}")
                 for episode_image in tqdm(episode_images, desc=f"Producing single animal video for {os.path.basename(self._flyhostel_dataset)}. Chunk {chunk}"):
                     key_counter=0
+                    missing=False
                     with h5py.File(episode_image, "r") as file:
                         keys = list(file.keys())
                         # print(f"{len(keys)} keys found for chunk {chunk}")
@@ -173,7 +177,18 @@ class SingleVideoMaker:
 
                                 if target_fn is None:
                                     target_fn = frame_number
-                                while target_fn != frame_number:
+
+                                if target_fn < frame_number:
+                                    frame_number, last_blob_index=keys[key_counter-1].split("-")
+                                    frame_number = int(frame_number)
+                                    blob_index = int(blob_index)
+                                    
+                                    warnings.warn(f"Missing blobs ({last_blob_index < {self._number_of_animals}}. Too few animals in frame_number {target_fn}")
+                                    missing=True
+                                    break
+
+
+                                while target_fn > frame_number:
                                     warnings.warn(f"Skipping key {key}. Too many animals in frame_number {frame_number}")
                                     key_counter+=1
                                     if key_counter == len(keys): return
@@ -182,7 +197,6 @@ class SingleVideoMaker:
                                     
                                     frame_number = int(frame_number)
                                     blob_index = int(blob_index)
-
 
                                 if blob_index >= self._number_of_animals or blob_index != animal:
                                     warnings.warn(f"More blobs than animals in frame_number {frame_number}")
@@ -220,9 +234,18 @@ class SingleVideoMaker:
                                 assert img_.shape[0] == height, f"{img_.shape[0]} != {height}"
                                 assert img_.shape[1] == width, f"{img_.shape[1]} != {width}"
 
-
                                 key_counter+=1
                                 imgs.append(img_)
+
+                            if len(imgs) < self._number_of_animals:
+                                if missing:
+                                    for _ in range(self._number_of_animals - len(imgs)):
+                                        imgs.append(white_img.copy())
+                                        
+                                    missing=False
+                            
+                                else:
+                                    raise Exception(f"Missing blobs in frame_number {frame_number}. Stopping")
 
                             img = np.hstack(imgs)
                             target_fn=frame_number+1
