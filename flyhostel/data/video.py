@@ -15,6 +15,7 @@ import imgstore
 ENCODER_FORMAT_GPU="h264_nvenc/mp4"
 ENCODER_FORMAT_CPU="mp4v/mp4"
 
+from .hdf5_images import HDF5ImagesReader
 
 logger = logging.getLogger(__name__)
 
@@ -148,156 +149,64 @@ class SingleVideoMaker:
             chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
 
         self._make_single_video(chunks=chunks, first_chunk=chunks[0], **kwargs)
+        
+        
+        
+    
+    @staticmethod
+    def list_episode_images(basedir, chunk):
+        """
+        List all episode_images_X.hdf5 files sorted by episode number (increasing)
+        
+        Such files should have the following naming scheme: episode_images_X.hdf5
+        where X is the episode number, with or without zero padding
+        """
+
+        pattern=os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "segmentation_data", "episode_images*.hdf5")
+        episode_images = sorted(glob.glob(pattern), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
+        return episode_images
 
 
-    def _make_single_video(self, chunks, basedir, output, frameSize, resolution, **kwargs):
+    @staticmethod
+    def fetch_frame_time(cur, frame_number):
+        cur.execute(f"SELECT frame_time FROM frames WHERE frame_number = {frame_number}")
+        frame_time = int(cur.fetchone()[0])
+
+
+    def _make_single_video(self, chunks, basedir, output, frameSize, resolution, background_color=255, **kwargs):
         width, height = frameSize
 
-        white_img = np.ones((height, width), np.uint8) * 255
-        
+
         with sqlite3.connect(self._index, check_same_thread=False) as conn:
             cur = conn.cursor()
             target_fn = None
 
             for chunk in chunks:
             
-                import ipdb; ipdb.set_trace()
                 written_images=0
                 count_white_imgs=0
-                episode_images = sorted(glob.glob(os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "segmentation_data", "episode_images*")), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
-                # print(f"{len(episode_images)} hdf5 files found for chunk {chunk}")
-                for episode_image in tqdm(episode_images, desc=f"Producing single animal video for {os.path.basename(self._flyhostel_dataset)}. Chunk {chunk}"):
-                    key_counter=0
-                    missing=False
-                    frame_number=None
-                    end_of_file=False
+                episode_images=self.list_episode_images(basedir, chunk)
+                
+                with HDF5ImagesReader(episode_images, width=width, height=height, resolution=resolution, background_color=background_color) as hdf5_reader:
+                
+                    # print(f"{len(keys)} keys found for chunk {chunk}")
+                    while True:
 
-                    with h5py.File(episode_image, "r") as file:
-                        keys = list(file.keys())
-                        # print(f"{len(keys)} keys found for chunk {chunk}")
-                        while key_counter < len(keys):
-                            imgs=[]
-                            fetched_keys=[]
+                        data = hdf5_reader.read(target_fn, self._number_of_animals)
+                        if data is None:
+                            break
+                        else:
+                            frame_number, img = data
 
-                            for animal in range(self._number_of_animals):
-                                # this happens when the next key is in another hdf5 file
-                                # (too few animals)
-                                if key_counter == len(keys):
-                                    target_fn+=1
-                                    end_of_file=True
-                                    missing=True
-                                    break
-                                
-                                key=keys[key_counter]
-                                frame_number, blob_index = key.split("-")
-                                
-                                frame_number = int(frame_number)
-                                blob_index = int(blob_index)
-
-                                if target_fn is None:
-                                    target_fn = frame_number
-
-                                # this happens when the next key is already for the next frame number
-                                # (too few animals)
-                                if target_fn < frame_number:
-                                    frame_number, last_blob_index=keys[key_counter-1].split("-")
-                                    frame_number = int(frame_number)
-                                    blob_index = int(blob_index)
-                                    warnings.warn(f"Missing blobs ({last_blob_index} < {self._number_of_animals}). Too few animals in frame_number {target_fn}")
-                                    missing=True
-                                    break
-
-
-                                # this happens when the next key is still not for the next frame number
-                                # (too many animals)
-                                while target_fn > frame_number:
-                                    warnings.warn(f"Skipping key {key}. Too many animals in frame_number {frame_number}")
-                                    key_counter+=1
-                                    if key_counter == len(keys):
-                                        end_of_file=True
-                                        break
-
-                                    key=keys[key_counter]
-                                    frame_number, blob_index = key.split("-")
-                                    
-                                    frame_number = int(frame_number)
-                                    blob_index = int(blob_index)
-                                
-                                if end_of_file:
-                                    end_of_file=False
-                                    break
-
-                                if blob_index >= self._number_of_animals or blob_index != animal:
-                                    warnings.warn(f"More blobs than animals in frame_number {frame_number}")
-
-                                img_ = file[key][:]
-                                #assert img_.shape[0] <= height, f"{img_.shape[0]} > {height}"
-                                #assert img_.shape[1] <= width, f"{img_.shape[1]} > {width}"
-
-                                if self.video_writer is None:
-                                    resolution=(resolution[0] * self._number_of_animals, resolution[1])
-                                    self.init_video_writer(basedir=output, frameSize=resolution, **kwargs)
-                                
-                                # angle=self.fetch_angle(frame_number, blob_index)
-                                # img=self.rotate_image(img, angle)
-                                
-                                img_=cv2.copyMakeBorder(img_, 0, max(0, height-img_.shape[0]), 0, max(0, width-img_.shape[1]), cv2.BORDER_CONSTANT, None, self.background_color)
-
-                                # if resize:
-                                #     if img_.shape[0] > height or img_.shape[1] > width:
-                                #         longest=np.argmax(img_.shape[:2])
-                                #         target_shape=[height, width]
-                                #         target_shape[1-longest]=int(target_shape[longest] * img_.shape[1-longest] / img_.shape[longest])
-                                #         target_shape=tuple(target_shape)
-                                #         logger.debug(f"Chunk {chunk} - frame_number {frame_number}. Resizing {img_.shape} to {target_shape}")
-                                #         img_ = cv2.resize(img_, target_shape, cv2.INTER_AREA)
-                                # else:
-                                if img_.shape[0] > height:
-                                    #logger.debug(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[0]-height} pixels along Y dim")
-                                    top = (img_.shape[0] // 2 - height // 2)
-                                    img_=img_[top:(top+height), :]
-                                if img_.shape[1] > width:
-                                    #logger.debug(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[1]-width} pixels along X dim")
-                                    left = (img_.shape[1] // 2 - width // 2)
-                                    img_=img_[:, left:(left+width)]
-
-                                img_=cv2.copyMakeBorder(img_, 0, max(0, height-img_.shape[0]), 0, max(0, width-img_.shape[1]), cv2.BORDER_CONSTANT, None, self.background_color)
-                                assert img_.shape[0] == height, f"{img_.shape[0]} != {height}"
-                                assert img_.shape[1] == width, f"{img_.shape[1]} != {width}"
-
-                                key_counter+=1
-                                imgs.append(img_)
-                                fetched_keys.append(key)
-
-                            if end_of_file:
-                                end_of_file=False
-                                break
-
-                            if len(imgs) < self._number_of_animals:
-                                if missing:
-                                    for _ in range(self._number_of_animals - len(imgs)):
-                                        count_white_imgs+=1
-                                        imgs.append(white_img.copy())
-                                        
-                                    missing=False
-                            
-                                else:
-                                    warnings.warn(f"Cannot process frame number {frame_number}")
-                                    imgs = [white_img.copy() for _ in range(self._number_of_animals)]
-                                    #raise Exception(f"Missing blobs in frame_number {frame_number}. Keys = {fetched_keys}. Stopping")
-
-                            img = np.hstack(imgs)
-                            target_fn=frame_number+1
-
-                            cur.execute(f"SELECT frame_time FROM frames WHERE frame_number = {frame_number}")
-                            frame_time = int(cur.fetchone()[0])
-                            
-                            if img.shape != resolution[::-1]:
-                                img = cv2.resize(img, resolution[::-1], cv2.INTER_AREA)
-
+                        if self.video_writer is None:
+                            resolution=(resolution[0] * self._number_of_animals, resolution[1])
+                            self.init_video_writer(basedir=output, frameSize=resolution, **kwargs)
                             assert img.shape == resolution[::-1]
-                            self.video_writer.add_image(img, frame_number, frame_time, annotate=False)
-                            written_images+=1
+
+                        frame_time = self.fetch_frame_time(cur, frame_number)
+                        self.video_writer.add_image(img, frame_number, frame_time, annotate=False)
+                        written_images+=1
+                        target_fn=frame_number+1
 
                 print(f"Written images: {written_images}")
                 print(f"White images: {count_white_imgs}")
