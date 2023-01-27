@@ -101,4 +101,4 @@ class HDF5ImagesReader:
             self._file.close()
         
         self._file = h5py.File(self._files[self._file_idx], "r")
-        self._keys = list(self.file.keys())            
+        self._keys = list(self._file.keys())            
