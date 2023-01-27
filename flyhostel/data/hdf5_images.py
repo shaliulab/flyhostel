@@ -30,7 +30,14 @@ class HDF5ImagesReader:
     
     def __enter__(self):
         return self
-    
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+        
+        
+    def close(self):
+        pass
+
     
     @staticmethod
     def edit_image(self, img, width, height, background_color):
