@@ -1,17 +1,18 @@
 import h5py
 import cv2
 import numpy as np
-
+from tqdm.auto import tqdm
 
 class HDF5ImagesReader:
     
     
-    def __init__(self, hdf5_files, width, height, resolution, background_color):
+    def __init__(self, hdf5_files, width, height, resolution, background_color, chunk):
         
         self._files = hdf5_files
         self._file_idx = -1
         self._key_counter = 0
         self._file = None
+        self._tqdm=tqdm(total=len(self._files), desc=f"Processing chunk {chunk}")
         self._update_filehandler()
         self._finished = False
         self.width = width
@@ -113,6 +114,7 @@ class HDF5ImagesReader:
         if self._file is not None:
             self._file.close()
         
+        self._tqdm.update(1)
         self._file = h5py.File(self._files[self._file_idx], "r")
         self._keys = list(self._file.keys())
         self._key_counter=0

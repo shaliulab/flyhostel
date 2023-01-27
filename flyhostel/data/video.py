@@ -188,7 +188,7 @@ class SingleVideoMaker:
                 count_white_imgs=0
                 episode_images=self.list_episode_images(basedir, chunk)
                 
-                with HDF5ImagesReader(episode_images, width=width, height=height, resolution=resolution, background_color=background_color) as hdf5_reader:
+                with HDF5ImagesReader(episode_images, width=width, height=height, resolution=resolution, background_color=background_color, chunk=chunk) as hdf5_reader:
                 
                     # print(f"{len(keys)} keys found for chunk {chunk}")
                     while True:
@@ -209,8 +209,8 @@ class SingleVideoMaker:
                         written_images+=1
                         target_fn=frame_number+1
 
-                print(f"Written images: {written_images}")
-                print(f"White images: {count_white_imgs}")
+                #print(f"Written images: {written_images}")
+                #print(f"White images: {count_white_imgs}")
 
     @staticmethod
     def rotate_image(img, angle):
