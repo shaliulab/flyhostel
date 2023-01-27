@@ -66,7 +66,7 @@ class HDF5ImagesReader:
 
 
     def _read(self):
-        img_ = self._file[self.key]
+        img_ = self._file[self.key][:]
         img_ = self.edit_image(img_, self.width, self.height, self.background_color)
         img_ = self._resize_to_resolution(img_, self.resolution)
         self._key_counter+=1
@@ -83,6 +83,7 @@ class HDF5ImagesReader:
 
             frame_number_ = self.frame_number
             if frame_number is None:
+                frame_number=frame_number_
                 arrs.append(self._read())
             else:
                 if frame_number_ > frame_number:
@@ -100,7 +101,7 @@ class HDF5ImagesReader:
 
     def _check_end_of_file(self):
         
-        if len(self.keys) == self._key_counter:
+        if len(self._keys) == self._key_counter:
             if (self._file_idx+1) == len(self._files):
                 self._finished=True
                 return None
