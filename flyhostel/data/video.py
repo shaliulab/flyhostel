@@ -112,9 +112,10 @@ class SingleVideoMaker:
             return chunk
 
 
-    def make_single_video_multi_process(self, n_jobs=-2, **kwargs):
+    def make_single_video_multi_process(self, n_jobs=-2, chunks=None, **kwargs):
 
-        chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
+        if chunks is None:
+            chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
         nproc=len(os.sched_getaffinity(0))
 
         if n_jobs>0:
@@ -142,8 +143,10 @@ class SingleVideoMaker:
         )
 
 
-    def make_single_video_single_process(self, **kwargs):
-        chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
+    def make_single_video_single_process(self, chunks=None, **kwargs):
+        if chunks is None:
+            chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
+
         self._make_single_video(chunks=chunks, first_chunk=chunks[0], **kwargs)
 
 
@@ -157,16 +160,19 @@ class SingleVideoMaker:
             target_fn = None
 
             for chunk in chunks:
+            
+                import ipdb; ipdb.set_trace()
+                written_images=0
+                count_white_imgs=0
                 episode_images = sorted(glob.glob(os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "segmentation_data", "episode_images*")), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
-                episode_images=episode_images[37:]
                 # print(f"{len(episode_images)} hdf5 files found for chunk {chunk}")
                 for episode_image in tqdm(episode_images, desc=f"Producing single animal video for {os.path.basename(self._flyhostel_dataset)}. Chunk {chunk}"):
                     key_counter=0
                     missing=False
                     frame_number=None
+                    end_of_file=False
 
                     with h5py.File(episode_image, "r") as file:
-                        end_of_file=False
                         keys = list(file.keys())
                         # print(f"{len(keys)} keys found for chunk {chunk}")
                         while key_counter < len(keys):
@@ -174,8 +180,6 @@ class SingleVideoMaker:
                             fetched_keys=[]
 
                             for animal in range(self._number_of_animals):
-#                                if frame_number == 2474599: import ipdb; ipdb.set_trace()
-
                                 # this happens when the next key is in another hdf5 file
                                 # (too few animals)
                                 if key_counter == len(keys):
@@ -220,6 +224,7 @@ class SingleVideoMaker:
                                     blob_index = int(blob_index)
                                 
                                 if end_of_file:
+                                    end_of_file=False
                                     break
 
                                 if blob_index >= self._number_of_animals or blob_index != animal:
@@ -248,11 +253,11 @@ class SingleVideoMaker:
                                 #         img_ = cv2.resize(img_, target_shape, cv2.INTER_AREA)
                                 # else:
                                 if img_.shape[0] > height:
-                                    warnings.warn(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[0]-height} pixels along Y dim")
+                                    #logger.debug(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[0]-height} pixels along Y dim")
                                     top = (img_.shape[0] // 2 - height // 2)
                                     img_=img_[top:(top+height), :]
                                 if img_.shape[1] > width:
-                                    warnings.warn(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[1]-width} pixels along X dim")
+                                    #logger.debug(f"Chunk {chunk} - frame_number {frame_number}. Cropping {img_.shape[1]-width} pixels along X dim")
                                     left = (img_.shape[1] // 2 - width // 2)
                                     img_=img_[:, left:(left+width)]
 
@@ -265,11 +270,13 @@ class SingleVideoMaker:
                                 fetched_keys.append(key)
 
                             if end_of_file:
+                                end_of_file=False
                                 break
 
                             if len(imgs) < self._number_of_animals:
                                 if missing:
                                     for _ in range(self._number_of_animals - len(imgs)):
+                                        count_white_imgs+=1
                                         imgs.append(white_img.copy())
                                         
                                     missing=False
@@ -288,8 +295,12 @@ class SingleVideoMaker:
                             if img.shape != resolution[::-1]:
                                 img = cv2.resize(img, resolution[::-1], cv2.INTER_AREA)
 
+                            assert img.shape == resolution[::-1]
                             self.video_writer.add_image(img, frame_number, frame_time, annotate=False)
+                            written_images+=1
 
+                print(f"Written images: {written_images}")
+                print(f"White images: {count_white_imgs}")
 
     @staticmethod
     def rotate_image(img, angle):
