@@ -169,7 +169,6 @@ class SingleVideoMaker:
 
     @staticmethod
     def fetch_frame_time(cur, frame_number):
-        print(frame_number)
         cur.execute(f"SELECT frame_time FROM frames WHERE frame_number = {frame_number}")
         frame_time = int(cur.fetchone()[0])
         return frame_time
