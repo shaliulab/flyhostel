@@ -40,7 +40,7 @@ class HDF5ImagesReader:
 
     
     @staticmethod
-    def edit_image(self, img, width, height, background_color):
+    def edit_image(img, width, height, background_color):
         img=cv2.copyMakeBorder(img, 0, max(0, height-img.shape[0]), 0, max(0, width-img.shape[1]), cv2.BORDER_CONSTANT, None, background_color)
 
         if img.shape[0] > height:
