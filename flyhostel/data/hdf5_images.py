@@ -65,6 +65,14 @@ class HDF5ImagesReader:
         return img
 
 
+    def _read(self):
+        img_ = self._file[self.key]
+        img_ = self.edit_image(img_, self.width, self.height, self.background_color)
+        img_ = self._resize_to_resolution(img_, self.resolution)
+        self._key_counter+=1
+        self._check_end_of_file() 
+        return img_
+
     def read(self, frame_number, number_of_animals):
 
         if self._finished:
@@ -74,19 +82,16 @@ class HDF5ImagesReader:
         for i in range(number_of_animals):
 
             frame_number_ = self.frame_number
-            if frame_number_ > frame_number:
-                arrs.append(self._NULL.copy())
-            elif frame_number_ == frame_number:
-                img_ = self._file[self.key]
-                img_ = self.edit_image(img_, self.width, self.height, self.background_color)
-                img_ = self._resize_to_resolution(img_, self.resolution)
-                arrs.append(img_)
-                self._key_counter+=1
-                self._check_end_of_file()
-            
+            if frame_number is None:
+                arrs.append(self._read())
             else:
-                raise Exception("Requested frame number is too big!")
-        
+                if frame_number_ > frame_number:
+                    arrs.append(self._NULL.copy())
+                elif frame_number_ == frame_number:
+                    arrs.append(self._read())
+                else:
+                    raise Exception("Requested frame number is too big!")
+       
         assert len(arrs) == number_of_animals
         img = np.hstack(arrs)
 
