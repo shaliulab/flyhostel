@@ -401,12 +401,19 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur = conn.cursor()
             with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
                 index_db_cur = index_db.cursor()
+                
+                index_db_cur.execute("SELECT COUNT(*) FROM frames;")
+                count = int(index_db_cur.fetchone())
+
                 index_db_cur.execute("SELECT frame_number, frame_time FROM frames;")
+                pb=tqdm(total=count)
+
                 for frame_number, frame_time in index_db_cur:
                     cur.execute(
                         "INSERT INTO STORE_INDEX (frame_number, frame_time) VALUES (?, ?);",
                         (frame_number, frame_time)
                     )
+                    pb.update(1)
 
 
     # ORIENTATION
