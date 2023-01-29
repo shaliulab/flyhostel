@@ -149,6 +149,7 @@ class SQLiteExporter(IdtrackeraiExporter):
 
 
     def export(self, dbfile, mode=["w", "a"], overwrite=False, **kwargs):
+        print(f"Saving to --> {dbfile}")
         assert dbfile.endswith(".db")
         if os.path.exists(dbfile):
             if overwrite:
@@ -232,6 +233,12 @@ class SQLiteExporter(IdtrackeraiExporter):
 
         else:
             ethoscope_metadata_str = ""
+            
+        
+        try:
+            pixels_per_cm = self._store_metadata["pixels_per_cm"]
+        except KeyError:
+            raise Exception(f"Please enter the pixels_per_cm parameter in {self._store_metadata_path}")
 
         values = [
             ("machine_id", machine_id),
@@ -241,8 +248,8 @@ class SQLiteExporter(IdtrackeraiExporter):
             ("frame_height", self._store_metadata["imgshape"][0]),
             ("framerate", self._store_metadata["framerate"]),
             ("chunksize", self._store_metadata["chunksize"]),
-            ("pixels_per_cm", self._store_metadata.get("pixels_per_cm", None)),
-            ("version", ""),
+            ("pixels_per_cm", pixels_per_cm),
+            ("version", "1"),
             ("ethoscope_metadata", ethoscope_metadata_str),
             ("camera_metadata", camera_metadata_str),
             ("idtrackerai_conf", idtrackerai_conf_str),
@@ -278,9 +285,10 @@ class SQLiteExporter(IdtrackeraiExporter):
                     frame_number = int(index_cursor.fetchone()[0])
 
                     snapshot_path = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.png")
+                    if not os.path.exists(snapshot_path):
+                        raise Exception(f"Cannot save chunk {chunk} snapshot. {snapshot_path} does not exist")
                     arr=cv2.imread(snapshot_path)
                     bstring = self.serialize_arr(arr, self._temp_path)
-
                     cur.execute(
                         "INSERT INTO IMG_SNAPSHOTS (frame_number, img) VALUES (?, ?)",
                         (frame_number, bstring)
