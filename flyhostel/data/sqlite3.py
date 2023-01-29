@@ -168,6 +168,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.write_environment_table(dbfile, **kwargs)
         self.write_var_map_table(dbfile)
         self.write_trajectory_and_identity(dbfile, **kwargs)
+        self.write_index_table(dbfile)
 
 
     def write_trajectory_and_identity(self, dbfile, chunks):
@@ -195,6 +196,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_identity_table(dbfile)
         self.init_orientation_table(dbfile)
         self.init_data(dbfile)
+        self.init_index_table(dbfile)
 
     def build_blobs_collection(self, chunk):
         return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "blobs_collection.npy")
