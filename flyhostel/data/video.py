@@ -14,17 +14,33 @@ from tqdm.auto import tqdm
 import imgstore
 ENCODER_FORMAT_GPU="h264_nvenc/mp4"
 ENCODER_FORMAT_CPU="mp4v/mp4"
+VIDEOS_FOLDER="/staging/leuven/stg_00115/Data/flyhostel_data/videos"
+
+def get_machine_id():
+    with open("/etc/machine-id", "r") as filehandle:
+         return filehandle.read()
 
 from .hdf5_images import HDF5ImagesReader
 
 logger = logging.getLogger(__name__)
+
+def validate_video(path):
+
+    cap = cv2.VideoCapture(path)
+    ret, frame = cap.read()
+    assert ret, f"Validation for {path} failed"
+    assert isinstance(frame, np.ndarray), f"Validation for {path} failed"
+    assert frame.shape[0] > 0 and frame.shape[1] > 0, f"Validation for {path} failed"
+
 
 class SingleVideoMaker:
 
     def __init__(self, flyhostel_dataset, value=None):
 
         self._flyhostel_dataset = flyhostel_dataset
-        self._basedir = os.path.dirname(flyhostel_dataset)
+        flyhostel, X, date, hour = os.path.splitext(os.path.basename(flyhostel_dataset))[0].split("_")
+        self._basedir = os.path.join(VIDEOS_FOLDER, flyhostel, X, f"{date}_{hour}")
+        print(self._basedir)
         self._index = os.path.join(self._basedir, "index.db")
 
         self.background_color = 255
@@ -100,6 +116,8 @@ class SingleVideoMaker:
             imgdtype=np.uint8,
             first_chunk=first_chunk,
         )
+        print(f"{basedir}:resolution={frameSize[::-1]}:framerate={self.framerate}")
+        return self.video_writer._capfn
 
     def frame_number2chunk(self, frame_number):
         assert frame_number is not None
@@ -124,9 +142,13 @@ class SingleVideoMaker:
         else:
             jobs = nproc + n_jobs
             
-        partition_size = math.ceil(len(chunks) / jobs)
+        # partition_size = math.ceil(len(chunks) / jobs)
+        # I cannot have the same joblib.Process continue the imgstore on to the new chunk
+        # Instead, each Process needs to produce one chunk only and exit
+        partition_size = 1
+        n_blocks=len(chunks)
+        chunk_partition_ = [chunks[partition_size*i:((partition_size*i)+partition_size)] for i in range(n_blocks)]
 
-        chunk_partition_ = [chunks[partition_size*i:((partition_size*i)+partition_size)] for i in range(jobs)]
         chunk_partition = []
         for partition in chunk_partition_:
             if len(partition)>0:
@@ -161,8 +183,9 @@ class SingleVideoMaker:
         Such files should have the following naming scheme: episode_images_X.hdf5
         where X is the episode number, with or without zero padding
         """
-
-        pattern=os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "segmentation_data", "episode_images*.hdf5")
+        segmentation_data = os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "segmentation_data")
+        print(segmentation_data)
+        pattern=os.path.join(segmentation_data, "episode_images*.hdf5")
         episode_images = sorted(glob.glob(pattern), key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
         return episode_images
 
@@ -174,8 +197,11 @@ class SingleVideoMaker:
         return frame_time
 
 
-    def _make_single_video(self, chunks, basedir, output, frameSize, resolution, background_color=255, **kwargs):
+    def _make_single_video(self, chunks, output, frameSize, resolution, background_color=255, **kwargs):
         width, height = frameSize
+        basedir  = self._basedir
+        if output is None:
+            output = os.path.join(basedir, "flyhostel", "single_animal")
 
 
         with sqlite3.connect(self._index, check_same_thread=False) as conn:
@@ -185,9 +211,17 @@ class SingleVideoMaker:
             for chunk in chunks:
             
                 written_images=0
-                count_white_imgs=0
+                count_NULL=0
                 episode_images=self.list_episode_images(basedir, chunk)
-                
+                assert episode_images, f"{len(episode_images)} hdf5 files found"
+                video_name = os.path.join(output, f"{str(chunk).zfill(6)}.mp4")
+                #if os.path.exists(video_name):
+                #    print(sorted(glob.glob(os.path.join(output, ".mp4"))))
+                #    warnings.warn(f"{video_name} already exists")
+                #    continue
+                start_next_chunk = chunk != chunks[-1]
+                start_next_chunk = False
+
                 with HDF5ImagesReader(episode_images, width=width, height=height, resolution=resolution, background_color=background_color, chunk=chunk) as hdf5_reader:
                 
                     # print(f"{len(keys)} keys found for chunk {chunk}")
@@ -201,16 +235,31 @@ class SingleVideoMaker:
 
                         if self.video_writer is None:
                             resolution=(resolution[0] * self._number_of_animals, resolution[1])
-                            self.init_video_writer(basedir=output, frameSize=resolution, **kwargs)
+                            fn = self.init_video_writer(basedir=output, frameSize=resolution, **kwargs)
+                            print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}")
                             assert img.shape == resolution[::-1]
+                            assert str(chunk).zfill(6) in fn
 
                         frame_time = self.fetch_frame_time(cur, frame_number)
-                        self.video_writer.add_image(img, frame_number, frame_time, annotate=False)
+                        assert img.shape == resolution[::-1]
+                        capfn=self.video_writer._capfn
+                        fn = self.video_writer.add_image(img, frame_number, frame_time, annotate=False, start_next_chunk=start_next_chunk)
                         written_images+=1
                         target_fn=frame_number+1
+                        if fn is not None:
+                            print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}, chunks={chunks}")
+                            #if not str(chunk).zfill(6) in fn:
+                            #    print(f"{chunk} not in {fn}")
+                  
+                with open("status.txt", "a") as filehandle:
+                    filehandle.write(f"Chunk {chunk}:{count_NULL}:{written_images}\n")
 
-                #print(f"Written images: {written_images}")
-                #print(f"White images: {count_white_imgs}")
+                print(f"Validating {capfn}")
+                validate_video(capfn)
+
+        self.video_writer.close()
+
+
 
     @staticmethod
     def rotate_image(img, angle):

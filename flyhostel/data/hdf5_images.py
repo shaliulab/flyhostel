@@ -1,3 +1,5 @@
+import warnings
+
 import h5py
 import cv2
 import numpy as np
@@ -12,7 +14,8 @@ class HDF5ImagesReader:
         self._file_idx = -1
         self._key_counter = 0
         self._file = None
-        self._tqdm=tqdm(total=len(self._files), desc=f"Processing chunk {chunk}")
+        #self._tqdm=tqdm(total=len(self._files), desc=f"Processing chunk {chunk}")
+        self._tqdm=None
         self._update_filehandler()
         self._finished = False
         self.width = width
@@ -20,6 +23,7 @@ class HDF5ImagesReader:
         self.background_color = background_color
         self.resolution = resolution
         self._NULL = np.ones((self.height, self.width), np.uint8) * self.background_color
+        self._chunk = chunk
 
     @property
     def key(self):
@@ -87,12 +91,22 @@ class HDF5ImagesReader:
                 frame_number=frame_number_
                 arrs.append(self._read())
             else:
-                if frame_number_ > frame_number:
+                if frame_number < frame_number_:
+                    if self._chunk == 72:
+                        print(f"NULL {frame_number}")
                     arrs.append(self._NULL.copy())
-                elif frame_number_ == frame_number:
+                elif frame_number == frame_number_:
                     arrs.append(self._read())
                 else:
-                    raise Exception("Requested frame number is too big!")
+                    count=0
+                    while frame_number > frame_number_:
+                        self._key_counter+=1
+                        self._check_end_of_file() 
+                        frame_number_ = self.frame_number
+                        count+=1
+
+                    warnings.warn(f"Skipped {count} keys to deliver frame number {frame_number}")
+                    arrs.append(self._read())
        
         assert len(arrs) == number_of_animals
         img = np.hstack(arrs)
@@ -114,7 +128,7 @@ class HDF5ImagesReader:
         if self._file is not None:
             self._file.close()
         
-        self._tqdm.update(1)
+        if self._tqdm is not None: self._tqdm.update(1)
         self._file = h5py.File(self._files[self._file_idx], "r")
         self._keys = list(self._file.keys())
         self._key_counter=0
