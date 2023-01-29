@@ -403,7 +403,7 @@ class SQLiteExporter(IdtrackeraiExporter):
                 index_db_cur = index_db.cursor()
                 
                 index_db_cur.execute("SELECT COUNT(*) FROM frames;")
-                count = int(index_db_cur.fetchone())
+                count = int(index_db_cur.fetchone()[0])
 
                 index_db_cur.execute("SELECT frame_number, frame_time FROM frames;")
                 pb=tqdm(total=count)
