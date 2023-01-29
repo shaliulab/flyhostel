@@ -393,7 +393,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_index_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE INDEX (frame_number int(11), frame_time int(11));")
+            cur.execute(f"CREATE TABLE STORE_INDEX (frame_number int(11), frame_time int(11));")
 
 
     def write_index_table(self, dbfile):
@@ -404,7 +404,7 @@ class SQLiteExporter(IdtrackeraiExporter):
                 index_db_cur.execute("SELECT frame_number, frame_time FROM frames;")
                 for frame_number, frame_time in index_db_cur:
                     cur.execute(
-                        "INSERT INTO INDEX (frame_number, frame_time) VALUES (?, ?);",
+                        "INSERT INTO STORE_INDEX (frame_number, frame_time) VALUES (?, ?);",
                         (frame_number, frame_time)
                     )
 
