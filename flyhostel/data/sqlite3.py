@@ -404,7 +404,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_behaviors_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute(f"CREATE TABLE BEHAVIORS (frame_number int(11), behavior char(100), probability float(5));")
+            cur.execute(f"CREATE TABLE BEHAVIORS (frame_number int(11), in_frame_index int(2), behavior char(100), probability float(5));")
 
     def write_behaviors_table(self, dbfile, behaviors=None):
 
@@ -424,6 +424,11 @@ class SQLiteExporter(IdtrackeraiExporter):
             with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
 
                 index_db_cur = index_db.cursor()
+
+                # TODO
+                # For now in_frame_index is 0, but we need to somehow encode this in the deepethogram file
+                in_frame_index=0
+
                 for behavior in behaviors:
 
                     chunks, P = reader.load(behavior, n_jobs=self._n_jobs)
@@ -435,10 +440,10 @@ class SQLiteExporter(IdtrackeraiExporter):
                         assert P[i].shape[0] == len(frame_numbers)
                         
                         for j, frame_number in enumerate(frame_numbers):
-                            args=(frame_number[0], behavior, P[i][j])
+                            args=(frame_number[0], in_frame_index, behavior, P[i][j])
                             try:
 
-                                cur.execute("INSERT INTO BEHAVIORS (frame_number, behavior, probability) VALUES (?, ?, ?)", args)
+                                cur.execute("INSERT INTO BEHAVIORS (frame_number, in_frame_index, behavior, probability) VALUES (?, ?, ?, ?)", args)
                             except Exception as error:
                                 print(args)                                
                                 raise error
