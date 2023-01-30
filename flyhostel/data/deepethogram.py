@@ -1,9 +1,12 @@
 import glob
 import os.path
+import logging
 
-import numpy as np
 import joblib
 import h5py
+
+logger = logging.getLogger(__name__)
+
 
 class H5Reader:
     
@@ -31,13 +34,16 @@ class H5Reader:
         
         assert behavior in self._class_names
         
+        logger.debug(f"Loading {behavior} data from {len(self._files)} files using {n_jobs} cores")
+
         Output = joblib.Parallel(n_jobs=n_jobs)(
             joblib.delayed(
                 self.load_from_one_file
             )(file, behavior, self._class_names, main_key=self.main_key)
             for file in self._files
         )
-        
+        logger.debug("DONE")
+
         chunks=[]
         P=[]
         n_frames=0
@@ -48,7 +54,7 @@ class H5Reader:
 
     
         hours = round(n_frames/self.fps/3600, 2)
-        print(f"Loaded {hours} hours ({len(chunks)} chunks")
+        logger.info(f"Loaded {hours} hours ({len(chunks)} chunks")
         
         return P, chunks
 
@@ -65,6 +71,6 @@ class H5Reader:
             # features = f[self.main_key]["flow_features"][:]
             p = f[main_key]["P"][:, classes.index(behavior)]
         
-        return p, chunk
+        return chunk, p
 
     
