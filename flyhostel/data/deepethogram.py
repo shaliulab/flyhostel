@@ -38,23 +38,33 @@ class H5Reader:
             for file in self._files
         )
         
-        data = np.concatenate(Output)
-        hours = round(data.shape[0]/self.fps/3600, 2)
+        chunks=[]
+        P=[]
+        n_frames=0
+        for chunk, p in Output:
+            P.append(p)
+            n_frames+=len(p)
+            chunks.append(chunk)
+
+    
+        hours = round(n_frames/self.fps/3600, 2)
+        print(f"Loaded {hours} hours ({len(chunks)} chunks")
         
-        print(f"Loaded {hours} hours")
-        
-        return data
+        return P, chunks
+
         
 
     @staticmethod
     def load_from_one_file(file, behavior, classes, main_key="resnet18"):
-        
+    
+        chunk = int(os.path.basename(file).split("_")[-2])
+
         with h5py.File(file, "r") as f:
             local_classes = tuple([name.decode() for name in f[main_key]["class_names"][:]])
             assert local_classes == classes
             # features = f[self.main_key]["flow_features"][:]
             p = f[main_key]["P"][:, classes.index(behavior)]
         
-        return p
+        return p, chunk
 
     

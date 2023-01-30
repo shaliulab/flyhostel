@@ -18,6 +18,7 @@ import numpy as np
 from idtrackerai.list_of_blobs import ListOfBlobs
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from imgstore.constants import STORE_MD_FILENAME
+from flyhostel.data.deepethogram import H5Reader
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ class IdtrackeraiExporter:
 
 class SQLiteExporter(IdtrackeraiExporter):
 
-    def __init__(self, basedir):
+    def __init__(self, basedir, deepethogram_data=None, n_jobs=1):
 
         self._basedir = os.path.realpath(basedir)
         
@@ -124,6 +125,8 @@ class SQLiteExporter(IdtrackeraiExporter):
         self._temp_path = tempfile.mktemp(prefix="flyhostel_", suffix=".jpg")
         self._number_of_animals = None
         self._index_dbfile = os.path.join(self._basedir, "index.db")
+        self._deepethogram_data = deepethogram_data
+        self._n_jobs=n_jobs
 
 
     @staticmethod
@@ -197,6 +200,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_orientation_table(dbfile)
         self.init_data(dbfile)
         self.init_index_table(dbfile)
+        self.init_behaviors_table(dbfile)
 
     def build_blobs_collection(self, chunk):
         return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "blobs_collection.npy")
@@ -396,6 +400,46 @@ class SQLiteExporter(IdtrackeraiExporter):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             cur.execute(f"CREATE TABLE STORE_INDEX (frame_number int(11), frame_time int(11));")
+
+    def init_behaviors_table(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(f"CREATE TABLE BEHAVIORS (frame_number int(11), behavior char(100), probability float(5));")
+
+    def write_behaviors_table(self, dbfile, behaviors=None):
+
+        if self._deepethogram_data is None:
+            warnings.warn(f"Please pass a deepethogram data folder")
+            return
+
+        prefix = "_".join(self._basedir.split(os.path.sep)[-3:])
+        reader = H5Reader.from_outputs(data_dir=self._deepethogram_data, prefix=prefix, fps=self._store_metadata["framerate"])
+
+        if behaviors is None:
+            behaviors=reader.class_names
+
+
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
+
+                index_db_cur = index_db.cursor()
+                for behavior in behaviors:
+
+                    P, chunks = reader.load(behavior, n_jobs=self._n_jobs)
+                    pb=tqdm(total=len(chunks), desc=f"Loading {behavior} instances")
+
+                    for i, chunk in enumerate(chunks):
+
+                        index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?", chunk)
+                        frame_numbers = index_db.fetchall()
+                        assert P[i] == len(frame_numbers)
+                        
+                        for j, frame_number in enumerate(frame_numbers):
+                            cur.execute("INSERT INTO BEHAVIORS (frame_number, behavior, probability) VALUES (?, ?, ?)", frame_number, behavior, P[i][j])
+                        
+                        pb.update(1)
+
 
 
     def write_index_table(self, dbfile):
