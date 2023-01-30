@@ -406,7 +406,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur = conn.cursor()
             cur.execute(f"CREATE TABLE BEHAVIORS (frame_number int(11), in_frame_index int(2), behavior char(100), probability float(5));")
 
-    def write_behaviors_table(self, dbfile, behaviors=None):
+    def write_behaviors_table(self, dbfile, behaviors=None, chunks=None):
 
         if self._deepethogram_data is None:
             warnings.warn(f"Please pass a deepethogram data folder")
@@ -429,24 +429,21 @@ class SQLiteExporter(IdtrackeraiExporter):
                 # For now in_frame_index is 0, but we need to somehow encode this in the deepethogram file
                 in_frame_index=0
 
-                for behavior in behaviors:
+                for behavior_idx, behavior in enumerate(behaviors):
 
-                    chunks, P = reader.load(behavior, n_jobs=self._n_jobs)
-                    pb=tqdm(total=len(chunks), desc=f"Loading {behavior} instances")
+                    chunks_avail, P = reader.load(behavior, n_jobs=self._n_jobs)
+                    pb=tqdm(total=len(chunks_avail), desc=f"Loading {behavior} instances", position=behavior_idx, unit="chunk")
 
-                    for i, chunk in enumerate(chunks):
-                        index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?", (chunk, ))
+                    for i, chunk in enumerate(chunks_avail):
+                        if chunks is not None and chunk not in chunks:
+                            continue
+                        index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?;", (chunk, ))
                         frame_numbers = index_db_cur.fetchall()
                         assert P[i].shape[0] == len(frame_numbers)
                         
                         for j, frame_number in enumerate(frame_numbers):
-                            args=(frame_number[0], in_frame_index, behavior, P[i][j])
-                            try:
-
-                                cur.execute("INSERT INTO BEHAVIORS (frame_number, in_frame_index, behavior, probability) VALUES (?, ?, ?, ?)", args)
-                            except Exception as error:
-                                print(args)                                
-                                raise error
+                            args=(frame_number[0], in_frame_index, behavior, P[i][j].item())
+                            cur.execute("INSERT INTO BEHAVIORS (frame_number, in_frame_index, behavior, probability) VALUES (?, ?, ?, ?);", args)
                         
                         pb.update(1)
 
