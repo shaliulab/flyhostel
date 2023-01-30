@@ -151,7 +151,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             return 1
 
 
-    def export(self, dbfile, mode=["w", "a"], overwrite=False, **kwargs):
+    def export(self, dbfile, mode=["w", "a"], overwrite=False, behaviors=None, **kwargs):
         print(f"Saving to --> {dbfile}")
         assert dbfile.endswith(".db")
         if os.path.exists(dbfile):
@@ -172,6 +172,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.write_var_map_table(dbfile)
         self.write_trajectory_and_identity(dbfile, **kwargs)
         self.write_index_table(dbfile)
+        self.write_behaviors_table(dbfile, behaviors=behaviors)
 
 
     def write_trajectory_and_identity(self, dbfile, chunks):
