@@ -426,17 +426,22 @@ class SQLiteExporter(IdtrackeraiExporter):
                 index_db_cur = index_db.cursor()
                 for behavior in behaviors:
 
-                    P, chunks = reader.load(behavior, n_jobs=self._n_jobs)
+                    chunks, P = reader.load(behavior, n_jobs=self._n_jobs)
                     pb=tqdm(total=len(chunks), desc=f"Loading {behavior} instances")
 
                     for i, chunk in enumerate(chunks):
-
-                        index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?", chunk)
-                        frame_numbers = index_db.fetchall()
-                        assert P[i] == len(frame_numbers)
+                        index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?", (chunk, ))
+                        frame_numbers = index_db_cur.fetchall()
+                        assert P[i].shape[0] == len(frame_numbers)
                         
                         for j, frame_number in enumerate(frame_numbers):
-                            cur.execute("INSERT INTO BEHAVIORS (frame_number, behavior, probability) VALUES (?, ?, ?)", frame_number, behavior, P[i][j])
+                            args=(frame_number[0], behavior, P[i][j])
+                            try:
+
+                                cur.execute("INSERT INTO BEHAVIORS (frame_number, behavior, probability) VALUES (?, ?, ?)", args)
+                            except Exception as error:
+                                print(args)                                
+                                raise error
                         
                         pb.update(1)
 

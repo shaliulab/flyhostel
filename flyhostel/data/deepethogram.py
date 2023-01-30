@@ -54,9 +54,9 @@ class H5Reader:
 
     
         hours = round(n_frames/self.fps/3600, 2)
-        logger.info(f"Loaded {hours} hours ({len(chunks)} chunks")
+        logger.info(f"Loaded {hours} hours ({len(chunks)} chunks)")
         
-        return P, chunks
+        return chunks, P
 
         
 
