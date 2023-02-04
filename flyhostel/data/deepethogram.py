@@ -1,8 +1,10 @@
 import glob
 import os.path
 import logging
+import warnings
 
 import joblib
+import numpy as np
 import h5py
 
 logger = logging.getLogger(__name__)
@@ -13,11 +15,13 @@ class H5Reader:
     def __init__(self, files, fps=160, main_key="resnet18"):
         self._files = files
         self.main_key = main_key
-        with h5py.File(self._files[0], "r") as f:
-             self._class_names = tuple([name.decode() for name in f[self.main_key]["class_names"][:]])
-        
         self.fps = fps
-
+        if not self._files:
+            self._class_names = ()
+        else:
+            with h5py.File(self._files[0], "r") as f:
+                self._class_names = tuple([name.decode() for name in f[self.main_key]["class_names"][:]])
+        
 
     @property
     def class_names(self):
@@ -25,7 +29,7 @@ class H5Reader:
 
     @classmethod
     def from_outputs(cls, data_dir, prefix, *args, **kwargs):
-        files = sorted(glob.glob(os.path.join(data_dir, prefix + "*", "*_outputs.h5")))
+        files = sorted(glob.glob(os.path.join(data_dir, prefix + "*", "*_outputs.h5")))[:-1]
         return cls(*args, files=files, **kwargs)
 
 
@@ -66,6 +70,10 @@ class H5Reader:
         chunk = int(os.path.basename(file).split("_")[-2])
 
         with h5py.File(file, "r") as f:
+            if main_key not in list(f.keys()):
+                warnings.warn(f"Cannot load {file}. {main_key} not available!")
+                return chunk, np.array([])
+
             local_classes = tuple([name.decode() for name in f[main_key]["class_names"][:]])
             assert local_classes == classes
             # features = f[self.main_key]["flow_features"][:]
