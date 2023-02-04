@@ -1,4 +1,5 @@
 import os.path
+import pickle
 import warnings
 import sqlite3
 import yaml
@@ -39,7 +40,7 @@ except AssertionError:
 
     
 
-TABLES = ["METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0", "IDENTITY", "BEHAVIORS", "INDEX", "ENVIRONMENT"]
+TABLES = ["METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0", "IDENTITY", "BEHAVIORS", "INDEX", "ENVIRONMENT", "AI"]
 
 
 def metadata_not_found(message):
@@ -197,6 +198,9 @@ class SQLiteExporter(IdtrackeraiExporter):
         if "BEHAVIORS" in tables:
             self.write_behaviors_table(dbfile, behaviors=behaviors)
 
+        if "AI" in tables:
+            self.write_ai_table(dbfile)
+            
 
     def write_trajectory_and_identity(self, dbfile, chunks):
     
@@ -225,6 +229,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_data(dbfile)
         self.init_index_table(dbfile)
         self.init_behaviors_table(dbfile)
+        self.init_ai_table(dbfile)
 
     def build_blobs_collection(self, chunk):
         return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "blobs_collection.npy")
@@ -431,6 +436,30 @@ class SQLiteExporter(IdtrackeraiExporter):
             if reset:
                 cur.execute(f"DROP TABLE IF EXISTS BEHAVIORS;")
             cur.execute("CREATE TABLE IF NOT EXISTS BEHAVIORS (frame_number int(11), in_frame_index int(2), behavior char(100), probability float(5));")
+
+    def init_ai_table(self, dbfile, reset=True):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            if reset:
+                cur.execute(f"DROP TABLE IF EXISTS AI;")
+            cur.execute("CREATE TABLE IF NOT EXISTS AI (frame_number int(11), ai int(2);")
+
+
+    def write_ai_table(self, dbfile):
+
+        pickle_files = sorted(glob.glob(os.path.join(self._basedir, "idtrackerai", "session_*", "preprocessing", "ai.pkl")))
+
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+
+            for file in pickle_files:
+                with open(file, "rb") as filehandle:
+                    ai_mods = pickle.load(filehandle)
+                    frames=ai_mods["success"]
+                
+                for frame_number in frames:
+                    cur.execute("INSERT INTO AI (frame_number, ai) VALUES (?, ?)", (frame_number, "YOLOv7"))
+
 
     def write_behaviors_table(self, dbfile, behaviors=None, chunks=None):
 
