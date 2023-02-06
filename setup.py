@@ -1,6 +1,8 @@
 import pathlib
 from setuptools import setup, find_packages
 
+import warnings
+
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent
 
@@ -30,6 +32,7 @@ setup(
         "confapp-shaliulab",
         "sklearn",
         "recordtype",
+        "tqdm",
         #"feed_integration",
     ],
     entry_points={
@@ -41,3 +44,4 @@ setup(
 
 
 
+warnings.warn("Make sure that idtrackerai, torch, torchvision, confapp, zeitgeber, trajectorytools, feed_integration, dropy are installed")
