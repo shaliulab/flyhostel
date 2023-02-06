@@ -39,12 +39,11 @@ class H5Reader:
 
     @classmethod
     def from_outputs(cls, data_dir, prefix, in_frame_index, *args, **kwargs):
-        key=f"{prefix}_[0-9][0-9][0-9][0-9][0-9][0-9]_{in_frame_index}"
-        files = sorted(glob.glob(os.path.join(data_dir, key, f"{key}_outputs.h5")))[:-1]
+        key=f"{prefix}_[0-9][0-9][0-9][0-9][0-9][0-9]"
+        files = sorted(glob.glob(os.path.join(data_dir, key, f"{key}_{in_frame_index}_outputs.h5")))[:-1]
 
         if len(files) == 0:
             if in_frame_index == 0:
-                key=f"{prefix}_[0-9][0-9][0-9][0-9][0-9][0-9]"
                 files = sorted(glob.glob(os.path.join(data_dir, key, f"{key}_outputs.h5")))[:-1]
             else:
                 # no files found
