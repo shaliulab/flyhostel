@@ -95,7 +95,7 @@ def validate_flyhostel_export(flyhostel_id, number_of_animals, date_time, chunk_
         return validated
 
     with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-        cur = conn.cursr()
+        cur = conn.cursor()
         
         cur.execute("SELECT value FROM METADATA WHERE field = 'chunks';")
         chunks=[int(x) for x in cur.fetchone().split(",")]
