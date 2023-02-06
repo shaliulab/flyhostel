@@ -25,22 +25,23 @@ logger = logging.getLogger(__name__)
 
 METADATA_FILE = "metadata.csv"
 RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
-DEEPETHOGRAM_DATA="/staging/leuven/stg_00115/Data/flyhostel_data/flyhostel_deepethogram/INFERENCE/"
+DEEPETHOGRAM_DATA="/staging/leuven/stg_00115/Data/flyhostel_data/flyhostel_deepethogram/DATA/"
 
 try:
-    CONDA_ENVS=os.environ["CONDA_ENVS"]
-    DOWNLOAD_BEHAVIORAL_DATA=os.path.join(CONDA_ENVS, "google/bin/download-behavioral-data")
-    assert os.path.exists(DOWNLOAD_BEHAVIORAL_DATA)
-except KeyError:
-    warnings.warn("CONDA_ENVS not defined. Automatic download of metadata not available")
-    DOWNLOAD_BEHAVIORAL_DATA = None
+    DOWNLOAD_BEHAVIORAL_DATA=os.environ.get("DOWNLOAD_BEHAVIORAL_DATA", None)
+    assert DOWNLOAD_BEHAVIORAL_DATA is not None and os.path.exists(DOWNLOAD_BEHAVIORAL_DATA)
+
 except AssertionError:
-    warnings.warn(f"{DOWNLOAD_BEHAVIORAL_DATA} not found. Automatic download of metadata not available")
+    warnings.warn(
+        """
+        download-behavioral-data not found. Automatic download of metadata not available.
+        Please ensure the DOWNLOAD_BEHAVIORAL_DATA environment variable is set and pointing to a download-behavioral-data executable
+        """)
     DOWNLOAD_BEHAVIORAL_DATA = None
 
     
 
-TABLES = ["METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0", "IDENTITY", "BEHAVIORS", "INDEX", "ENVIRONMENT", "AI"]
+TABLES = ["METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0", "IDENTITY", "BEHAVIORS", "STORE_INDEX", "ENVIRONMENT", "AI"]
 
 
 def metadata_not_found(message):
@@ -192,7 +193,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         if "ROI_0" in tables and "IDENTITY" in tables:
             self.write_trajectory_and_identity(dbfile, **kwargs)
 
-        if "INDEX" in tables:
+        if "STORE_INDEX" in tables:
             self.write_index_table(dbfile)
 
         if "BEHAVIORS" in tables:
@@ -460,15 +461,19 @@ class SQLiteExporter(IdtrackeraiExporter):
                 for frame_number in frames:
                     cur.execute("INSERT INTO AI (frame_number, ai) VALUES (?, ?)", (frame_number, "YOLOv7"))
 
+    def write_behaviors_table(self, *args, **kwargs):
 
-    def write_behaviors_table(self, dbfile, behaviors=None, chunks=None):
+        for in_frame_index in self.range(self.number_of_animals):
+            self.write_behaviors_table_single_blob(*args, in_frame_index, **kwargs)
+
+    def write_behaviors_table_single_blob(self, dbfile, in_frame_index, behaviors=None, chunks=None):
 
         if self._deepethogram_data is None:
             warnings.warn(f"Please pass a deepethogram data folder")
             return
 
         prefix = "_".join(self._basedir.split(os.path.sep)[-3:])
-        reader = H5Reader.from_outputs(data_dir=self._deepethogram_data, prefix=prefix, fps=self._store_metadata["framerate"])
+        reader = H5Reader.from_outputs(data_dir=self._deepethogram_data, prefix=prefix, in_frame_index=in_frame_index, fps=self._store_metadata["framerate"])
 
         if behaviors is None:
             behaviors=reader.class_names
@@ -480,24 +485,20 @@ class SQLiteExporter(IdtrackeraiExporter):
 
                 index_db_cur = index_db.cursor()
 
-                # TODO
-                # For now in_frame_index is 0, but we need to somehow encode this in the deepethogram file
-                in_frame_index=0
-
                 for behavior_idx, behavior in enumerate(behaviors):
 
                     chunks_avail, P = reader.load(behavior, n_jobs=self._n_jobs)
-                    pb=tqdm(total=len(chunks_avail), desc=f"Loading {behavior} instances", position=behavior_idx, unit="chunk")
+                    pb=tqdm(total=len(chunks_avail), desc=f"Loading {behavior} instances for blob index {in_frame_index}", position=behavior_idx, unit="chunk")
 
-                    for i, chunk in enumerate(chunks_avail):
+                    for chunk_idx, chunk in enumerate(chunks_avail):
                         if chunks is not None and chunk not in chunks:
                             continue
                         index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?;", (chunk, ))
-                        frame_numbers = index_db_cur.fetchall()
-                        assert P[i].shape[0] == len(frame_numbers)
+                        frame_numbers = [int(x[0]) for x in index_db_cur.fetchall()]
+                        assert P[chunk_idx].shape[0] == len(frame_numbers)
                         
-                        for j, frame_number in enumerate(frame_numbers):
-                            args=(frame_number[0], in_frame_index, behavior, P[i][j].item())
+                        for frame_number_idx, frame_number in enumerate(frame_numbers):
+                            args=(frame_number, in_frame_index, behavior, P[chunk_idx][frame_number_idx].item())
                             cur.execute("INSERT INTO BEHAVIORS (frame_number, in_frame_index, behavior, probability) VALUES (?, ?, ?, ?);", args)
                         
                         pb.update(1)
