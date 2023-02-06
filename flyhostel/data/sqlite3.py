@@ -1,3 +1,8 @@
+"""
+Centralize the results obtained in the FlyHostel pipeline into a single SQLite file
+that can be used to perform all downstream analyses
+"""
+
 import os.path
 import pickle
 import warnings

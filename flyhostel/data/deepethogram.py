@@ -1,3 +1,13 @@
+"""
+Read h5 files produced by deepethogram
+
+The module exposes H5Reader, a class that can be used to fully load the annotations produced by deepethogram
+for a specific behavior (specified in the load method).
+The annotation is added so chronological order is preserved i.e. as a timeseries,
+and this is ensured because all data within chunk is ordered and comes with the chunk number
+so chronological order between chunks is not required in the output 
+"""
+
 import glob
 import os.path
 import logging
@@ -70,6 +80,8 @@ class H5Reader:
     
         hours = round(n_frames/self.fps/3600, 2)
         logger.info(f"Loaded {hours} hours ({len(chunks)} chunks)")
+
+        assert all(np.diff(chunks) == 1)
         
         return chunks, P
 
