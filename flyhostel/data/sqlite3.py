@@ -275,6 +275,15 @@ class SQLiteExporter(IdtrackeraiExporter):
         except KeyError:
             raise Exception(f"Please enter the pixels_per_cm parameter in {self._store_metadata_path}")
 
+        with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
+            cur=index_db.cursor()
+            cur.execute("SELECT chunk FROM frames ORDER BY chunk ASC LIMIT 1;")
+            first_chunk = int(cur.execute.fetchone()[0])
+            cur.execute("SELECT chunk FROM frames ORDER BY chunk DESC LIMIT 1;")
+            last_chunk = int(cur.execute.fetchone()[0])
+        chunks = f"{first_chunk},{last_chunk}"
+
+
         values = [
             ("machine_id", machine_id),
             ("machine_name", machine_name),
@@ -288,6 +297,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             ("ethoscope_metadata", ethoscope_metadata_str),
             ("camera_metadata", camera_metadata_str),
             ("idtrackerai_conf", idtrackerai_conf_str),
+            ("chunks", chunks),
         ]
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -428,7 +438,7 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_index_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            cur.execute("CREATE TABLE IF NOT EXISTS STORE_INDEX (frame_number int(11), frame_time int(11));")
+            cur.execute("CREATE TABLE IF NOT EXISTS STORE_INDEX (chunk int(3), frame_number int(11), frame_time int(11));")
 
     def init_behaviors_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -513,13 +523,13 @@ class SQLiteExporter(IdtrackeraiExporter):
                 index_db_cur.execute("SELECT COUNT(*) FROM frames;")
                 count = int(index_db_cur.fetchone()[0])
 
-                index_db_cur.execute("SELECT frame_number, frame_time FROM frames;")
+                index_db_cur.execute("SELECT chunk, frame_number, frame_time FROM frames;")
                 pb=tqdm(total=count)
 
-                for frame_number, frame_time in index_db_cur:
+                for chunk, frame_number, frame_time in index_db_cur:
                     cur.execute(
-                        "INSERT INTO STORE_INDEX (frame_number, frame_time) VALUES (?, ?);",
-                        (frame_number, frame_time)
+                        "INSERT INTO STORE_INDEX (chunk, frame_number, frame_time) VALUES (?, ?, ?);",
+                        (chunk, frame_number, frame_time)
                     )
                     pb.update(1)
 
