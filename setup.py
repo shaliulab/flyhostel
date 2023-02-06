@@ -30,7 +30,7 @@ setup(
         "pyaml",
         "imgstore-shaliulab>=0.4.0",
         "confapp-shaliulab",
-        "sklearn",
+        "scikit-learn",
         "recordtype",
         "tqdm",
         #"feed_integration",
@@ -38,6 +38,7 @@ setup(
     entry_points={
         "console_scripts": [
             "fh=flyhostel.__main__:main",
+            "fh-server=flyhostel.server.server:main",
             ]
     },
 )
