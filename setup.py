@@ -1,6 +1,8 @@
 import pathlib
 from setuptools import setup, find_packages
 
+import warnings
+
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent
 
@@ -28,16 +30,19 @@ setup(
         "pyaml",
         "imgstore-shaliulab>=0.4.0",
         "confapp-shaliulab",
-        "sklearn",
+        "scikit-learn",
         "recordtype",
+        "tqdm",
         #"feed_integration",
     ],
     entry_points={
         "console_scripts": [
             "fh=flyhostel.__main__:main",
+            "fh-server=flyhostel.server.server:main",
             ]
     },
 )
 
 
 
+warnings.warn("Make sure that idtrackerai, torch, torchvision, confapp, zeitgeber, trajectorytools, feed_integration, dropy are installed")
