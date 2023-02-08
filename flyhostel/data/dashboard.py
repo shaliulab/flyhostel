@@ -6,9 +6,11 @@ import os.path
 import pickle
 import glob
 import os
+import os.path
 import sqlite3
 
 import yaml
+import pandas as pd
 import numpy as np
 import cv2
 import h5py
@@ -137,7 +139,7 @@ def validate_flyhostel_make_video(flyhostel_id, number_of_animals, date_time, ch
     with open(metadata_file, "r") as filehandle:
         metadata=yaml.load(filehandle, yaml.SafeLoader)
     
-    chunksize=int(metadata["_store"]["chunksize"])
+    chunksize=int(metadata["__store"]["chunksize"])
 
     if not validated:
         return validated
@@ -156,8 +158,16 @@ def validate_deepethogram_prediction(flyhostel_id, number_of_animals, date_time,
 
     for chunk in range(chunk_start, chunk_end+1):
         key=f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}_{str(chunk).zfill(6)}"
-        filename=f"{key}_00.h5" 
+        filename=f"{key}_00_outputs.h5" 
         output_file=os.path.join(data_dir, key, filename)
+        if not os.path.exists(output_file):
+            filename=f"{key}_outputs.h5"
+            output_file=os.path.join(data_dir, key, filename)
+
+        if not os.path.exists(output_file):
+            print(f"{output_file} does not exist")
+            return False
+
         with h5py.File(output_file) as f:
             try:
                 f["resnet18"]
@@ -166,3 +176,47 @@ def validate_deepethogram_prediction(flyhostel_id, number_of_animals, date_time,
                 break
 
     return validated
+
+def validate_experiment_(chunk_start, chunk_end, **kwargs):
+
+    validation={}
+    validation["preprocessing"] =  validate_idtrackerai_preprocessing(**kwargs, chunk_start=chunk_start, chunk_end=chunk_end)
+    validation["integration"] =  validate_idtrackerai_integration(**kwargs, chunk_start=chunk_start, chunk_end=chunk_end)
+    validation["crossings_detection_and_fragmentation"] =  validate_idtrackerai_crossings_detection_and_fragmentation(**kwargs, chunk_start=chunk_start, chunk_end=chunk_end)
+    validation["tracking"] =  validate_idtrackerai_tracking(**kwargs, chunk_start=chunk_start, chunk_end=chunk_end)
+
+    columns = {k: [v] for k, v in kwargs.items()}
+    data=pd.DataFrame(columns)
+    data_=[]
+    for step in ["preprocessing", "integration", "crossings_detection_and_fragmentation", "tracking"]:
+        data__ = data.copy()
+        data__=pd.concat([data__ for _ in range(chunk_end+1-chunk_start)], axis=0)
+        data__["chunk"] = np.arange(chunk_start, chunk_end+1)
+        data__["step"] = step
+        data__["status"] = validation[step]
+        data_.append(data__)
+    data=pd.concat(data_, axis=0)
+
+    return data
+
+
+def validate_experiment(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end):
+
+    starts=list(range(chunk_start, chunk_end+1, 50))
+    ends=starts[1:] + [chunk_end+1]
+    intervals = zip(starts, ends)
+
+    data=[]
+    for start, end in intervals:
+        print(start, end)
+        data.append(validate_experiment_(start,end-1, flyhostel_id=flyhostel_id, number_of_animals=number_of_animals, date_time=date_time))
+    
+    data=pd.concat(data)
+    #str_data=data.to_csv(index=False).strip('\n').split('\n')
+    #for row in str_data:
+    #    print(row)
+
+    csv_file = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], f"FlyHostel{flyhostel_id}", f"{number_of_animals}X", date_time, "status.csv")
+    data.to_csv(csv_file, index=False)
+    # return data
+
