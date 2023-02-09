@@ -18,15 +18,24 @@ class HDF5ImagesReader:
 
     def __init__(
         self,
-        mode, hdf5_files, chunks, width=None, height=None, resolution=None, background_color=None,
+        mode, hdf5_files, chunks, width=None, height=None, resolution=None, background_color=255,
         img_size=640, stride=32, frequency=1, number_of_animals=None
         ):
         
-        """
-        
-        
+        """        
+            mode (str): Either flyhostel or yolov7. If in flyhostel mode,
+               frames are read and returned one frame number at a time,
+               with a constant resolution
+            
             frequency (int): Frames to be sampled per second of recording
         """
+        self.mode=mode
+
+        if self.mode == "flyhostel":
+            assert width is not None
+            assert height is not None
+            assert resolution is not None
+            assert background_color is not None 
         
         self._files = hdf5_files
         self._file_idx = -1
@@ -45,7 +54,6 @@ class HDF5ImagesReader:
         self.metadata=None
         self._experiment_metadata=None
         self._number_of_animals=number_of_animals
-        self.mode=mode
         self.img_size=img_size
         self.stride=stride
         self.frequency=frequency
