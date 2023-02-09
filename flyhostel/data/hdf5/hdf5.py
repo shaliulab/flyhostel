@@ -18,8 +18,8 @@ class HDF5ImagesReader:
 
     def __init__(
         self,
-        mode, hdf5_files, number_of_animals, width, height, resolution, background_color, chunks,
-        img_size=640, stride=32, frequency=1
+        mode, hdf5_files, width, height, resolution, background_color, chunks,
+        img_size=640, stride=32, frequency=1, number_of_animals=None
         ):
         
         """
@@ -221,6 +221,7 @@ class HDF5ImagesReader:
 
     def _read(self):
         key=self.key
+        # this means we went past the last of the last file
         if key is None:
             return None, None, None
 
@@ -232,26 +233,70 @@ class HDF5ImagesReader:
         self._check_end_of_file() 
         return img_, key, source
 
-    def _read_complex(self, frame_number, number_of_animals, stack=True):
 
+    def _fetch(self, frame_number, in_frame_index):
+         modified_key = f"{frame_number}-{in_frame_index}-modified"
+         # NOTE
+         # This assumes the modified version of the key
+         # will exist in the next position
+         try:
+             if self._key_counter < (len(self._keys)-1) and self._keys[self._key_counter+1] == modified_key:
+                 self._key_counter+=1
+         except Exception as error:
+             print(self._key_counter, len(self._keys))
+             print(error)
+         
+         return self._read()
+         
+
+    def _read_complex(self, frame_number, number_of_animals=None, stack=True):
+        """Load bounding box of all animals under the requested frame number
+
+        Args:
+            frame_number (int): Frame number of the recording requested
+            number_of_animals (int): Expected number of animals in the frame (should be constant througout the recording)
+            stack (bool, optional): Whether to return a single array with all animals stacked horizontally (True) or not (False). Defaults to True.
+
+        Returns:
+            output: Dictionary with keys frame_number, img, keys and source
+                key is a list of the keys contained in the image
+                a horizontally stacked imge or an array of images is available under img
+                depending of whether stack was True or False 
+        """
+
+        # no more data left in any file
         if self._finished:
-            return None
+            return {"frame_number": frame_number, "img": img, "key": [None], "source": source}
+        
+        if number_of_animals is None:
+            number_of_animals=self._number_of_animals
+        
+        if number_of_animals is None:
+            raise Exception("Please pass a number of animals")
 
         arrs = []
-        keys = []
+        keys=[]
         for i in range(number_of_animals):
 
             frame_number_ = self.frame_number
             if frame_number is None:
                 frame_number=frame_number_
-                img_, key, source = self._read()
-
+                img_, key, source = self._fetch(frame_number, i)
             else:
+                # the frame number requested is less than the current key
+                # which means there is no DATA and we should add NULL
                 if frame_number < frame_number_:
-                    img_=self._NULL.copy()
+                    img_ = self._NULL.copy()
+                    key = self.key
+                    source=self._file
+                # the frame number requested
+                # is the same as the current key
                 elif frame_number == frame_number_:
-                    img_, key, source = self._read()
-
+                    img_, key, source = self._fetch(frame_number, i)
+                # the frame number requested 
+                # is more than the current key
+                # which means there are too many entries in a frame
+                # and we need to move forward until they agree again
                 else:
                     count=0
                     while frame_number > frame_number_:
@@ -261,19 +306,18 @@ class HDF5ImagesReader:
                         count+=1
 
                     warnings.warn(f"Skipped {count} keys to deliver frame number {frame_number}")
-                    img_, key, source = self._read()
+                    img_, key, source = self._fetch(frame_number, i)
                     
-            if key is None:
-                break
-
-            arrs.append(img_)
-            keys.append(key)
+            if key is not None:
+                arrs.append(img_)
+                keys.append(key)
        
-        assert len(arrs) == number_of_animals
+        if key is not None:
+            assert len(arrs) == number_of_animals
         if stack:
             img = np.hstack(arrs)
         else:
-            img = arrs
+            img= arrs
 
         return {"frame_number": frame_number, "img": img, "key": keys, "source": source}
 
@@ -288,7 +332,6 @@ class HDF5ImagesReader:
         if len(self._keys) == self._key_counter:
             if (self._file_idx+1) == len(self._files):
                 self._finished=True
-                return None
             else:
                 self._update_filehandler()
 
