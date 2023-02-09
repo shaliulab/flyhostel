@@ -16,7 +16,17 @@ class HDF5ImagesReader:
     _EXTENSION=".hdf5"
 
 
-    def __init__(self, mode, hdf5_files, number_of_animals, width, height, resolution, background_color, chunks):
+    def __init__(
+        self,
+        mode, hdf5_files, number_of_animals, width, height, resolution, background_color, chunks,
+        img_size=640, stride=32, frequency=1
+        ):
+        
+        """
+        
+        
+            frequency (int): Frames to be sampled per second of recording
+        """
         
         self._files = hdf5_files
         self._file_idx = -1
@@ -36,8 +46,11 @@ class HDF5ImagesReader:
         self._experiment_metadata=None
         self._number_of_animals=number_of_animals
         self.mode=mode
-        
-        
+        self.img_size=img_size
+        self.stride=stride
+        self.frequency=frequency
+
+
     @classmethod
     def from_sources(cls, metadata, chunks=None, **kwargs):
 
@@ -75,6 +88,11 @@ class HDF5ImagesReader:
     @property
     def framerate(self):
         return int(self._experiment_metadata["framerate"])
+
+    @property
+    def skip_n(self):
+        # if frequency = 50 and framerate =150 -> 3
+        return int(self.framerate / self.frequency)
 
     @property
     def key(self):
@@ -134,7 +152,7 @@ class HDF5ImagesReader:
 
         with h5py.File(source, "r") as file:
             for i in range(5):
-                self._key_n += self.sampling_rate
+                self._key_n += self.skip_n
                 frame_number=self._parse_frame_number_from_key(self.key)
                 output = self._read_complex(frame_number, self._number_of_animals, stack=False)
                 keys=output["key"]
