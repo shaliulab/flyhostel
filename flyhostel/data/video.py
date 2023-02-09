@@ -108,6 +108,7 @@ class SingleVideoMaker:
         # )
         if chunksize is None:
             chunksize= self.chunksize
+        print(f"chunksize = {chunksize}")
 
         self.video_writer = imgstore.new_for_format(
             mode="w",
@@ -115,7 +116,7 @@ class SingleVideoMaker:
             framerate=self.framerate,
             basedir=basedir,
             imgshape=frameSize[::-1],
-            chunksize=self.chunksize,
+            chunksize=chunksize,
             imgdtype=np.uint8,
             first_chunk=first_chunk,
         )
@@ -232,14 +233,14 @@ class SingleVideoMaker:
                             frame_number, img = data
 
                         if self.video_writer is None:
-                            resolution=(resolution[0] * self._number_of_animals, resolution[1])
-                            fn = self.init_video_writer(basedir=output, frameSize=resolution, **kwargs)
+                            resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
+                            fn = self.init_video_writer(basedir=output, frameSize=resolution_full, **kwargs)
                             print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}")
-                            assert img.shape == resolution[::-1]
+                            assert img.shape == resolution_full[::-1]
                             assert str(chunk).zfill(6) in fn
 
                         frame_time = self.fetch_frame_time(cur, frame_number)
-                        assert img.shape == resolution[::-1]
+                        assert img.shape == resolution_full[::-1], f"{img.shape} != {resolution_full[::-1]}"
                         capfn=self.video_writer._capfn
                         fn = self.video_writer.add_image(img, frame_number, frame_time, annotate=False, start_next_chunk=start_next_chunk)
                         written_images+=1

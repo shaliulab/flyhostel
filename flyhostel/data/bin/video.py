@@ -27,6 +27,6 @@ def main(args=None, ap=None):
     resolution=tuple([int(e) for e in args.resolution.split("x")])
 
     if args.n_jobs == 1:
-        video_maker.make_single_video_single_process(output=args.basedir, frameSize=(args.width, args.height), resolution=resolution, chunks=args.chunks)
+        video_maker.make_single_video_single_process(output=args.basedir, frameSize=(args.width, args.height), resolution=resolution, chunks=args.chunks, chunksize=args.chunksize)
     else:
         video_maker.make_single_video_multi_process(n_jobs=args.n_jobs, output=args.basedir, frameSize=(args.width, args.height), resolution=resolution, chunks=args.chunks, chunksize=args.chunksize)
