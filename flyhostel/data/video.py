@@ -96,7 +96,7 @@ class SingleVideoMaker:
         
         return angle
 
-    def init_video_writer(self, basedir, frameSize, first_chunk=0):
+    def init_video_writer(self, basedir, frameSize, first_chunk=0, chunksize=None):
 
         # self.video_writer = cv2cuda.VideoWriter(
         #     os.path.join(folder, os.path.splitext(os.path.basename(self._flyhostel_dataset))[0], +".mp4"),
@@ -106,6 +106,9 @@ class SingleVideoMaker:
         #     frameSize=frameSize,
         #     isColor=False,
         # )
+        if chunksize is None:
+            chunksize= self.chunksize
+
         self.video_writer = imgstore.new_for_format(
             mode="w",
             fmt=ENCODER_FORMAT_CPU,
@@ -215,16 +218,11 @@ class SingleVideoMaker:
                 episode_images=self.list_episode_images(basedir, chunk)
                 assert episode_images, f"{len(episode_images)} hdf5 files found"
                 video_name = os.path.join(output, f"{str(chunk).zfill(6)}.mp4")
-                #if os.path.exists(video_name):
-                #    print(sorted(glob.glob(os.path.join(output, ".mp4"))))
-                #    warnings.warn(f"{video_name} already exists")
-                #    continue
-                start_next_chunk = chunk != chunks[-1]
+                #start_next_chunk = chunk != chunks[-1]
                 start_next_chunk = False
 
                 with HDF5ImagesReader("flyhostel", episode_images, number_of_animals=self._number_of_animals, width=width, height=height, resolution=resolution, background_color=background_color, chunks=[chunk]) as hdf5_reader:
                 
-                    # print(f"{len(keys)} keys found for chunk {chunk}")
                     while True:
 
                         data = hdf5_reader.read(target_fn, self._number_of_animals)
@@ -248,8 +246,6 @@ class SingleVideoMaker:
                         target_fn=frame_number+1
                         if fn is not None:
                             print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}, chunks={chunks}")
-                            #if not str(chunk).zfill(6) in fn:
-                            #    print(f"{chunk} not in {fn}")
                   
                 with open("status.txt", "a") as filehandle:
                     filehandle.write(f"Chunk {chunk}:{count_NULL}:{written_images}\n")
