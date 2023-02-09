@@ -18,7 +18,7 @@ class HDF5ImagesReader:
 
     def __init__(
         self,
-        mode, hdf5_files, width, height, resolution, background_color, chunks,
+        mode, hdf5_files, chunks, width=None, height=None, resolution=None, background_color=None,
         img_size=640, stride=32, frequency=1, number_of_animals=None
         ):
         
@@ -227,8 +227,13 @@ class HDF5ImagesReader:
 
         source=self._file
         img_ = self._file[self.key][:]
-        img_ = self.edit_image(img_, self.width, self.height, self.background_color)
-        img_ = self._resize_to_resolution(img_, self.resolution)
+        if self.mode == "flyhostel":
+            assert self.width is not None
+            assert self.height is not None
+            assert self.background_color is not None
+            img_ = self.edit_image(img_, self.width, self.height, self.background_color)
+            assert self.resolution is not None
+            img_ = self._resize_to_resolution(img_, self.resolution)
         self._key_counter+=1
         self._check_end_of_file() 
         return img_, key, source
