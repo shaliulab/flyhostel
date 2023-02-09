@@ -3,6 +3,8 @@ import os.path
 import re
 import glob
 
+
+import pandas as pd
 import h5py
 import cv2
 import numpy as np
@@ -18,24 +20,32 @@ class HDF5ImagesReader:
 
     def __init__(
         self,
-        mode, hdf5_files, chunks, width=None, height=None, resolution=None, background_color=255,
+        consumer, hdf5_files, chunks, width=None, height=None, resolution=None, background_color=255,
         img_size=640, stride=32, frequency=1, number_of_animals=None
         ):
         
         """        
-            mode (str): Either flyhostel or yolov7. If in flyhostel mode,
+            consumer (str): Either flyhostel or yolov7. If in flyhostel consumer,
                frames are read and returned one frame number at a time,
                with a constant resolution
             
             frequency (int): Frames to be sampled per second of recording
         """
-        self.mode=mode
+        self.consumer=consumer
 
-        if self.mode == "flyhostel":
+        if self.consumer == "flyhostel":
             assert width is not None
             assert height is not None
             assert resolution is not None
             assert background_color is not None 
+            self.width = width
+            self.height = height
+            self.background_color = background_color
+            self.resolution = resolution
+            self._NULL = np.ones((self.height, self.width), np.uint8) * self.background_color
+        else:
+            self.width = self.height = self.background_color = self.resolution = None
+            self._NULL = np.ones((200, 200), np.uint8) * 255
         
         self._files = hdf5_files
         self._file_idx = -1
@@ -45,11 +55,7 @@ class HDF5ImagesReader:
         self._tqdm=None
         self._update_filehandler()
         self._finished = False
-        self.width = width
-        self.height = height
-        self.background_color = background_color
-        self.resolution = resolution
-        self._NULL = np.ones((self.height, self.width), np.uint8) * self.background_color
+
         self._chunk = chunks[0]
         self.metadata=None
         self._experiment_metadata=None
@@ -57,27 +63,45 @@ class HDF5ImagesReader:
         self.img_size=img_size
         self.stride=stride
         self.frequency=frequency
+        self.mode="image"
 
+    @property
+    def rect(self):
+        if self.consumer == "flyhostel":
+            return True
+        else:
+            return False
+
+     
+
+    @property
+    def count(self):
+        key=self.key
+        if key is None:
+            key=self._keys[self._key_counter]
+        return self._parse_frame_number_from_key(key)
 
     @classmethod
     def from_sources(cls, metadata, chunks=None, **kwargs):
 
-       pattern=os.path.join(os.path.dirname(metadata), "idtrackerai", "session_*", "segmentation_data", "episode_images*.hdf5")
-       sources=glob.glob(pattern)
-       sources = sorted(sources, key=lambda f: int(os.path.splitext(f)[0].split("_")[-1]))
+       pattern=os.path.join(os.path.dirname(metadata), "idtrackerai", "session_*", "segmentation_data", f"episode_images*{cls._EXTENSION}")
+       sources_=glob.glob(pattern)
+       s_chunk = [int(re.search("/session_([0-9]*)/", p).group(1)) for p in sources_]
+       episode = [int(os.path.splitext(p)[0].split("_")[-1]) for p in sources_]
 
-       sources = []
+       df=pd.DataFrame({"source": sources_, "chunk": s_chunk, "episode": episode})
+       if chunks is not None:
+           df=df.loc[df["chunk"].isin(chunks)]
+       else:
+           chunks = sorted(list(set(df["chunk"].values.tolist())))
+       df.sort_values(["chunk", "episode"], inplace=True)
+       sources=df["source"].values.tolist()
 
-       for source in sources:
-           assert os.path.exists(source) and source.endswith(cls._EXTENSION)
-           if chunks:
-               for chunk in chunks:
-                   if re.search(f"session_{str(chunk).zfill(6)}", source):
-                       sources.append(source)
-                       break
-           else:
-               sources.append(source)
-       print(f"{len(sources)} sources detected")
+       number_of_sources=len(sources)
+       if number_of_sources > 0:
+           print(f"{number_of_sources} sources detected")
+       else:
+           raise Exception(f"{number_of_sources} sources detected")
 
        experiment_metadata=_extract_store_metadata(metadata)
        number_of_animals=int(os.path.basename(os.path.dirname(os.path.dirname(metadata))).split("X")[0])
@@ -87,6 +111,9 @@ class HDF5ImagesReader:
 
        return reader
 
+    @property
+    def source(self):
+        return self._files[self._file_idx]
 
     @property
     def chunksize(self):
@@ -100,14 +127,15 @@ class HDF5ImagesReader:
     @property
     def skip_n(self):
         # if frequency = 50 and framerate =150 -> 3
-        return int(self.framerate / self.frequency)
+        return int(self.framerate / self.frequency) - 1
 
     @property
     def key(self):
         try:
-            k=self.keys[self._key_counter]
+            k=self._keys[self._key_counter]
             return k
         except Exception as error:
+            print(error)
             end = self._update_filehandler()
             if end is None: return None
             else:
@@ -116,12 +144,16 @@ class HDF5ImagesReader:
     @key.setter
     def key(self, value):
         frame_number = self._parse_frame_number_from_key(value)        
-        
-        assert self._interval[0] <= frame_number <= self._interval[1], f"""
-        Key value {value} invalid.
-        frame number must be within {self._interval[0]} and {self._interval[1]}
-        """
+        if frame_number > self._interval[-1]:
+            end = self._update_filehandler()
+            if end:
+                self._key = None
+        #assert self._interval[0] <= frame_number <= self._interval[1], f"""
+        #Key value {value} invalid.
+        #frame number must be within {self._interval[0]} and {self._interval[1]}
+        #"""
         self._key = value        
+        self._key_counter = self._keys.index(value)
 
     @property
     def frame_number(self):
@@ -144,44 +176,50 @@ class HDF5ImagesReader:
 
     def __next__(self):
         
-        if self.mode == "flyhostel":
+        if self.consumer == "flyhostel":
             raise NotImplementedError
             # return self._next_flyhostel()
         
-        if self.mode == "yolov7":
+        if self.consumer == "yolov7":
             return self._next_yolov7()
         
         
-    def move_through_h5py(self):
+    def _move_through_h5py(self):
 
         img0=[]
         keys=[]
         source=self.source
+        if self.key is None:
+            print("STOP")
+            raise StopIteration
+  
 
         with h5py.File(source, "r") as file:
             for i in range(5):
-                self._key_n += self.skip_n
                 frame_number=self._parse_frame_number_from_key(self.key)
                 output = self._read_complex(frame_number, self._number_of_animals, stack=False)
-                keys=output["key"]
+
+                print(output["key"])
                 img0.extend(output["img"])
-                
-                if keys[0] is None:
-                    raise StopIteration
- 
-                keys.extend(keys)
-                
+                keys.extend(output["key"])
+              
+                print(f"Skipping {self.skip_n}")
+                self.key = f"{self._parse_frame_number_from_key(self.key)+self.skip_n}-0"
+
 
         if len(img0) == 0:
             print("Error: early end detected")
             raise StopIteration
+
+        print(keys)
         return img0, keys, output["source"]
 
     
     def _next_yolov7(self):
             
         img0, keys, source = self._move_through_h5py()
-
+        img0 = [cv2.cvtColor(img_, cv2.COLOR_GRAY2BGR) for img_ in img0]
+        
         # Letterbox
         img = [letterbox(x, self.img_size, auto=self.rect, stride=self.stride)[0] for x in img0]
 
@@ -195,9 +233,16 @@ class HDF5ImagesReader:
 
         paths = []
         for k in keys:
-            frame_number, blob_index = k.split("-")
+            parsed = k.split("-")
+            if len(parsed) == 2:
+                frame_number, blob_index = parsed
+
+            # this can be if the blob is modified (it's suffixed with -modified)
+            elif len(parsed) == 3:
+                frame_number, blob_index, _ = parsed
             frame_idx = int(frame_number) % (chunk * self.chunksize)
             paths.append(f"{frame_number}_{chunk}-{frame_idx}-{blob_index}.png")
+        print(f"Paths {paths}")
         return paths, img, img0, None
         
     
@@ -233,9 +278,8 @@ class HDF5ImagesReader:
         if key is None:
             return None, None, None
 
-        source=self._file
         img_ = self._file[self.key][:]
-        if self.mode == "flyhostel":
+        if self.consumer == "flyhostel":
             assert self.width is not None
             assert self.height is not None
             assert self.background_color is not None
@@ -244,7 +288,7 @@ class HDF5ImagesReader:
             img_ = self._resize_to_resolution(img_, self.resolution)
         self._key_counter+=1
         self._check_end_of_file() 
-        return img_, key, source
+        return img_, key, self.source
 
 
     def _fetch(self, frame_number, in_frame_index):
@@ -256,8 +300,9 @@ class HDF5ImagesReader:
              if self._key_counter < (len(self._keys)-1) and self._keys[self._key_counter+1] == modified_key:
                  self._key_counter+=1
          except Exception as error:
-             print(self._key_counter, len(self._keys))
-             print(error)
+             raise error
+             #print(self._key_counter, len(self._keys))
+             #print(error)
          
          return self._read()
          
@@ -352,10 +397,16 @@ class HDF5ImagesReader:
         self._file_idx +=1
         if self._file is not None:
             self._file.close()
-            return None
         
-        if self._tqdm is not None: self._tqdm.update(1)
-        self._file = h5py.File(self._files[self._file_idx], "r")
+        if self._tqdm is not None:
+            self._tqdm.update(1)
+
+        if self._file_idx == len(self._files):
+            return None
+
+        new_file=self._files[self._file_idx]
+        print(f"Opening {new_file}")
+        self._file = h5py.File(new_file, "r")
         self._keys = list(self._file.keys())
 
         self._interval = (
