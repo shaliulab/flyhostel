@@ -1,4 +1,5 @@
 import warnings
+<<<<<<< HEAD
 
 import h5py
 import cv2
@@ -162,3 +163,7 @@ class HDF5ImagesReader:
         self._keys = list(self._file.keys())
         self._key_counter=0
 
+=======
+warnings.warn("flyhostel.data.hdf5_images is deprecated. Please import flyhostel.data.hdf5")
+from .hdf5 import *
+>>>>>>> 9f61a34ad1086a291e6e6190680fc754f063ce33

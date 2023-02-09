@@ -222,7 +222,7 @@ class SingleVideoMaker:
                 #start_next_chunk = chunk != chunks[-1]
                 start_next_chunk = False
 
-                with HDF5ImagesReader(episode_images, width=width, height=height, resolution=resolution, background_color=background_color, chunk=chunk) as hdf5_reader:
+                with HDF5ImagesReader("flyhostel", episode_images, number_of_animals=self._number_of_animals, width=width, height=height, resolution=resolution, background_color=background_color, chunks=[chunk]) as hdf5_reader:
                 
                     while True:
 
