@@ -24,10 +24,16 @@ class HDF5ImagesReader:
         self.resolution = resolution
         self._NULL = np.ones((self.height, self.width), np.uint8) * self.background_color
         self._chunk = chunk
+        print(f"resolution of image reader {self.resolution}")
 
     @property
     def key(self):
-        return self._keys[self._key_counter]
+        try:
+            v=self._keys[self._key_counter]
+            return v
+        except IndexError as error:
+            print(f"{self._key_counter} is not found in self._keys of length {len(self._keys)}")
+            raise error
         
     @property
     def frame_number(self):
@@ -74,9 +80,25 @@ class HDF5ImagesReader:
         img_ = self._file[self.key][:]
         img_ = self.edit_image(img_, self.width, self.height, self.background_color)
         img_ = self._resize_to_resolution(img_, self.resolution)
+        #if img_.shape[0]>200: import ipdb; ipdb.set_trace()
         self._key_counter+=1
         self._check_end_of_file() 
         return img_
+
+
+    def _fetch(self, frame_number, in_frame_index):
+         modified_key = f"{frame_number}-{in_frame_index}-modified"
+         # NOTE
+         # This assumes the modified version of the key
+         # will exist in the next position
+         try:
+             if self._key_counter < (len(self._keys)-1) and self._keys[self._key_counter+1] == modified_key:
+                 self._key_counter+=1
+         except Exception as error:
+             print(self._key_counter, len(self._keys))
+             print(error)
+         
+         return self._read()
 
     def read(self, frame_number, number_of_animals):
 
@@ -89,15 +111,22 @@ class HDF5ImagesReader:
             frame_number_ = self.frame_number
             if frame_number is None:
                 frame_number=frame_number_
-                arrs.append(self._read())
+                arrs.append(self._fetch(frame_number, i))
             else:
+                # the frame number requested is less than the current key
+                # which means there is no DATA and we should add NULL
                 if frame_number < frame_number_:
-                    if self._chunk == 72:
-                        print(f"NULL {frame_number}")
                     arrs.append(self._NULL.copy())
+                # the frame number requested
+                # is the same as the current key
                 elif frame_number == frame_number_:
-                    arrs.append(self._read())
+                    arrs.append(self._fetch(frame_number, i))
+                # the frame number requested 
+                # is more than the current key
+                # which means there are too many entries in a frame
+                # and we need to move forward until they agree again
                 else:
+                    import ipdb; ipdb.set_trace()
                     count=0
                     while frame_number > frame_number_:
                         self._key_counter+=1
