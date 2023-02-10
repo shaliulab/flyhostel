@@ -153,7 +153,16 @@ class HDF5ImagesReader:
         #frame number must be within {self._interval[0]} and {self._interval[1]}
         #"""
         self._key = value        
-        self._key_counter = self._keys.index(value)
+        try:
+            self._key_counter = self._keys.index(value)
+        except ValueError:
+            warnings.warn(f"key {value} not found in current file, skipping to next")
+            # the curernt key is not present in the current file
+            end = self._update_filehandler()
+            if end is None:
+                self._key = None
+            else:
+                self._key_counter = self._keys.index(value)
 
     @property
     def frame_number(self):
@@ -407,7 +416,7 @@ class HDF5ImagesReader:
         new_file=self._files[self._file_idx]
         print(f"Opening {new_file}")
         self._file = h5py.File(new_file, "r")
-        self._keys = list(self._file.keys())
+        self._keys = sorted(list(self._file.keys()), key=lambda k: int(k.split("-")[0]))
 
         self._interval = (
             self._parse_frame_number_from_key(self._keys[0]),
