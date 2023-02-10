@@ -177,7 +177,6 @@ class SQLiteExporter(IdtrackeraiExporter):
            
         print(f"Initializing file {dbfile}")
         self.init_tables(dbfile)
-
         print(f"Writing tables: {tables}")
         
         if "METADATA" in tables:
@@ -284,9 +283,9 @@ class SQLiteExporter(IdtrackeraiExporter):
         with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
             cur=index_db.cursor()
             cur.execute("SELECT chunk FROM frames ORDER BY chunk ASC LIMIT 1;")
-            first_chunk = int(cur.execute.fetchone()[0])
+            first_chunk = int(cur.fetchone()[0])
             cur.execute("SELECT chunk FROM frames ORDER BY chunk DESC LIMIT 1;")
-            last_chunk = int(cur.execute.fetchone()[0])
+            last_chunk = int(cur.fetchone()[0])
         chunks = f"{first_chunk},{last_chunk}"
 
 
@@ -458,7 +457,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur = conn.cursor()
             if reset:
                 cur.execute(f"DROP TABLE IF EXISTS AI;")
-            cur.execute("CREATE TABLE IF NOT EXISTS AI (frame_number int(11), ai int(2);")
+            cur.execute("CREATE TABLE IF NOT EXISTS AI (frame_number int(11), ai int(2));")
 
 
     def write_ai_table(self, dbfile):
