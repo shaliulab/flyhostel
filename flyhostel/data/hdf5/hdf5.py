@@ -113,7 +113,10 @@ class HDF5ImagesReader:
 
     @property
     def source(self):
-        return self._files[self._file_idx]
+        if self._file_idx >= len(self._files):
+            return None
+        else:
+            return self._files[self._file_idx]
 
     @property
     def chunksize(self):
@@ -198,7 +201,7 @@ class HDF5ImagesReader:
         img0=[]
         keys=[]
         source=self.source
-        if self.key is None:
+        if self.key is None or source is None:
             print("STOP")
             raise StopIteration
   
@@ -410,12 +413,11 @@ class HDF5ImagesReader:
         if self._tqdm is not None:
             self._tqdm.update(1)
 
-        if self._file_idx == len(self._files):
+        if self._file_idx >= len(self._files):
             return None
 
-        new_file=self._files[self._file_idx]
-        print(f"Opening {new_file}")
-        self._file = h5py.File(new_file, "r")
+        print(f"Opening {self.source}")
+        self._file = h5py.File(self.source, "r")
         self._keys = sorted(list(self._file.keys()), key=lambda k: int(k.split("-")[0]))
 
         self._interval = (
