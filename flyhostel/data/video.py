@@ -14,13 +14,12 @@ from tqdm.auto import tqdm
 import imgstore
 ENCODER_FORMAT_GPU="h264_nvenc/mp4"
 ENCODER_FORMAT_CPU="mp4v/mp4"
-VIDEOS_FOLDER="/staging/leuven/stg_00115/Data/flyhostel_data/videos"
 
 def get_machine_id():
     with open("/etc/machine-id", "r") as filehandle:
          return filehandle.read()
 
-from .hdf5_images import HDF5ImagesReader
+from .hdf5 import HDF5ImagesReader
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ class SingleVideoMaker:
 
         self._flyhostel_dataset = flyhostel_dataset
         flyhostel, X, date, hour = os.path.splitext(os.path.basename(flyhostel_dataset))[0].split("_")
-        self._basedir = os.path.join(VIDEOS_FOLDER, flyhostel, X, f"{date}_{hour}")
+        self._basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], flyhostel, X, f"{date}_{hour}")
         print(self._basedir)
         self._index = os.path.join(self._basedir, "index.db")
 
