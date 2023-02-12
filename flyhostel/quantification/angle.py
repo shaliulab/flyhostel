@@ -18,8 +18,8 @@ def filter_by_chunks_pandas(paths, chunks):
     chunk_of_paths = [int(re.search("_([0-9]*)-", os.path.basename(path)).group(1)) for path in paths]
     paths_df = pd.DataFrame({"chunk": chunk_of_paths, "path": paths})
     paths_df=paths_df.loc[paths_df["chunk"].isin(chunks)]
-    paths=paths_df["path"].values.tolist()
-    return paths
+    #paths=paths_df["path"].values.tolist()
+    return paths_df
 
 def filter_by_chunks(paths, chunks):
 
@@ -41,8 +41,11 @@ def write_angle_to_dataset(dataset, chunks=None, n_jobs=1):
     """
     label_files = glob.glob(os.path.join(dataset, "*"))
 
-    if chunks is not None:
-       label_files = filter_by_chunks_pandas(label_files, chunks) 
+    if chunks is None:
+        chunks = list(set([re.search("_([0-9]*)-", os.path.basename(path)).group(1) for path in label_files]))
+
+
+    label_files = filter_by_chunks_pandas(label_files, chunks) 
 
     angle_folder=os.path.join(os.path.dirname(dataset), "angles")
 
@@ -50,13 +53,14 @@ def write_angle_to_dataset(dataset, chunks=None, n_jobs=1):
 
     print(f"{len(label_files)} label files to be processed")
 
-    angles=joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(write_angle)(
-        label_f, angle_folder=angle_folder, top=1
-        ) for label_f in label_files
+    angles=joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(process_chunk)(
+        chunk, label_files.loc[label_files["chunk"] == chunk], angle_folder=angle_folder, top=1
+        ) for chunk in chunks
     )
 
     return angles
-    
+
+   
     
 def get_parser():
     ap = argparse.ArgumentParser()
@@ -85,6 +89,8 @@ def process_labels(label_file):
         detections.append(load_detection(line))
     
     descriptors = [(detection.class_id, detection.conf, round(detection.angle, 2)) for detection in detections]        
+    descriptors = sorted(descriptors, key=lambda descriptor: descriptor[1])[::-1]
+
     return descriptors
 
 def write_angle_txt(label_file, angle_folder, top=None):
@@ -103,6 +109,7 @@ def write_angle_txt(label_file, angle_folder, top=None):
         for id, conf, angle in descriptor:
             filehandle.write(f"{id} {conf} {angle}\n")
 
+    # sort them by confidence in decreasing order (best detection goes first)
     descriptors = sorted(descriptors, key=lambda descriptor: descriptor[1])[::-1]
 
     if top is None:
@@ -111,29 +118,30 @@ def write_angle_txt(label_file, angle_folder, top=None):
         return descriptors[:top]
     
 
-def write_angle_h5py(label_file, angle_folder, top=None):
+def process_chunk(chunk, label_files, angle_folder, top=1): 
 
-    dataset_name = os.path.splitext(os.path.basename(label_file))[0]
-    descriptor_file = os.path.join(angle_folder, "database.h5py")
-    descriptors = process_labels(label_file)
-    descriptors = sorted(descriptors, key=lambda descriptor: descriptor[1])[::-1]
+    paths = label_files["path"].values.tolist()
+    print(f"{len(paths)} angles available for chunk {chunk}")
 
-    with h5py.File(angle_file, "w") as filehandle:
-        try:
-            filehandle.create_dataset(dataset_name, data=descriptors[0])
-        except Exception as error:
-            # TODO Capture specifically the dataset exists error
-            print(error)
-            pass
+    database_filename=f"angles_{str(chunk).zfill(6)}.hdf5"
+    descriptor_file = os.path.join(angle_folder, database_filename)
 
-    if top is None:
-        return descriptors 
-    else:
-        return descriptors[:top]
- 
+    with h5py.File(descriptor_file, "w") as filehandle:
+        for path in paths:
+            frame_number_chunk_frame_idx_index = os.path.splitext(os.path.basename(path))[0]
+            match=re.search("(.*)_(.*)-(.*)-(.*)", frame_number_chunk_frame_idx_index)
 
-def write_angle(*args, **kwargs):
-    return write_angle_h5py(*args, **kwargs)
+                           #fn_#chunk_#index
+            dataset_name = f"{match.group(1)}_{match.group(2)}_{match.group(4)}"
+
+            descriptors = process_labels(path)
+            if len(descriptors)>0:
+                try:
+                    filehandle.create_dataset(dataset_name, data=descriptors[0])
+                except Exception as error:
+                    print(error)
+            else:
+                print(f"No angle found for {path}")
 
 def main(args=None, ap=None):
 
