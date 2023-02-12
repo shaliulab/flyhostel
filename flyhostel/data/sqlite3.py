@@ -19,6 +19,7 @@ import math
 import threading
 import queue
 import time
+import re
 
 from tqdm.auto import tqdm
 import cv2
@@ -33,7 +34,6 @@ logger = logging.getLogger(__name__)
 
 METADATA_FILE = "metadata.csv"
 RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
-DEEPETHOGRAM_DATA="/staging/leuven/stg_00115/Data/flyhostel_data/flyhostel_deepethogram/DATA/"
 
 try:
     DOWNLOAD_BEHAVIORAL_DATA=os.environ.get("DOWNLOAD_BEHAVIORAL_DATA", None)
@@ -49,7 +49,8 @@ except AssertionError:
 
     
 
-TABLES = ["METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0", "IDENTITY", "BEHAVIORS", "STORE_INDEX", "ENVIRONMENT", "AI", "ORIENTATION"]
+#TABLES = ["METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0", "IDENTITY", "CONCATENATION", "BEHAVIORS", "STORE_INDEX", "ENVIRONMENT", "AI", "ORIENTATION"]
+TABLES = "CONCATENATION", "ORIENTATION"]
 
 
 def metadata_not_found(message):
@@ -134,6 +135,13 @@ class IdtrackeraiExporter:
         else:
             warnings.warn(f"{blobs_collection} not found")
 
+
+    # IDENTITY
+    def init_identity_table(self, dbfile):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute("CREATE TABLE IF NOT EXISTS IDENTITY (frame_number int(11), in_frame_index int(2), local_identity int(2), identity int(2));")
+
     def add_blob(self, cur, blob, w_trajectory=True, w_identity=True):
 
         frame_number = blob.frame_number
@@ -141,6 +149,7 @@ class IdtrackeraiExporter:
         x, y = blob.centroid
         area = int(round(blob.area))
         modified = blob.modified
+        chunk=blob.chunk
         if modified:
             class_name = blob._annotation["class"]
         else:
@@ -155,8 +164,11 @@ class IdtrackeraiExporter:
             cur.execute(command, [frame_number, in_frame_index, x, y, area, modified, class_name])
         
         if w_identity:
-            command = "INSERT INTO IDENTITY (frame_number, in_frame_index, identity) VALUES(?, ?, ?);"
-            cur.execute(command, [frame_number, in_frame_index, identity])
+            cur.execute("SELECT identity FROM CONCATENATION WHERE chunk = ? AND local_identity=?;", (chunk, local_identity))
+            identity_reference_to_ref_chunk = int(cur.fetchone()[0])
+
+            command = "INSERT INTO IDENTITY (frame_number, in_frame_index, local_identity, identity) VALUES(?, ?, ?, ?);"
+            cur.execute(command, [frame_number, in_frame_index, identity, identity_reference_to_ref_chunk])
 
 
 class SQLiteExporter(IdtrackeraiExporter):
@@ -214,55 +226,58 @@ class SQLiteExporter(IdtrackeraiExporter):
             return 1
 
 
-    def export(self, dbfile, mode=["w", "a"], overwrite=False, behaviors=None, tables=None, **kwargs):
+    def export(self, dbfile, mode=["w", "a"], reset=False, behaviors=None, tables=None, **kwargs):
         #print(f"Saving to --> {dbfile}")
         #assert dbfile.endswith(".db")
 
         if tables is None or tables == "all":
             tables = TABLES
 
-        #if os.path.exists(dbfile):
-        #    if overwrite:
-        #        warnings.warn(f"{dbfile} exists. Remaking from scratch and ignoring mode")
-        #        os.remove(dbfile)
-        #    elif mode == "w":
-        #        warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
-        #    elif mode == "a":
-        #        warnings.warn(f"{dbfile} exists. Appending (mode=a)")
-        #   
-        #print(f"Initializing file {dbfile}")
+        if os.path.exists(dbfile):
+            if reset:
+                warnings.warn(f"{dbfile} exists. Remaking from scratch and ignoring mode")
+                os.remove(dbfile)
+            elif mode == "w":
+                warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
+            elif mode == "a":
+                warnings.warn(f"{dbfile} exists. Appending (mode=a)")
+           
+        print(f"Initializing file {dbfile}")
         self.init_tables(dbfile)
-        #print(f"Writing tables: {tables}")
-        #
-        #if "METADATA" in tables:
-        #    self.write_metadata_table(dbfile)
+        print(f"Writing tables: {tables}")
+        
+        if "CONCATENATION" in tables:
+            self.write_concatenation_table(dbfile)
 
-        #if "IMG_SNAPSHOTS" in tables:
-        #    self.write_snapshot_table(dbfile, **kwargs)
+        if "METADATA" in tables:
+            self.write_metadata_table(dbfile)
 
-        #if "ROI_MAP" in tables:
-        #    self.write_roi_map_table(dbfile)
+        if "IMG_SNAPSHOTS" in tables:
+            self.write_snapshot_table(dbfile, **kwargs)
 
-        #if "ENVIRONMENT" in tables:
-        #    self.write_environment_table(dbfile, **kwargs)
+        if "ROI_MAP" in tables:
+            self.write_roi_map_table(dbfile)
 
-        #if "VAR_MAP" in tables:
-        #    self.write_var_map_table(dbfile)
+        if "ENVIRONMENT" in tables:
+            self.write_environment_table(dbfile, **kwargs)
 
-        #if "ROI_0" in tables and "IDENTITY" in tables:
-        #    self.write_trajectory_and_identity(dbfile, **kwargs)
+        if "VAR_MAP" in tables:
+            self.write_var_map_table(dbfile)
 
-        #if "STORE_INDEX" in tables:
-        #    self.write_index_table(dbfile)
+        if "ROI_0" in tables and "IDENTITY" in tables:
+            self.write_trajectory_and_identity(dbfile, **kwargs)
+
+        if "STORE_INDEX" in tables:
+            self.write_index_table(dbfile)
 
         if "ORIENTATION" in tables:
             self.write_orientation_table(dbfile)
 
-        #if "BEHAVIORS" in tables:
-        #    self.write_behaviors_table(dbfile, behaviors=behaviors)
+        if "BEHAVIORS" in tables:
+            self.write_behaviors_table(dbfile, behaviors=behaviors)
 
-        #if "AI" in tables:
-        #    self.write_ai_table(dbfile)
+        if "AI" in tables:
+            self.write_ai_table(dbfile)
             
 
     def write_trajectory_and_identity(self, dbfile, chunks):
@@ -281,8 +296,6 @@ class SQLiteExporter(IdtrackeraiExporter):
     def init_tables(self, dbfile):
 
         self.init_metadata_table(dbfile)
-        # self.init_start_events_table()
-        # self.init_qc_table()
         self.init_snapshot_table(dbfile)
         self.init_roi_map_table(dbfile)
         self.init_environment_table(dbfile)
@@ -293,6 +306,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_index_table(dbfile)
         self.init_behaviors_table(dbfile)
         self.init_ai_table(dbfile)
+        self.init_concatenation_table(dbfile)
 
     def build_blobs_collection(self, chunk):
         return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "blobs_collection.npy")
@@ -517,6 +531,29 @@ class SQLiteExporter(IdtrackeraiExporter):
                 cur.execute(f"DROP TABLE IF EXISTS AI;")
             cur.execute("CREATE TABLE IF NOT EXISTS AI (frame_number int(11), ai int(2));")
 
+    def init_concatenation_table(self, dbfile, reset=True):
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            if reset:
+                cur.execute(f"DROP TABLE IF EXISTS CONCATENATION;")
+            cur.execute("CREATE TABLE IF NOT EXISTS CONCATENATION (chunk int(3), in_frame_index_before int(2), in_frame_index_after int(2), local_identity int(2), identity int(2));")
+
+    def write_concatenation_table(self, dbfile):
+        csv_file = os.path.join(self._basedir, "idtrackerai", "concatenation-overlap.csv")
+         
+        if os.path.exists(csv_file):
+            concatenation=pd.read_csv(csv_file, index_col=0)
+            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                cur = conn.cursor()
+                for i, row in concatenation.iterrows():
+                    args = (row["chunk"], row["in_frame_index_before"], row["in_frame_index_after"], row["local_identity"], row["identity"])
+                    cur.execute(
+                        "INSERT INTO CONCATENATION (chunk, in_frame_index_before, in_frame_index_after) VALUES (?, ?, ?, ?, ?);",
+                        args
+                    )
+        else:
+            warnings.warn(f"concatenation_overlap.csv not found. Please make sure idtrackerai_concatenation step is run for {self._basedir}")
+
 
     def write_ai_table(self, dbfile):
 
@@ -646,46 +683,65 @@ class SQLiteExporter(IdtrackeraiExporter):
         angles=[line[-1] for line in selected_lines]
         return angles
 
+    def fetch_angle_from_h5py(database, dataset, top=1):
+        try:
+            with h5py.File(database, "r") as filehandle:
+                class_id, conf, angle = filehandle[dataset][:]
+        except Exception as error:
+            print(error)
+            angle=None
+        
+        return angle
+
+    
+    @staticmethod
+    def _parse_chunk_from_angle_file(path):
+        return int(re.search("angles_([0-9][0-9][0-9][0-9][0-9][0-9]).hdf5", os.path.basename(path)).group(1))
+
     def _write_orientation_table(self, conn, dbfile, in_frame_index=0, queue=None):
 
         angle_database_path = os.path.join(self._basedir, "angles", "FlyHead", "angles")
 
-        # list files in the database
-        angle_files = glob.glob(os.path.join(angle_database_path, f"*-{in_frame_index}.txt"))
-        # check files are available
-        assert len(angle_files) > 0, f"No angle database found under {angle_database_path} for in_frame_index {in_frame_index}"
+        ## list files in the database
+        #angle_files = glob.glob(os.path.join(angle_database_path, f"*-{in_frame_index}.txt"))
+        ## check files are available
+        #assert len(angle_files) > 0, f"No angle database found under {angle_database_path} for in_frame_index {in_frame_index}"
 
-        # sort the database by frame number numerically i.e. 1000 goes after 999
-        angle_database = [(int(os.path.basename(angle_file).split("_")[0]), angle_file) for angle_file in angle_files]
-        angle_database = sorted(angle_database, key=lambda entry: entry[0])
-     
-        pointer = 0
+        ## sort the database by frame number numerically i.e. 1000 goes after 999
+        #angle_database = [(int(os.path.basename(angle_file).split("_")[0]), angle_file) for angle_file in angle_files]
+        #angle_database = sorted(angle_database, key=lambda entry: entry[0])
+
+        angle_database = sorted(glob.glob(os.path.join(angle_database_path, "*.hdf5")))
+        angle_database = {self._parse_chunk_from_angle_file(path): path for path in angle_database}
+
+        accum = 0
         report_every_n_lines=math.inf
  
-        fns = conn.cursor()
-        frame_numbers = fns.execute("SELECT frame_number FROM STORE_INDEX;")
         cur = conn.cursor()
+        records = cur.execute("SELECT chunk, frame_number FROM STORE_INDEX;")
 
         is_inferred=False
-        for row in tqdm(frame_numbers, desc=f"Writing orientation data from in_frame_index {in_frame_index} to {dbfile}"):
-            frame_number = row[0]
-            entry = angle_database[pointer]
-
-            if frame_number == entry[0]:
-                angle_file = entry[1]
-                pointer+=1
-                try:
-                    angle = self.fetch_angle_from_angle_file(angle_file, classes=self._CLASSES, top_angles=1)[0]
-                # no angle, probably the label file was corrupted 
-                except IndexError:
-                    angle=None
-                    continue
-
-                if pointer % report_every_n_lines == 0:
-                    print(f"{pointer} angles have been added to {dbfile}")
-            else: # no matches
-                angle = None
+        last_chunk=0
+        import ipdb; ipdb.set_trace() 
+        for chunk, frame_number in tqdm(records, desc=f"Writing orientation data from in_frame_index {in_frame_index} to {dbfile}"):
+            try:
+                h5py_file = angle_database[chunk]
+            except KeyError:
+                if chunk != last_chunk:
+                    warnings.warn(f"No angles for chunk {chunk}")
+                last_chunk=chunk
                 continue
+
+            last_chunk=chunk
+            dataset = f"{frame_number}_{chunk}_{in_frame_index}"
+
+            angle = self.fetch_angle_from_h5py(h5py_file, dataset)
+            if angle is None:
+                continue
+
+            accum+=1
+            if accum % report_every_n_lines == 0:
+                print(f"{accum} angles have been added to {dbfile}")
     
             data=(frame_number, in_frame_index, angle, is_inferred)
             if queue is None:
@@ -701,36 +757,17 @@ class SQLiteExporter(IdtrackeraiExporter):
 
     def write_orientation_table(self, dbfile):
 
-        #fifo_queue = queue.Queue(1000)
-        #stop_event=threading.Event()
-        #writer=self._AsyncWriter(queue=fifo_queue, table_name="ORIENTATION", dbfile=dbfile, stop_event=stop_event)
-        #writer.setDaemon(True)
-        #writer.start()
-        #self._writers["ORIENTATION"]=writer
-        fifo_queue=None
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             for in_frame_index in range(self.number_of_animals):
-                self._write_orientation_table(conn, dbfile, in_frame_index=in_frame_index, queue=fifo_queue)
-
-        stop_event.set()
-
-    # IDENTITY
-    def init_identity_table(self, dbfile):
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            cur.execute("CREATE TABLE IF NOT EXISTS IDENTITY (frame_number int(11), in_frame_index int(2), identity int(2));")
+                self._write_orientation_table(conn, dbfile, in_frame_index=in_frame_index, queue=None)
 
 
-    def write_identity_table(self, dbfile):
-        raise NotImplementedError
-
-
-def export_dataset(metadata, chunks, overwrite=False, tables=None):
+def export_dataset(metadata, chunks, reset=True, tables=None):
 
     basedir = os.path.dirname(metadata)
     dbfile_basename = "_".join(basedir.split(os.path.sep)[-3:]) + ".db"
 
     dbfile = os.path.join(basedir, dbfile_basename)
 
-    dataset = SQLiteExporter(basedir, deepethogram_data=DEEPETHOGRAM_DATA)
-    dataset.export(dbfile=dbfile, mode="w", chunks=chunks, overwrite=overwrite, tables=tables)
+    dataset = SQLiteExporter(basedir, deepethogram_data=os.environ["DEEPETHOGRAM_DATA"])
+    dataset.export(dbfile=dbfile, mode="a", chunks=chunks, reset=reset, tables=tables)
