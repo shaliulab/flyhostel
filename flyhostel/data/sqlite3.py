@@ -16,6 +16,9 @@ import glob
 import subprocess
 import shlex
 import math
+import threading
+import queue
+import time
 
 from tqdm.auto import tqdm
 import cv2
@@ -55,6 +58,48 @@ def metadata_not_found(message):
         raise Exception(message)
     else:
         warnings.warn(message)
+
+
+class AsyncSQLiteWriter(threading.Thread):
+
+    _MIN_QUEUE_SIZE=100
+
+    def __init__(self, dbfile, table_name, queue, stop_event, *args, **kwargs):
+
+        self._queue=queue
+        self._table_name = table_name
+        self._dbfile = dbfile
+        self._stop_event = stop_event
+        super(AsyncSQLiteWriter, self).__init__(*args, **kwargs)
+
+
+    @property
+    def needs_flushing(self):
+        return self._queue.qsize() > self._MIN_QUEUE_SIZE
+
+
+    def flush(self):
+
+        queue_size=self._queue.qsize()
+        data=[]
+        for _ in range(queue_size):
+            data.append(str(self._queue.get()))
+
+        value_string=",".join(data)
+        
+        before=time.time()
+        with sqlite3.connect(self._dbfile, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            cur.execute(f"INSERT INTO {self._table_name} VALUES {value_string};")
+        after=time.time()
+        print(f"Wrote {queue_size} rows in {after-before} seconds")
+
+    def run(self):
+        while not self._stop_event.is_set():
+            if self.needs_flushing:
+                self.flush()
+
+        self.flush()
 
 
 
@@ -117,6 +162,7 @@ class IdtrackeraiExporter:
 class SQLiteExporter(IdtrackeraiExporter):
 
     _CLASSES = {0: "head"}
+    _AsyncWriter = AsyncSQLiteWriter
 
     def __init__(self, basedir, deepethogram_data=None, n_jobs=1):
 
@@ -142,6 +188,8 @@ class SQLiteExporter(IdtrackeraiExporter):
         self._index_dbfile = os.path.join(self._basedir, "index.db")
         self._deepethogram_data = deepethogram_data
         self._n_jobs=n_jobs
+        self._writers = {}
+
 
 
     @staticmethod
@@ -167,50 +215,54 @@ class SQLiteExporter(IdtrackeraiExporter):
 
 
     def export(self, dbfile, mode=["w", "a"], overwrite=False, behaviors=None, tables=None, **kwargs):
-        print(f"Saving to --> {dbfile}")
-        assert dbfile.endswith(".db")
+        #print(f"Saving to --> {dbfile}")
+        #assert dbfile.endswith(".db")
 
         if tables is None or tables == "all":
             tables = TABLES
-        if os.path.exists(dbfile):
-            if overwrite:
-                warnings.warn(f"{dbfile} exists. Remaking from scratch and ignoring mode")
-                os.remove(dbfile)
-            elif mode == "w":
-                warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
-            elif mode == "a":
-                warnings.warn(f"{dbfile} exists. Appending (mode=a)")
-           
-        print(f"Initializing file {dbfile}")
+
+        #if os.path.exists(dbfile):
+        #    if overwrite:
+        #        warnings.warn(f"{dbfile} exists. Remaking from scratch and ignoring mode")
+        #        os.remove(dbfile)
+        #    elif mode == "w":
+        #        warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
+        #    elif mode == "a":
+        #        warnings.warn(f"{dbfile} exists. Appending (mode=a)")
+        #   
+        #print(f"Initializing file {dbfile}")
         self.init_tables(dbfile)
-        print(f"Writing tables: {tables}")
-        
-        if "METADATA" in tables:
-            self.write_metadata_table(dbfile)
+        #print(f"Writing tables: {tables}")
+        #
+        #if "METADATA" in tables:
+        #    self.write_metadata_table(dbfile)
 
-        if "IMG_SNAPSHOTS" in tables:
-            self.write_snapshot_table(dbfile, **kwargs)
+        #if "IMG_SNAPSHOTS" in tables:
+        #    self.write_snapshot_table(dbfile, **kwargs)
 
-        if "ROI_MAP" in tables:
-            self.write_roi_map_table(dbfile)
+        #if "ROI_MAP" in tables:
+        #    self.write_roi_map_table(dbfile)
 
-        if "ENVIRONMENT" in tables:
-            self.write_environment_table(dbfile, **kwargs)
+        #if "ENVIRONMENT" in tables:
+        #    self.write_environment_table(dbfile, **kwargs)
 
-        if "VAR_MAP" in tables:
-            self.write_var_map_table(dbfile)
+        #if "VAR_MAP" in tables:
+        #    self.write_var_map_table(dbfile)
 
-        if "ROI_0" in tables and "IDENTITY" in tables:
-            self.write_trajectory_and_identity(dbfile, **kwargs)
+        #if "ROI_0" in tables and "IDENTITY" in tables:
+        #    self.write_trajectory_and_identity(dbfile, **kwargs)
 
-        if "STORE_INDEX" in tables:
-            self.write_index_table(dbfile)
+        #if "STORE_INDEX" in tables:
+        #    self.write_index_table(dbfile)
 
-        if "BEHAVIORS" in tables:
-            self.write_behaviors_table(dbfile, behaviors=behaviors)
+        if "ORIENTATION" in tables:
+            self.write_orientation_table(dbfile)
 
-        if "AI" in tables:
-            self.write_ai_table(dbfile)
+        #if "BEHAVIORS" in tables:
+        #    self.write_behaviors_table(dbfile, behaviors=behaviors)
+
+        #if "AI" in tables:
+        #    self.write_ai_table(dbfile)
             
 
     def write_trajectory_and_identity(self, dbfile, chunks):
@@ -594,7 +646,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         angles=[line[-1] for line in selected_lines]
         return angles
 
-    def _write_orientation_table(self, conn, dbfile, in_frame_index=0):
+    def _write_orientation_table(self, conn, dbfile, in_frame_index=0, queue=None):
 
         angle_database_path = os.path.join(self._basedir, "angles", "FlyHead", "angles")
 
@@ -635,17 +687,32 @@ class SQLiteExporter(IdtrackeraiExporter):
                 angle = None
                 continue
     
-            cur.execute(
-                f"INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
-                (frame_number, in_frame_index, angle, is_inferred)
-            )
+            data=(frame_number, in_frame_index, angle, is_inferred)
+            if queue is None:
+                cur.execute(
+                    f"INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
+                    data
+                )
+            else:
+                queue.put(tuple([str(e) for e in data]), timeout=30, block=True)
+
             if pointer == len(angle_database):
                 return
 
     def write_orientation_table(self, dbfile):
+
+        #fifo_queue = queue.Queue(1000)
+        #stop_event=threading.Event()
+        #writer=self._AsyncWriter(queue=fifo_queue, table_name="ORIENTATION", dbfile=dbfile, stop_event=stop_event)
+        #writer.setDaemon(True)
+        #writer.start()
+        #self._writers["ORIENTATION"]=writer
+        fifo_queue=None
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             for in_frame_index in range(self.number_of_animals):
-                self._write_orientation_table(conn, dbfile, in_frame_index=in_frame_index)
+                self._write_orientation_table(conn, dbfile, in_frame_index=in_frame_index, queue=fifo_queue)
+
+        stop_event.set()
 
     # IDENTITY
     def init_identity_table(self, dbfile):
