@@ -46,7 +46,7 @@ except AssertionError:
 
     
 
-TABLES = ["METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0", "IDENTITY", "BEHAVIORS", "STORE_INDEX", "ENVIRONMENT", "AI"]
+TABLES = ["METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0", "IDENTITY", "BEHAVIORS", "STORE_INDEX", "ENVIRONMENT", "AI", "ORIENTATION"]
 
 
 def metadata_not_found(message):
@@ -65,10 +65,10 @@ class IdtrackeraiExporter:
             cur = conn.cursor()
             table_name = "ROI_0"
 
-            cols_list = ["frame_number int(11)", "in_frame_index int(2)", "x real(10)", "area int(11)", "y real(10)", "modified int(1)"]
+            cols_list = ["frame_number int(11)", "in_frame_index int(2)", "x real(10)", "area int(11)", "y real(10)", "modified int(1)", "class_name char(10)"]
             
             formated_cols_names = ", ".join(cols_list)
-            command = "CREATE TABLE IF NOT EXISTS %s (%s)" % (table_name ,formated_cols_names)
+            command = "CREATE TABLE IF NOT EXISTS %s (%s)" % (table_name, formated_cols_names)
             cur.execute(command)
 
     def write_trajectory_and_identity(self, dbfile, chunk, **kwargs):
@@ -96,14 +96,18 @@ class IdtrackeraiExporter:
         x, y = blob.centroid
         area = int(round(blob.area))
         modified = blob.modified
+        if modified:
+            class_name = blob._annotation["class"]
+        else:
+            class_name=None 
         identity = blob.final_identities[0]
         if identity is None:
             identity = 0
 
 
         if w_trajectory:
-            command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, area, modified) VALUES(?, ?, ?, ?, ?, ?);"
-            cur.execute(command, [frame_number, in_frame_index, x, y, area, modified])
+            command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, area, modified, class_name) VALUES(?, ?, ?, ?, ?, ?, ?);"
+            cur.execute(command, [frame_number, in_frame_index, x, y, area, modified, class_name])
         
         if w_identity:
             command = "INSERT INTO IDENTITY (frame_number, in_frame_index, identity) VALUES(?, ?, ?);"
@@ -111,6 +115,8 @@ class IdtrackeraiExporter:
 
 
 class SQLiteExporter(IdtrackeraiExporter):
+
+    _CLASSES = {0: "head"}
 
     def __init__(self, basedir, deepethogram_data=None, n_jobs=1):
 
@@ -463,21 +469,21 @@ class SQLiteExporter(IdtrackeraiExporter):
     def write_ai_table(self, dbfile):
 
         pickle_files = sorted(glob.glob(os.path.join(self._basedir, "idtrackerai", "session_*", "preprocessing", "ai.pkl")))
-
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-
-            for file in pickle_files:
-                with open(file, "rb") as filehandle:
-                    ai_mods = pickle.load(filehandle)
-                    frames=ai_mods["success"]
-                
-                for frame_number in frames:
-                    cur.execute("INSERT INTO AI (frame_number, ai) VALUES (?, ?)", (frame_number, "YOLOv7"))
+        if pickle_files:
+            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                cur = conn.cursor()
+    
+                for file in pickle_files:
+                    with open(file, "rb") as filehandle:
+                        ai_mods = pickle.load(filehandle)
+                        frames=ai_mods["success"]
+                    
+                    for frame_number in frames:
+                        cur.execute("INSERT INTO AI (frame_number, ai) VALUES (?, ?);", (frame_number, "YOLOv7"))
 
     def write_behaviors_table(self, *args, **kwargs):
 
-        for in_frame_index in self.range(self.number_of_animals):
+        for in_frame_index in range(self.number_of_animals):
             self.write_behaviors_table_single_blob(*args, in_frame_index, **kwargs)
 
     def write_behaviors_table_single_blob(self, dbfile, in_frame_index, behaviors=None, chunks=None):
@@ -547,7 +553,7 @@ class SQLiteExporter(IdtrackeraiExporter):
 
 
     @staticmethod
-    def fetch_angle(label_file):
+    def fetch_angle_from_label_file(label_file):
         """
         Return the angle of the best detection
         """
@@ -564,45 +570,82 @@ class SQLiteExporter(IdtrackeraiExporter):
         data=sorted(data, key=lambda line: float(line[5]))[::-1]
         return data[0][-1]
 
+    @staticmethod
+    def fetch_angle_from_angle_file(angle_file, classes=None, top_angles=1):
+        """
+        """
+
+        with open(angle_file, "r") as filehandle:
+            lines = filehandle.readlines()
+
+        data = []
+        for line in lines:
+            line = line.strip().split(" ")
+            assert len(line) == 3 # id, conf, angle
+            if classes is None or int(line[0]) in classes:
+                data.append(line)
+
+        #if len(data) == 0:
+        #    warnings.warn(f"No angle of classes {classes} found in {angle_file}")
+        #    return None
+        
+        data=sorted(data, key=lambda line: float(line[1]))[::-1]
+        selected_lines=data[:top_angles]
+        angles=[line[-1] for line in selected_lines]
+        return angles
+
     def _write_orientation_table(self, conn, dbfile, in_frame_index=0):
 
-        label_database_path = os.path.join(self._basedir, "angles", "FlyHead", "labels")
-        label_files = glob.glob(os.path.join(label_database_path, f"*-{in_frame_index}.txt"))
-        assert len(label_files) > 0, f"No label database found under {label_database_path} for in_frame_index {in_frame_index}"
-        label_database = [(int(os.path.basename(label_file).split("_")[0]), label_file) for label_file in label_files]
-        label_database = sorted(label_database, key=lambda entry: entry[0])
+        angle_database_path = os.path.join(self._basedir, "angles", "FlyHead", "angles")
+
+        # list files in the database
+        angle_files = glob.glob(os.path.join(angle_database_path, f"*-{in_frame_index}.txt"))
+        # check files are available
+        assert len(angle_files) > 0, f"No angle database found under {angle_database_path} for in_frame_index {in_frame_index}"
+
+        # sort the database by frame number numerically i.e. 1000 goes after 999
+        angle_database = [(int(os.path.basename(angle_file).split("_")[0]), angle_file) for angle_file in angle_files]
+        angle_database = sorted(angle_database, key=lambda entry: entry[0])
+     
         pointer = 0
         report_every_n_lines=math.inf
  
         fns = conn.cursor()
-        frame_numbers = fns.execute("SELECT frame_number FROM ROI_0;")
+        frame_numbers = fns.execute("SELECT frame_number FROM STORE_INDEX;")
         cur = conn.cursor()
 
+        is_inferred=False
         for row in tqdm(frame_numbers, desc=f"Writing orientation data from in_frame_index {in_frame_index} to {dbfile}"):
             frame_number = row[0]
-            entry = label_database[pointer]
+            entry = angle_database[pointer]
+
             if frame_number == entry[0]:
-                label_file = entry[1]
-                angle = self.fetch_angle(label_file)
-                is_inferred=False
+                angle_file = entry[1]
                 pointer+=1
+                try:
+                    angle = self.fetch_angle_from_angle_file(angle_file, classes=self._CLASSES, top_angles=1)[0]
+                # no angle, probably the label file was corrupted 
+                except IndexError:
+                    angle=None
+                    continue
+
                 if pointer % report_every_n_lines == 0:
-                    print(f"{pointer} labels have been added to {dbfile}")
+                    print(f"{pointer} angles have been added to {dbfile}")
             else: # no matches
                 angle = None
-                is_inferred=True
+                continue
     
             cur.execute(
                 f"INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
                 (frame_number, in_frame_index, angle, is_inferred)
             )
-            if pointer == len(label_database):
+            if pointer == len(angle_database):
                 return
 
     def write_orientation_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             for in_frame_index in range(self.number_of_animals):
-                self._write_orientation_table(conn, dbfile, in_frame_index)
+                self._write_orientation_table(conn, dbfile, in_frame_index=in_frame_index)
 
     # IDENTITY
     def init_identity_table(self, dbfile):
