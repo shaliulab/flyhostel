@@ -84,7 +84,7 @@ def process_labels(label_file):
     for line in lines:
         detections.append(load_detection(line))
     
-    descriptors = [(detection.id, detection.conf, round(detection.angle, 2)) for detection in detections]        
+    descriptors = [(detection.class_id, detection.conf, round(detection.angle, 2)) for detection in detections]        
     return descriptors
 
 def write_angle_txt(label_file, angle_folder, top=None):
