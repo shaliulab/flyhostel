@@ -23,6 +23,7 @@ import re
 
 from tqdm.auto import tqdm
 import cv2
+import pandas as pd
 import numpy as np
 
 from idtrackerai.list_of_blobs import ListOfBlobs
@@ -153,9 +154,9 @@ class IdtrackeraiExporter:
             class_name = blob._annotation["class"]
         else:
             class_name=None 
-        identity = blob.final_identities[0]
-        if identity is None:
-            identity = 0
+        local_identity = blob.final_identities[0]
+        if local_identity is None:
+            local_identity = 0
 
 
         if w_trajectory:
@@ -245,23 +246,23 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_tables(dbfile)
         print(f"Writing tables: {tables}")
         
-        if "CONCATENATION" in tables:
-            self.write_concatenation_table(dbfile)
+        #if "CONCATENATION" in tables:
+        #    self.write_concatenation_table(dbfile)
 
-        if "METADATA" in tables:
-            self.write_metadata_table(dbfile)
+        #if "METADATA" in tables:
+        #    self.write_metadata_table(dbfile)
 
-        if "IMG_SNAPSHOTS" in tables:
-            self.write_snapshot_table(dbfile, **kwargs)
+        #if "IMG_SNAPSHOTS" in tables:
+        #    self.write_snapshot_table(dbfile, **kwargs)
 
-        if "ROI_MAP" in tables:
-            self.write_roi_map_table(dbfile)
+        #if "ROI_MAP" in tables:
+        #    self.write_roi_map_table(dbfile)
 
-        if "ENVIRONMENT" in tables:
-            self.write_environment_table(dbfile, **kwargs)
+        #if "ENVIRONMENT" in tables:
+        #    self.write_environment_table(dbfile, **kwargs)
 
-        if "VAR_MAP" in tables:
-            self.write_var_map_table(dbfile)
+        #if "VAR_MAP" in tables:
+        #    self.write_var_map_table(dbfile)
 
         if "ROI_0" in tables and "IDENTITY" in tables:
             self.write_trajectory_and_identity(dbfile, **kwargs)
@@ -535,7 +536,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur = conn.cursor()
             if reset:
                 cur.execute(f"DROP TABLE IF EXISTS CONCATENATION;")
-            cur.execute("CREATE TABLE IF NOT EXISTS CONCATENATION (chunk int(3), in_frame_index_before int(2), in_frame_index_after int(2), local_identity int(2), identity int(2));")
+            cur.execute("CREATE TABLE IF NOT EXISTS CONCATENATION (chunk int(3), in_frame_index int(2), in_frame_index_after int(2), local_identity int(2), local_identity_after int(2), identity int(2));")
 
     def write_concatenation_table(self, dbfile):
         csv_file = os.path.join(self._basedir, "idtrackerai", "concatenation-overlap.csv")
@@ -545,14 +546,20 @@ class SQLiteExporter(IdtrackeraiExporter):
             with sqlite3.connect(dbfile, check_same_thread=False) as conn:
                 cur = conn.cursor()
                 for i, row in concatenation.iterrows():
-                    args = (row["chunk"], row["in_frame_index_before"], row["in_frame_index_after"], row["local_identity"], row["identity"])
+                    args = (
+                        row["chunk"], row["in_frame_index_before"], row["in_frame_index_after"],
+                        row["local_identity"], row["local_identity_after"], row["identity"]
+                    )
+                    args=tuple([e.item() for e in args])
                     cur.execute(
-                        "INSERT INTO CONCATENATION (chunk, in_frame_index_before, in_frame_index_after) VALUES (?, ?, ?, ?, ?);",
+                        "INSERT INTO CONCATENATION (chunk, in_frame_index, in_frame_index_after, local_identity, local_identity_after, identity) VALUES (?, ?, ?, ?, ?, ?);",
                         args
                     )
+                    print(args)
         else:
             warnings.warn(f"concatenation_overlap.csv not found. Please make sure idtrackerai_concatenation step is run for {self._basedir}")
 
+        print("CONCATENATION table done")
 
     def write_ai_table(self, dbfile):
 
