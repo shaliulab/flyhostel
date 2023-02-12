@@ -164,11 +164,17 @@ class IdtrackeraiExporter:
             cur.execute(command, [frame_number, in_frame_index, x, y, area, modified, class_name])
         
         if w_identity:
-            cur.execute("SELECT identity FROM CONCATENATION WHERE chunk = ? AND local_identity=?;", (chunk, local_identity))
-            identity_reference_to_ref_chunk = int(cur.fetchone()[0])
+            cmd="SELECT identity FROM CONCATENATION WHERE chunk = ? AND local_identity=?;"
+            args=(chunk, local_identity)
+            cur.execute(cmd, args)
+            try:
+                identity_reference_to_ref_chunk = int(cur.fetchone()[0])
+            except Exception as error:
+                print(f"Query {cmd} with args {args} args failed")
+                raise error
 
             command = "INSERT INTO IDENTITY (frame_number, in_frame_index, local_identity, identity) VALUES(?, ?, ?, ?);"
-            cur.execute(command, [frame_number, in_frame_index, identity, identity_reference_to_ref_chunk])
+            cur.execute(command, [frame_number, in_frame_index, local_identity, identity_reference_to_ref_chunk])
 
 
 class SQLiteExporter(IdtrackeraiExporter):
@@ -246,23 +252,23 @@ class SQLiteExporter(IdtrackeraiExporter):
         self.init_tables(dbfile)
         print(f"Writing tables: {tables}")
         
-        #if "CONCATENATION" in tables:
-        #    self.write_concatenation_table(dbfile)
+        if "CONCATENATION" in tables:
+            self.write_concatenation_table(dbfile)
 
-        #if "METADATA" in tables:
-        #    self.write_metadata_table(dbfile)
+        if "METADATA" in tables:
+            self.write_metadata_table(dbfile)
 
-        #if "IMG_SNAPSHOTS" in tables:
-        #    self.write_snapshot_table(dbfile, **kwargs)
+        if "IMG_SNAPSHOTS" in tables:
+            self.write_snapshot_table(dbfile, **kwargs)
 
-        #if "ROI_MAP" in tables:
-        #    self.write_roi_map_table(dbfile)
+        if "ROI_MAP" in tables:
+            self.write_roi_map_table(dbfile)
 
-        #if "ENVIRONMENT" in tables:
-        #    self.write_environment_table(dbfile, **kwargs)
+        if "ENVIRONMENT" in tables:
+            self.write_environment_table(dbfile, **kwargs)
 
-        #if "VAR_MAP" in tables:
-        #    self.write_var_map_table(dbfile)
+        if "VAR_MAP" in tables:
+            self.write_var_map_table(dbfile)
 
         if "ROI_0" in tables and "IDENTITY" in tables:
             self.write_trajectory_and_identity(dbfile, **kwargs)
@@ -555,7 +561,6 @@ class SQLiteExporter(IdtrackeraiExporter):
                         "INSERT INTO CONCATENATION (chunk, in_frame_index, in_frame_index_after, local_identity, local_identity_after, identity) VALUES (?, ?, ?, ?, ?, ?);",
                         args
                     )
-                    print(args)
         else:
             warnings.warn(f"concatenation_overlap.csv not found. Please make sure idtrackerai_concatenation step is run for {self._basedir}")
 
