@@ -26,7 +26,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
     def __init__(self, basedir, deepethogram_data, *args, **kwargs):
         self._basedir = basedir
         self._deepethogram_data = deepethogram_data
-        super(IdtrackeraiExporter, self).__init__(basedir=basedir, *args, **kwargs)
+        super(IdtrackeraiExporter, self).__init__(*args, **kwargs)
 
     # Init tables
     def init_data(self, dbfile):
@@ -147,8 +147,8 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
 
 
 
-    def init_tables(self, dbfile, tables):
-        super(IdtrackeraiExporter, self).init_tables(dbfile, tables)
+    def init_tables(self, dbfile, tables, reset=True):
+        super(IdtrackeraiExporter, self).init_tables(dbfile, tables, reset=reset)
         if "IDENTITY" in tables:
             self.init_identity_table(dbfile)
 
@@ -163,6 +163,18 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
 
 
     def export(self, dbfile, chunks, tables="all", mode="w", reset=False, behaviors=None):
+        """
+        Export datasets into single SQLite file
+
+        Args:
+
+            dbfile (str): Path to SQLite output file
+            chunks (list): Chunks to be processed
+            tables (list, str): List of tables to be exported or "all" if all should be
+            mode (str)
+            reset (bool):
+            behaviors (list):
+        """
 
         if tables is None or tables == "all":
             tables = TABLES

@@ -11,9 +11,12 @@ class DeepethogramExporter(ABC):
     _deepethogram_data=None
     _basedir=None
     _index_dbfile=None
-    _n_jobs=None
     _store_metadata=None
 
+
+    def __init__(self, *args, n_jobs=1, **kwargs):
+        self._n_jobs=n_jobs
+        super().__init__(*args, **kwargs)
 
     def init_behaviors_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:

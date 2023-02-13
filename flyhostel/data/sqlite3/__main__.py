@@ -19,4 +19,4 @@ def export_dataset(store_path, chunks, reset=True, tables=None):
     dbfile = os.path.join(basedir, dbfile_basename)
     basedir=os.path.realpath(basedir)
     dataset = IdtrackeraiExporter(basedir, deepethogram_data=os.environ["DEEPETHOGRAM_DATA"])
-    dataset.export(dbfile=dbfile, mode="a", chunks=chunks, reset=reset, tables=tables)
+    dataset.export(dbfile=dbfile, chunks=chunks, tables=tables, mode="w", reset=reset)
