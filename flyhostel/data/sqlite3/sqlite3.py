@@ -9,10 +9,8 @@ import subprocess
 import datetime
 import pickle
 import os.path
-import re
 import tempfile
 import logging
-import math
 import shlex
 import glob
 import yaml
@@ -26,7 +24,6 @@ from tqdm.auto import tqdm
 import h5py
 
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
-from flyhostel.data.deepethogram import H5Reader
 from imgstore.constants import STORE_MD_FILENAME
 from .async_writer import AsyncSQLiteWriter
 from .constants import (
@@ -35,14 +32,14 @@ from .constants import (
     RAISE_EXCEPTION_IF_METADATA_NOT_FOUND,
     DOWNLOAD_BEHAVIORAL_DATA
 )
-
+from .utils import table_is_not_empty
 
 logger = logging.getLogger(__name__)
 
 def metadata_not_found(message):
 
     if RAISE_EXCEPTION_IF_METADATA_NOT_FOUND:
-        raise Exception(message)
+        raise ModuleNotFoundError(message)
     else:
         warnings.warn(message)
 
@@ -52,9 +49,9 @@ class SQLiteExporter:
     _CLASSES = {0: "head"}
     _AsyncWriter = AsyncSQLiteWriter
 
-    def __init__(self, basedir, deepethogram_data=None, n_jobs=1):
 
-        self._basedir = os.path.realpath(basedir)
+    def __init__(self, basedir, n_jobs=1):
+        self._basedir=basedir
 
         self._store_metadata_path = os.path.join(self._basedir, STORE_MD_FILENAME)
         self._store_metadata = _extract_store_metadata(self._store_metadata_path)
@@ -74,22 +71,8 @@ class SQLiteExporter:
         self._temp_path = tempfile.mktemp(prefix="flyhostel_", suffix=".jpg")
         self._number_of_animals = None
         self._index_dbfile = os.path.join(self._basedir, "index.db")
-        self._deepethogram_data = deepethogram_data
         self._n_jobs=n_jobs
         self._writers = {}
-
-
-
-    @staticmethod
-    def _ensure_type(var, var_name, typ):
-
-        if not isinstance(var, typ):
-            try:
-                var=typ(var)
-            except:
-                raise TypeError(f"{var_name} {var} with type {type(var)} cannot be coerced to int")
-
-        return var
 
 
 
@@ -115,7 +98,7 @@ class SQLiteExporter:
         #     return 1
 
 
-    def export(self, dbfile, mode=["w", "a"], reset=False, behaviors=None, tables=None, **kwargs):
+    def export(self, dbfile, chunks, tables=None, mode=["w", "a"], reset=False):
 
         if tables is None or tables == "all":
             tables = TABLES
@@ -133,32 +116,26 @@ class SQLiteExporter:
         self.init_tables(dbfile, tables)
         print(f"Writing tables: {tables}")
 
-        if "CONCATENATION" in tables and not self.table_is_not_empty(dbfile, "CONCATENATION"):
+        if "CONCATENATION" in tables and not table_is_not_empty(dbfile, "CONCATENATION"):
             self.write_concatenation_table(dbfile)
 
         if "METADATA" in tables:
             self.write_metadata_table(dbfile)
 
         if "IMG_SNAPSHOTS" in tables:
-            self.write_snapshot_table(dbfile, **kwargs)
+            self.write_snapshot_table(dbfile, chunks=chunks)
 
         if "ROI_MAP" in tables:
             self.write_roi_map_table(dbfile)
 
         if "ENVIRONMENT" in tables:
-            self.write_environment_table(dbfile, **kwargs)
+            self.write_environment_table(dbfile, chunks=chunks)
 
         if "VAR_MAP" in tables:
             self.write_var_map_table(dbfile)
 
         if "STORE_INDEX" in tables:
             self.write_index_table(dbfile)
-
-        if "ORIENTATION" in tables:
-            self.write_orientation_table(dbfile, **kwargs)
-
-        if "BEHAVIORS" in tables:
-            self.write_behaviors_table(dbfile, behaviors=behaviors)
 
         if "AI" in tables:
             self.write_ai_table(dbfile)
@@ -183,9 +160,8 @@ class SQLiteExporter:
         self.init_roi_map_table(dbfile)
         self.init_environment_table(dbfile)
         self.init_var_map_table(dbfile)
-        self.init_orientation_table(dbfile)
         self.init_index_table(dbfile)
-        self.init_behaviors_table(dbfile)
+
         self.init_ai_table(dbfile)
         self.init_concatenation_table(dbfile)
 
@@ -401,12 +377,6 @@ class SQLiteExporter:
             cur = conn.cursor()
             cur.execute("CREATE TABLE IF NOT EXISTS STORE_INDEX (chunk int(3), frame_number int(11), frame_time int(11));")
 
-    def init_behaviors_table(self, dbfile, reset=True):
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            if reset:
-                cur.execute("DROP TABLE IF EXISTS BEHAVIORS;")
-            cur.execute("CREATE TABLE IF NOT EXISTS BEHAVIORS (frame_number int(11), in_frame_index int(2), behavior char(100), probability float(5));")
 
     def init_ai_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -459,50 +429,6 @@ class SQLiteExporter:
                     for frame_number in frames:
                         cur.execute("INSERT INTO AI (frame_number, ai) VALUES (?, ?);", (frame_number, "YOLOv7"))
 
-    def write_behaviors_table(self, *args, **kwargs):
-
-        for in_frame_index in range(self.number_of_animals):
-            self.write_behaviors_table_single_blob(*args, in_frame_index, **kwargs)
-
-    def write_behaviors_table_single_blob(self, dbfile, in_frame_index, behaviors=None, chunks=None):
-
-        if self._deepethogram_data is None:
-            warnings.warn(f"Please pass a deepethogram data folder")
-            return
-
-        prefix = "_".join(self._basedir.split(os.path.sep)[-3:])
-        reader = H5Reader.from_outputs(data_dir=self._deepethogram_data, prefix=prefix, in_frame_index=in_frame_index, fps=self._store_metadata["framerate"])
-
-        if behaviors is None:
-            behaviors=reader.class_names
-
-
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
-
-                index_db_cur = index_db.cursor()
-
-                for behavior_idx, behavior in enumerate(behaviors):
-
-                    chunks_avail, P = reader.load(behavior, n_jobs=self._n_jobs)
-                    pb=tqdm(total=len(chunks_avail), desc=f"Loading {behavior} instances for blob index {in_frame_index}", position=behavior_idx, unit="chunk")
-
-                    for chunk_idx, chunk in enumerate(chunks_avail):
-                        if chunks is not None and chunk not in chunks:
-                            continue
-                        index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?;", (chunk, ))
-                        frame_numbers = [int(x[0]) for x in index_db_cur.fetchall()]
-                        assert P[chunk_idx].shape[0] == len(frame_numbers)
-
-                        for frame_number_idx, frame_number in enumerate(frame_numbers):
-                            args=(frame_number, in_frame_index, behavior, P[chunk_idx][frame_number_idx].item())
-                            cur.execute("INSERT INTO BEHAVIORS (frame_number, in_frame_index, behavior, probability) VALUES (?, ?, ?, ?);", args)
-
-                        pb.update(1)
-
-
-
     def write_index_table(self, dbfile):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
@@ -523,20 +449,13 @@ class SQLiteExporter:
                     pb.update(1)
 
 
-    # ORIENTATION
-    def init_orientation_table(self, dbfile):
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            cur.execute("CREATE TABLE IF NOT EXISTS ORIENTATION (frame_number int(11), in_frame_index int(2), angle float(5), is_inferred int(1));")
-
-
     @staticmethod
     def fetch_angle_from_label_file(label_file):
         """
         Return the angle of the best detection
         """
 
-        with open(label_file, "r") as filehandle:
+        with open(label_file, "r", encoding="utf8") as filehandle:
             lines = filehandle.readlines()
 
         data = []
@@ -572,94 +491,3 @@ class SQLiteExporter:
         angles=[line[-1] for line in selected_lines]
         return angles
 
-
-    @staticmethod
-    def fetch_angle_from_h5py(filehandle, dataset, top=1):
-        try:
-            class_id, conf, angle = filehandle[dataset][:]
-        except KeyError:
-            angle=None
-        except Exception as error:
-            raise error
-
-        return angle
-
-
-    @staticmethod
-    def _parse_chunk_from_angle_file(path):
-        return int(re.search("angles_([0-9][0-9][0-9][0-9][0-9][0-9]).hdf5", os.path.basename(path)).group(1))
-
-    @staticmethod
-    def _parse_dataset(dataset):
-        frame_number, chunk, in_frame_index = dataset.split("_")
-        frame_number=int(frame_number)
-        chunk=int(chunk)
-        in_frame_index=int(in_frame_index)
-        return frame_number, chunk, in_frame_index
-
-
-    def _write_orientation_table(self, conn, dbfile, chunks, in_frame_index=0, queue=None):
-
-        angle_database_path = os.path.join(self._basedir, "angles", "FlyHead", "angles")
-
-        angle_database = sorted(glob.glob(os.path.join(angle_database_path, "*.hdf5")))
-        angle_database = {self._parse_chunk_from_angle_file(path): path for path in angle_database}
-
-        report_every_n_lines=5
-
-        cur = conn.cursor()
-        is_inferred=False
-        last_chunk=0
-
-        for chunk in tqdm(chunks, desc=f"Writing orientation data from in_frame_index {in_frame_index} to {dbfile}"):
-            accum = 0
-            try:
-                h5py_file = angle_database[chunk]
-            except KeyError:
-                warnings.warn(f"No angles for chunk {chunk}")
-                continue
-
-            with h5py.File(h5py_file, "r") as filehandle:
-                keys = list(filehandle.keys())
-                for dataset in keys:
-                    frame_number, chunk_, in_frame_index_ = self._parse_dataset(dataset)
-                    assert chunk_ == chunk
-                    if in_frame_index_ != in_frame_index:
-                        continue
-
-                    angle = self.fetch_angle_from_h5py(filehandle, dataset)
-                    accum+=1
-
-                    data=(frame_number, in_frame_index, angle, is_inferred)
-                    if queue is None:
-                        cur.execute(
-                            "INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
-                            data
-                        )
-                    else:
-                        queue.put(tuple([str(e) for e in data]), timeout=30, block=True)
-
-            print(f"Wrote {accum} angles for chunk {chunk} in {dbfile}")
-
-    def write_orientation_table(self, dbfile, chunks):
-
-        if not table_is_not_empty(dbfile, "STORE_INDEX"):
-            raise Exception("ORIENTATION table requires STORE_INDEX")
-
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-
-            for in_frame_index in range(self.number_of_animals):
-                self._write_orientation_table(conn, dbfile, chunks=chunks, in_frame_index=in_frame_index, queue=None)
-
-
-    def table_is_not_empty(self, dbfile, table_name):
-        """
-        Returns True if the passed table has at least one row
-        """
-
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur=conn.cursor()
-            cur.execute(f"SELECT COUNT(*) FROM {table_name}")
-            count=cur.fetchone()[0]
-
-        return count > 0
