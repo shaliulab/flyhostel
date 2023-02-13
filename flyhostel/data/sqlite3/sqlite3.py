@@ -13,15 +13,14 @@ import tempfile
 import logging
 import shlex
 import glob
-import yaml
-import json
 from ast import literal_eval
+import json
 
+import yaml
 import cv2
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
-import h5py
 
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from imgstore.constants import STORE_MD_FILENAME
@@ -39,7 +38,7 @@ logger = logging.getLogger(__name__)
 def metadata_not_found(message):
 
     if RAISE_EXCEPTION_IF_METADATA_NOT_FOUND:
-        raise ModuleNotFoundError(message)
+        raise FileNotFoundError(message)
     else:
         warnings.warn(message)
 
@@ -84,7 +83,7 @@ class SQLiteExporter:
 
         # try:
         if DOWNLOAD_BEHAVIORAL_DATA is None:
-            raise Exception("Please define DOWNLOAD_BEHAVIORAL_DATA as the path to the download-behavioral-data Python binary")
+            raise ModuleNotFoundError("Please define DOWNLOAD_BEHAVIORAL_DATA as the path to the download-behavioral-data Python binary")
 
         path=path.replace(" ", "_")
         cmd = f'{DOWNLOAD_BEHAVIORAL_DATA} --metadata {path}'
@@ -98,7 +97,7 @@ class SQLiteExporter:
         #     return 1
 
 
-    def export(self, dbfile, chunks, tables=None, mode=["w", "a"], reset=False):
+    def export(self, dbfile, chunks, tables=None, mode="w", reset=False):
 
         if tables is None or tables == "all":
             tables = TABLES
@@ -210,7 +209,9 @@ class SQLiteExporter:
         try:
             pixels_per_cm = self._store_metadata["pixels_per_cm"]
         except KeyError:
-            raise Exception(f"Please enter the pixels_per_cm parameter in {self._store_metadata_path}")
+            raise Exception(
+                f"Please enter the pixels_per_cm parameter in {self._store_metadata_path}"
+            )
 
         with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
             cur=index_db.cursor()
@@ -268,7 +269,7 @@ class SQLiteExporter:
 
                     snapshot_path = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.png")
                     if not os.path.exists(snapshot_path):
-                        raise Exception(f"Cannot save chunk {chunk} snapshot. {snapshot_path} does not exist")
+                        raise ValueError(f"Cannot save chunk {chunk} snapshot. {snapshot_path} does not exist")
                     arr=cv2.imread(snapshot_path)
                     bstring = self.serialize_arr(arr, self._temp_path)
                     cur.execute(
@@ -290,8 +291,8 @@ class SQLiteExporter:
 
         cv2.imwrite(path, arr, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
 
-        with open(path, "rb") as f:
-            bstring = f.read()
+        with open(path, "rb") as filehandle:
+            bstring = filehandle.read()
 
         return bstring
 
@@ -332,7 +333,7 @@ class SQLiteExporter:
                     return
 
 
-                with open(extra_json, "r") as filehandle:
+                with open(extra_json, "r", encoding="utf8") as filehandle:
                     extra_data = json.load(filehandle)
 
                 for row in extra_data:
@@ -399,7 +400,7 @@ class SQLiteExporter:
             concatenation=pd.read_csv(csv_file, index_col=0)
             with sqlite3.connect(dbfile, check_same_thread=False) as conn:
                 cur = conn.cursor()
-                for i, row in concatenation.iterrows():
+                for _, row in concatenation.iterrows():
                     args = (
                         row["chunk"], row["in_frame_index_before"], row["in_frame_index_after"],
                         row["local_identity"], row["local_identity_after"], row["identity"]
@@ -472,7 +473,7 @@ class SQLiteExporter:
         """
         """
 
-        with open(angle_file, "r") as filehandle:
+        with open(angle_file, "r", encoding="utf8") as filehandle:
             lines = filehandle.readlines()
 
         data = []

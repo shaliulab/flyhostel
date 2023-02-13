@@ -28,7 +28,7 @@ class DeepethogramExporter(ABC):
         for in_frame_index in range(self.number_of_animals):
             self.write_behaviors_table_single_blob(*args, in_frame_index, **kwargs)
 
-    def write_behaviors_table_single_blob(self, dbfile, in_frame_index, behaviors=None, chunks=None):
+    def write_behaviors_table_single_blob(self, dbfile, in_frame_index, behaviors=None,chunks=None):
 
         if self._deepethogram_data is None:
             raise ValueError("Please pass a deepethogram data folder")
@@ -53,8 +53,8 @@ class DeepethogramExporter(ABC):
 
                 for behavior_idx, behavior in enumerate(behaviors):
 
-                    chunks_avail, P = reader.load(behavior, n_jobs=self._n_jobs)
-                    pb=tqdm(
+                    chunks_avail, p_array = reader.load(behavior, n_jobs=self._n_jobs)
+                    progress_bar=tqdm(
                         total=len(chunks_avail),
                         desc=f"Loading {behavior} instances for blob index {in_frame_index}",
                         position=behavior_idx,
@@ -66,10 +66,10 @@ class DeepethogramExporter(ABC):
                             continue
                         index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?;", (chunk, ))
                         frame_numbers = [int(x[0]) for x in index_db_cur.fetchall()]
-                        assert P[chunk_idx].shape[0] == len(frame_numbers)
+                        assert p_array[chunk_idx].shape[0] == len(frame_numbers)
 
                         for frame_number_idx, frame_number in enumerate(frame_numbers):
-                            args=(frame_number, in_frame_index, behavior, P[chunk_idx][frame_number_idx].item())
+                            args=(frame_number, in_frame_index, behavior, p_array[chunk_idx][frame_number_idx].item())
                             cur.execute("INSERT INTO BEHAVIORS (frame_number, in_frame_index, behavior, probability) VALUES (?, ?, ?, ?);", args)
 
-                        pb.update(1)
+                        progress_bar.update(1)

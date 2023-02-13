@@ -17,7 +17,10 @@ class OrientationExporter(ABC):
 
     @staticmethod
     def _parse_chunk_from_angle_file(path):
-        return int(re.search("angles_([0-9][0-9][0-9][0-9][0-9][0-9]).hdf5", os.path.basename(path)).group(1))
+        return int(
+            re.search("angles_([0-9][0-9][0-9][0-9][0-9][0-9]).hdf5",
+            os.path.basename(path)).group(1)
+        )
 
 
     @staticmethod
@@ -30,9 +33,10 @@ class OrientationExporter(ABC):
 
 
     @staticmethod
-    def fetch_angle_from_h5py(filehandle, dataset, top=1):
+    def fetch_angle_from_h5py(filehandle, dataset):
         try:
-            class_id, conf, angle = filehandle[dataset][:]
+            # class_id, conf, angle
+            _, _, angle = filehandle[dataset][:]
         except KeyError:
             angle=None
         except Exception as error:
@@ -91,7 +95,7 @@ class OrientationExporter(ABC):
     def write_orientation_table(self, dbfile, chunks):
 
         if not table_is_not_empty(dbfile, "STORE_INDEX"):
-            raise Exception("ORIENTATION table requires STORE_INDEX")
+            raise ValueError("ORIENTATION table requires STORE_INDEX")
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
 
