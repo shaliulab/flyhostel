@@ -3,56 +3,41 @@ Centralize the results obtained in the FlyHostel pipeline into a single SQLite f
 that can be used to perform all downstream analyses
 """
 
-import os.path
-import pickle
-import warnings
 import sqlite3
-import yaml
-import datetime
-import json
-import logging
-import tempfile
-import glob
+import warnings
 import subprocess
-import shlex
-import math
-import threading
-import queue
-import time
+import datetime
+import pickle
+import os.path
 import re
+import tempfile
+import logging
+import math
+import shlex
+import glob
+import yaml
+import json
+from ast import literal_eval
 
-from tqdm.auto import tqdm
 import cv2
 import pandas as pd
 import numpy as np
+from tqdm.auto import tqdm
 import h5py
 
-from idtrackerai.list_of_blobs import ListOfBlobs
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
-from imgstore.constants import STORE_MD_FILENAME
 from flyhostel.data.deepethogram import H5Reader
+from imgstore.constants import STORE_MD_FILENAME
+from .async_writer import AsyncSQLiteWriter
+from .constants import (
+    TABLES,
+    METADATA_FILE,
+    RAISE_EXCEPTION_IF_METADATA_NOT_FOUND,
+    DOWNLOAD_BEHAVIORAL_DATA
+)
+
 
 logger = logging.getLogger(__name__)
-
-METADATA_FILE = "metadata.csv"
-RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
-
-try:
-    DOWNLOAD_BEHAVIORAL_DATA=os.environ.get("DOWNLOAD_BEHAVIORAL_DATA", None)
-    assert DOWNLOAD_BEHAVIORAL_DATA is not None and os.path.exists(DOWNLOAD_BEHAVIORAL_DATA)
-
-except AssertionError:
-    warnings.warn(
-        """
-        download-behavioral-data not found. Automatic download of metadata not available.
-        Please ensure the DOWNLOAD_BEHAVIORAL_DATA environment variable is set and pointing to a download-behavioral-data executable
-        """)
-    DOWNLOAD_BEHAVIORAL_DATA = None
-
-    
-
-TABLES = ["METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0", "IDENTITY", "CONCATENATION", "BEHAVIORS", "STORE_INDEX", "ENVIRONMENT", "AI", "ORIENTATION"]
-
 
 def metadata_not_found(message):
 
@@ -62,123 +47,7 @@ def metadata_not_found(message):
         warnings.warn(message)
 
 
-class AsyncSQLiteWriter(threading.Thread):
-
-    _MIN_QUEUE_SIZE=100
-
-    def __init__(self, dbfile, table_name, queue, stop_event, *args, **kwargs):
-
-        self._queue=queue
-        self._table_name = table_name
-        self._dbfile = dbfile
-        self._stop_event = stop_event
-        super(AsyncSQLiteWriter, self).__init__(*args, **kwargs)
-
-
-    @property
-    def needs_flushing(self):
-        return self._queue.qsize() > self._MIN_QUEUE_SIZE
-
-
-    def flush(self):
-
-        queue_size=self._queue.qsize()
-        data=[]
-        for _ in range(queue_size):
-            data.append(str(self._queue.get()))
-
-        value_string=",".join(data)
-        
-        before=time.time()
-        with sqlite3.connect(self._dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            cur.execute(f"INSERT INTO {self._table_name} VALUES {value_string};")
-        after=time.time()
-        print(f"Wrote {queue_size} rows in {after-before} seconds")
-
-    def run(self):
-        while not self._stop_event.is_set():
-            if self.needs_flushing:
-                self.flush()
-
-        self.flush()
-
-
-
-class IdtrackeraiExporter:
-
-    def init_data(self, dbfile):
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            table_name = "ROI_0"
-
-            cols_list = ["frame_number int(11)", "in_frame_index int(2)", "x real(10)", "area int(11)", "y real(10)", "modified int(1)", "class_name char(10)"]
-            
-            formated_cols_names = ", ".join(cols_list)
-            command = "CREATE TABLE IF NOT EXISTS %s (%s)" % (table_name, formated_cols_names)
-            cur.execute(command)
-
-    def write_trajectory_and_identity(self, dbfile, chunk, **kwargs):
-
-        blobs_collection = self.build_blobs_collection(chunk)
-
-        if os.path.exists(blobs_collection):
-
-            list_of_blobs = ListOfBlobs.load(blobs_collection)
-
-            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-                cur = conn.cursor()
-
-                for blobs_in_frame in tqdm(list_of_blobs.blobs_in_video, desc=f"Exporting chunk {chunk}"):
-                    for blob in blobs_in_frame:
-                        self.add_blob(cur, blob, **kwargs)
-        
-        else:
-            warnings.warn(f"{blobs_collection} not found")
-
-
-    # IDENTITY
-    def init_identity_table(self, dbfile):
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            cur.execute("CREATE TABLE IF NOT EXISTS IDENTITY (frame_number int(11), in_frame_index int(2), local_identity int(2), identity int(2));")
-
-    def add_blob(self, cur, blob, w_trajectory=True, w_identity=True):
-
-        frame_number = blob.frame_number
-        in_frame_index = blob.in_frame_index
-        x, y = blob.centroid
-        area = int(round(blob.area))
-        modified = blob.modified
-        chunk=blob.chunk
-        if modified:
-            class_name = blob._annotation["class"]
-        else:
-            class_name=None 
-        local_identity = blob.final_identities[0]
-        if local_identity is None:
-            local_identity = 0
-
-
-        if w_trajectory:
-            command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, area, modified, class_name) VALUES(?, ?, ?, ?, ?, ?, ?);"
-            cur.execute(command, [frame_number, in_frame_index, x, y, area, modified, class_name])
-        
-        if w_identity:
-            cmd="SELECT identity FROM CONCATENATION WHERE chunk = ? AND local_identity=?;"
-            args=(chunk, local_identity)
-            cur.execute(cmd, args)
-            try:
-                identity_reference_to_ref_chunk = int(cur.fetchone()[0])
-            except Exception as error:
-                print(f"Query {cmd} with args {args} args failed")
-                raise error
-
-            command = "INSERT INTO IDENTITY (frame_number, in_frame_index, local_identity, identity) VALUES(?, ?, ?, ?);"
-            cur.execute(command, [frame_number, in_frame_index, local_identity, identity_reference_to_ref_chunk])
-
-
-class SQLiteExporter(IdtrackeraiExporter):
+class SQLiteExporter:
 
     _CLASSES = {0: "head"}
     _AsyncWriter = AsyncSQLiteWriter
@@ -186,22 +55,22 @@ class SQLiteExporter(IdtrackeraiExporter):
     def __init__(self, basedir, deepethogram_data=None, n_jobs=1):
 
         self._basedir = os.path.realpath(basedir)
-        
+
         self._store_metadata_path = os.path.join(self._basedir, STORE_MD_FILENAME)
-        self._store_metadata = _extract_store_metadata(self._store_metadata_path) 
-        
+        self._store_metadata = _extract_store_metadata(self._store_metadata_path)
+
         self._idtrackerai_conf_path = os.path.join(self._basedir, f"{os.path.basename(self._basedir)}.conf")
-        with open(self._idtrackerai_conf_path, "r") as filehandle:
+        with open(self._idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
             self._idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
 
         matches = glob.glob(os.path.join(self._basedir, "*pfs"))
         if matches:
             self._camera_metadata_path = matches[0]
         else:
-            metadata_not_found(f"Camera metadata (.pfs file) not found")
+            metadata_not_found("Camera metadata (.pfs file) not found")
             self._camera_metadata_path = None
 
-            
+
         self._temp_path = tempfile.mktemp(prefix="flyhostel_", suffix=".jpg")
         self._number_of_animals = None
         self._index_dbfile = os.path.join(self._basedir, "index.db")
@@ -212,30 +81,41 @@ class SQLiteExporter(IdtrackeraiExporter):
 
 
     @staticmethod
+    def _ensure_type(var, var_name, typ):
+
+        if not isinstance(var, typ):
+            try:
+                var=typ(var)
+            except:
+                raise TypeError(f"{var_name} {var} with type {type(var)} cannot be coerced to int")
+
+        return var
+
+
+
+    @staticmethod
     def download_metadata(path):
         """
         Download the metadata from a Google Sheets database
         """
 
-        try:
-            if DOWNLOAD_BEHAVIORAL_DATA is None:
-                raise Exception("Please define DOWNLOAD_BEHAVIORAL_DATA as the path to the download-behavioral-data Python binary")
+        # try:
+        if DOWNLOAD_BEHAVIORAL_DATA is None:
+            raise Exception("Please define DOWNLOAD_BEHAVIORAL_DATA as the path to the download-behavioral-data Python binary")
 
-            path=path.replace(" ", "_")
-            cmd = f'{DOWNLOAD_BEHAVIORAL_DATA} --metadata {path}'
-            cmd_list = shlex.split(cmd)
-            process = subprocess.Popen(cmd_list)
-            process.communicate()
-            print(f"Downloading metadata to {path}")
-            return 0
-        except:
-            metadata_not_found(f"Could not download metadata to {path}")
-            return 1
+        path=path.replace(" ", "_")
+        cmd = f'{DOWNLOAD_BEHAVIORAL_DATA} --metadata {path}'
+        cmd_list = shlex.split(cmd)
+        process = subprocess.Popen(cmd_list)
+        process.communicate()
+        print(f"Downloading metadata to {path}")
+        return 0
+        # except:
+        #     metadata_not_found(f"Could not download metadata to {path}")
+        #     return 1
 
 
     def export(self, dbfile, mode=["w", "a"], reset=False, behaviors=None, tables=None, **kwargs):
-        #print(f"Saving to --> {dbfile}")
-        #assert dbfile.endswith(".db")
 
         if tables is None or tables == "all":
             tables = TABLES
@@ -248,12 +128,12 @@ class SQLiteExporter(IdtrackeraiExporter):
                 warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
             elif mode == "a":
                 warnings.warn(f"{dbfile} exists. Appending (mode=a)")
-           
+
         print(f"Initializing file {dbfile}")
-        self.init_tables(dbfile)
+        self.init_tables(dbfile, tables)
         print(f"Writing tables: {tables}")
-        
-        if "CONCATENATION" in tables:
+
+        if "CONCATENATION" in tables and not self.table_is_not_empty(dbfile, "CONCATENATION"):
             self.write_concatenation_table(dbfile)
 
         if "METADATA" in tables:
@@ -271,9 +151,6 @@ class SQLiteExporter(IdtrackeraiExporter):
         if "VAR_MAP" in tables:
             self.write_var_map_table(dbfile)
 
-        if "ROI_0" in tables and "IDENTITY" in tables:
-            self.write_trajectory_and_identity(dbfile, **kwargs)
-
         if "STORE_INDEX" in tables:
             self.write_index_table(dbfile)
 
@@ -285,13 +162,6 @@ class SQLiteExporter(IdtrackeraiExporter):
 
         if "AI" in tables:
             self.write_ai_table(dbfile)
-            
-
-    def write_trajectory_and_identity(self, dbfile, chunks):
-    
-        for chunk in chunks:
-            logger.debug(f"Exporting chunk {chunk}")
-            super(SQLiteExporter, self).write_trajectory_and_identity(dbfile, chunk)
 
 
     @property
@@ -299,17 +169,21 @@ class SQLiteExporter(IdtrackeraiExporter):
         if self._number_of_animals is None:
             self._number_of_animals = int(self._idtrackerai_conf["_number_of_animals"]["value"])
         return self._number_of_animals
-    
-    def init_tables(self, dbfile):
 
-        self.init_metadata_table(dbfile)
+
+    def init_tables(self, dbfile, tables):
+
+        #TODO
+        # Add if for all tables
+
+        if "METADATA" in tables:
+            self.init_metadata_table(dbfile)
+
         self.init_snapshot_table(dbfile)
         self.init_roi_map_table(dbfile)
         self.init_environment_table(dbfile)
         self.init_var_map_table(dbfile)
-        self.init_identity_table(dbfile)
         self.init_orientation_table(dbfile)
-        self.init_data(dbfile)
         self.init_index_table(dbfile)
         self.init_behaviors_table(dbfile)
         self.init_ai_table(dbfile)
@@ -317,6 +191,9 @@ class SQLiteExporter(IdtrackeraiExporter):
 
     def build_blobs_collection(self, chunk):
         return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "blobs_collection.npy")
+
+    def build_video_object(self, chunk):
+        return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "video_object.npy")
 
 
     # METADATA
@@ -334,12 +211,12 @@ class SQLiteExporter(IdtrackeraiExporter):
         date_time = datetime.datetime.strptime(created_utc, "%Y-%m-%dT%H:%M:%S").timestamp()
 
 
-        with open(self._idtrackerai_conf_path, "r") as filehandle:
+        with open(self._idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
             idtrackerai_conf_str = filehandle.read()
 
-        
+
         if self._camera_metadata_path is not None and os.path.exists(self._camera_metadata_path):
-            with open(self._camera_metadata_path, "r") as filehandle:
+            with open(self._camera_metadata_path, "r", encoding="utf8") as filehandle:
                 camera_metadata_str = filehandle.read()
         else:
             camera_metadata_str=""
@@ -347,13 +224,13 @@ class SQLiteExporter(IdtrackeraiExporter):
         ethoscope_metadata_path = os.path.join(self._basedir, METADATA_FILE)
 
         if os.path.exists(ethoscope_metadata_path) or self.download_metadata(ethoscope_metadata_path) == 0:
-            with open(ethoscope_metadata_path, "r") as filehandle:
+            with open(ethoscope_metadata_path, "r", encoding="utf8") as filehandle:
                 ethoscope_metadata_str = filehandle.read()
 
         else:
             ethoscope_metadata_str = ""
-            
-        
+
+
         try:
             pixels_per_cm = self._store_metadata["pixels_per_cm"]
         except KeyError:
@@ -389,7 +266,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             for val in values:
 
                 cur.execute(
-                    f"INSERT INTO METADATA (field, value) VALUES (?, ?);",
+                    "INSERT INTO METADATA (field, value) VALUES (?, ?);",
                     val
                 )
 
@@ -439,13 +316,13 @@ class SQLiteExporter(IdtrackeraiExporter):
 
         with open(path, "rb") as f:
             bstring = f.read()
-        
+
         return bstring
 
 
     def write_roi_map_table(self, dbfile):
 
-        roi = np.array(eval(self._idtrackerai_conf["_roi"]["value"][0][0]))
+        roi = np.array(literal_eval(self._idtrackerai_conf["_roi"]["value"][0][0]))
         x, y, w, h = cv2.boundingRect(roi)
 
         mask = np.zeros(self._store_metadata["imgshape"])
@@ -455,7 +332,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             cur.execute(
-                f"INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, mask) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                "INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, mask) VALUES (?, ?, ?, ?, ?, ?, ?);",
                 (0, 0, x, y, w, h, mask)
             )
 
@@ -471,9 +348,9 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur = conn.cursor()
 
             for chunk in chunks:
-                
+
                 extra_json = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.extra.json")
-                
+
                 if not os.path.exists(extra_json):
                     warnings.warn(f"No environmental data available for chunk {chunk}")
                     return
@@ -487,7 +364,7 @@ class SQLiteExporter(IdtrackeraiExporter):
                     values = (row["frame_number"], row["camera_temperature"], row["temperature"], row["humidity"], row["light"])
 
                     cur.execute(
-                        f"INSERT INTO ENVIRONMENT (frame_number, camera_temperature, temperature, humidity, light) VALUES (?, ?, ?, ?, ?);",
+                        "INSERT INTO ENVIRONMENT (frame_number, camera_temperature, temperature, humidity, light) VALUES (?, ?, ?, ?, ?);",
                         values
                     )
 
@@ -500,7 +377,7 @@ class SQLiteExporter(IdtrackeraiExporter):
 
 
     def write_var_map_table(self, dbfile):
-       with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
 
             values = [
@@ -514,7 +391,7 @@ class SQLiteExporter(IdtrackeraiExporter):
 
             for val in values:
                 cur.execute(
-                    f"INSERT INTO VAR_MAP (var_name, sql_type, functional_type) VALUES (?, ?, ?);",
+                    "INSERT INTO VAR_MAP (var_name, sql_type, functional_type) VALUES (?, ?, ?);",
                     val
                 )
 
@@ -528,26 +405,26 @@ class SQLiteExporter(IdtrackeraiExporter):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             if reset:
-                cur.execute(f"DROP TABLE IF EXISTS BEHAVIORS;")
+                cur.execute("DROP TABLE IF EXISTS BEHAVIORS;")
             cur.execute("CREATE TABLE IF NOT EXISTS BEHAVIORS (frame_number int(11), in_frame_index int(2), behavior char(100), probability float(5));")
 
     def init_ai_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             if reset:
-                cur.execute(f"DROP TABLE IF EXISTS AI;")
+                cur.execute("DROP TABLE IF EXISTS AI;")
             cur.execute("CREATE TABLE IF NOT EXISTS AI (frame_number int(11), ai int(2));")
 
     def init_concatenation_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             if reset:
-                cur.execute(f"DROP TABLE IF EXISTS CONCATENATION;")
+                cur.execute("DROP TABLE IF EXISTS CONCATENATION;")
             cur.execute("CREATE TABLE IF NOT EXISTS CONCATENATION (chunk int(3), in_frame_index int(2), in_frame_index_after int(2), local_identity int(2), local_identity_after int(2), identity int(2));")
 
     def write_concatenation_table(self, dbfile):
         csv_file = os.path.join(self._basedir, "idtrackerai", "concatenation-overlap.csv")
-         
+
         if os.path.exists(csv_file):
             concatenation=pd.read_csv(csv_file, index_col=0)
             with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -573,12 +450,12 @@ class SQLiteExporter(IdtrackeraiExporter):
         if pickle_files:
             with sqlite3.connect(dbfile, check_same_thread=False) as conn:
                 cur = conn.cursor()
-    
+
                 for file in pickle_files:
                     with open(file, "rb") as filehandle:
                         ai_mods = pickle.load(filehandle)
                         frames=ai_mods["success"]
-                    
+
                     for frame_number in frames:
                         cur.execute("INSERT INTO AI (frame_number, ai) VALUES (?, ?);", (frame_number, "YOLOv7"))
 
@@ -617,11 +494,11 @@ class SQLiteExporter(IdtrackeraiExporter):
                         index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?;", (chunk, ))
                         frame_numbers = [int(x[0]) for x in index_db_cur.fetchall()]
                         assert P[chunk_idx].shape[0] == len(frame_numbers)
-                        
+
                         for frame_number_idx, frame_number in enumerate(frame_numbers):
                             args=(frame_number, in_frame_index, behavior, P[chunk_idx][frame_number_idx].item())
                             cur.execute("INSERT INTO BEHAVIORS (frame_number, in_frame_index, behavior, probability) VALUES (?, ?, ?, ?);", args)
-                        
+
                         pb.update(1)
 
 
@@ -631,7 +508,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             cur = conn.cursor()
             with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
                 index_db_cur = index_db.cursor()
-                
+
                 index_db_cur.execute("SELECT COUNT(*) FROM frames;")
                 count = int(index_db_cur.fetchone()[0])
 
@@ -667,7 +544,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             line = line.strip().split(" ")
             assert len(line) == 7 # id, x, y, w, h, conf, angle
             data.append(line)
-        
+
         data=sorted(data, key=lambda line: float(line[5]))[::-1]
         return data[0][-1]
 
@@ -689,7 +566,7 @@ class SQLiteExporter(IdtrackeraiExporter):
         #if len(data) == 0:
         #    warnings.warn(f"No angle of classes {classes} found in {angle_file}")
         #    return None
-        
+
         data=sorted(data, key=lambda line: float(line[1]))[::-1]
         selected_lines=data[:top_angles]
         angles=[line[-1] for line in selected_lines]
@@ -704,10 +581,10 @@ class SQLiteExporter(IdtrackeraiExporter):
             angle=None
         except Exception as error:
             raise error
-        
+
         return angle
 
-    
+
     @staticmethod
     def _parse_chunk_from_angle_file(path):
         return int(re.search("angles_([0-9][0-9][0-9][0-9][0-9][0-9]).hdf5", os.path.basename(path)).group(1))
@@ -725,20 +602,11 @@ class SQLiteExporter(IdtrackeraiExporter):
 
         angle_database_path = os.path.join(self._basedir, "angles", "FlyHead", "angles")
 
-        ## list files in the database
-        #angle_files = glob.glob(os.path.join(angle_database_path, f"*-{in_frame_index}.txt"))
-        ## check files are available
-        #assert len(angle_files) > 0, f"No angle database found under {angle_database_path} for in_frame_index {in_frame_index}"
-
-        ## sort the database by frame number numerically i.e. 1000 goes after 999
-        #angle_database = [(int(os.path.basename(angle_file).split("_")[0]), angle_file) for angle_file in angle_files]
-        #angle_database = sorted(angle_database, key=lambda entry: entry[0])
-
         angle_database = sorted(glob.glob(os.path.join(angle_database_path, "*.hdf5")))
         angle_database = {self._parse_chunk_from_angle_file(path): path for path in angle_database}
 
         report_every_n_lines=5
- 
+
         cur = conn.cursor()
         is_inferred=False
         last_chunk=0
@@ -758,34 +626,40 @@ class SQLiteExporter(IdtrackeraiExporter):
                     assert chunk_ == chunk
                     if in_frame_index_ != in_frame_index:
                         continue
- 
+
                     angle = self.fetch_angle_from_h5py(filehandle, dataset)
                     accum+=1
-           
+
                     data=(frame_number, in_frame_index, angle, is_inferred)
                     if queue is None:
                         cur.execute(
-                            f"INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
+                            "INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
                             data
                         )
                     else:
                         queue.put(tuple([str(e) for e in data]), timeout=30, block=True)
-        
-            print(f"Wrote {accum} angles for chunk {chunk} in {dbfile}") 
+
+            print(f"Wrote {accum} angles for chunk {chunk} in {dbfile}")
 
     def write_orientation_table(self, dbfile, chunks):
 
+        if not table_is_not_empty(dbfile, "STORE_INDEX"):
+            raise Exception("ORIENTATION table requires STORE_INDEX")
+
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+
             for in_frame_index in range(self.number_of_animals):
                 self._write_orientation_table(conn, dbfile, chunks=chunks, in_frame_index=in_frame_index, queue=None)
 
 
-def export_dataset(metadata, chunks, reset=True, tables=None):
+    def table_is_not_empty(self, dbfile, table_name):
+        """
+        Returns True if the passed table has at least one row
+        """
 
-    basedir = os.path.dirname(metadata)
-    dbfile_basename = "_".join(basedir.split(os.path.sep)[-3:]) + ".db"
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+            cur=conn.cursor()
+            cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+            count=cur.fetchone()[0]
 
-    dbfile = os.path.join(basedir, dbfile_basename)
-
-    dataset = SQLiteExporter(basedir, deepethogram_data=os.environ["DEEPETHOGRAM_DATA"])
-    dataset.export(dbfile=dbfile, mode="a", chunks=chunks, reset=reset, tables=tables)
+        return count > 0

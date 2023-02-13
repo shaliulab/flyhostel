@@ -2,9 +2,10 @@ import argparse
 from flyhostel.data.sqlite3 import export_dataset
 
 
-def get_parser():
+def get_parser(ap=None):
 
-    ap = argparse.ArgumentParser()
+    if ap is None:
+        ap = argparse.ArgumentParser()
     ap.add_argument("--metadata", required=True, type=str, help="path to metadata.yaml")
     ap.add_argument("--tables", required=False, type=str, default="all", help="Tables to be written to sqlite file, all means all of them")
     ap.add_argument("--chunks", nargs="+", type=int, required=True, help="chunks to export")
