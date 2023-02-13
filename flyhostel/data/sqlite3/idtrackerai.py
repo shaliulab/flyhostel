@@ -136,11 +136,29 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         args=(chunk, local_identity)
         cur.execute(cmd, args)
         try:
-            identity_reference_to_ref_chunk = int(cur.fetchone()[0])
+            data = cur.fetchone()
+            if data is None:
+                cur.execute(cmd, (chunk, 0))
+                data = cur.fetchall()
+                if len(data) == 1:
+                    # this happens if the local_identity is lost in the current chunk
+                    # (i.e. it did not reach the end of the chunk)
+                    # just return 0 then (data[0] contains a list with a 0 in it)
+                    data=data[0]
+                elif len(data) == 0:
+                    # Explanation: BUG in idtrackerai_app.cli.utils.overlap where the last chunk is not in the concatenation table
+                    data=[0]
+                    # raise ValueError(f"Concatenation is corrupted in chunk {chunk}")
+                else:
+                    # more than one local_identity was lost in the current chunk
+                    raise ValueError(f"Please validate chunk {chunk}")
+
+            identity_reference_to_ref_chunk = int(data[0])
+
         except Exception as error:
             print(f"Query {cmd} with args {args} args failed")
-            raise error
-            # import ipdb; ipdb.set_trace()
+            # raise error
+            import ipdb; ipdb.set_trace()
 
         return identity_reference_to_ref_chunk
 
@@ -162,7 +180,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             self.init_behaviors_table(dbfile)
 
 
-    def export(self, dbfile, chunks, tables="all", mode="w", reset=False, behaviors=None):
+    def export(self, dbfile, chunks, tables="all", mode="a", reset=False, behaviors=None):
         """
         Export datasets into single SQLite file
 

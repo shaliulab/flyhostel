@@ -27,6 +27,8 @@ def metadata_not_found(message):
         warnings.warn(message)
 
 class MetadataExporter(ABC):
+    """Generate the METADATA table of a FlyHostel SQLite dataset
+    """
 
     _basedir = None
 
@@ -35,7 +37,11 @@ class MetadataExporter(ABC):
         self._store_metadata_path = os.path.join(self._basedir, STORE_MD_FILENAME)
         self._store_metadata = _extract_store_metadata(self._store_metadata_path)
 
-        self._idtrackerai_conf_path = os.path.join(self._basedir, f"{os.path.basename(self._basedir)}.conf")
+        self._idtrackerai_conf_path = os.path.join(
+            self._basedir,
+            f"{os.path.basename(self._basedir)}.conf"
+        )
+
         with open(self._idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
             self._idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
 
@@ -50,11 +56,15 @@ class MetadataExporter(ABC):
 
 
     def init_metadata_table(self, dbfile):
+        """Initialize the METADATA table
+        """
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             cur.execute("CREATE TABLE IF NOT EXISTS METADATA (field char(100), value varchar(4000));")
 
     def write_metadata_table(self, dbfile):
+        """Populate the METADATA table
+        """
 
         machine_id = "0" * 32
         machine_name = os.path.basename(os.path.dirname(os.path.dirname(self._basedir)))

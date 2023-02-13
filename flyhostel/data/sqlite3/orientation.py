@@ -3,6 +3,7 @@ import os.path
 import sqlite3
 import warnings
 import re
+import logging
 import glob
 
 import h5py
@@ -10,7 +11,21 @@ from tqdm.auto import tqdm
 
 from .utils import table_is_not_empty
 
+logger = logging.getLogger(__name__)
+
 class OrientationExporter(ABC):
+    """Generate the ORIENTATION table of a FlyHostel SQLite dataset
+
+    This table contains the angle between head and animal centroid in degrees
+    The angles are read from a database of .hdf5 files (one per chunk) under
+
+    basedir/angles/FlyHead/angles
+
+    where each angle is stored under a systematically named key (frameNumber_chunk_inFrameIndex) with value a tuple
+    where the third element ([2]) is the angle. The first two are the class id (always 0 for the head) and confidence
+    (0 to 1 where 0 is lowest confidence and 1 is highest confidence)
+    The angle is store
+    """
 
     _basedir = None
     number_of_animals=None
@@ -89,7 +104,7 @@ class OrientationExporter(ABC):
                     else:
                         queue.put(tuple([str(e) for e in data]), timeout=30, block=True)
 
-            print(f"Wrote {accum} angles for chunk {chunk} in {dbfile}")
+            logger.debug(f"Wrote {accum} angles for chunk {chunk} in {dbfile}")
 
 
     def write_orientation_table(self, dbfile, chunks):

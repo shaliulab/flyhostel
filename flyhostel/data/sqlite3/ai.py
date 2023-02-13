@@ -1,3 +1,4 @@
+
 from abc import ABC
 import sqlite3
 import glob
@@ -5,6 +6,9 @@ import pickle
 import os.path
 
 class AIExporter(ABC):
+
+    """
+    """
 
     _basedir = None
 

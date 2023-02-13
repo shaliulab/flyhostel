@@ -9,6 +9,8 @@ from .utils import serialize_arr
 
 
 class SnapshotExporter(ABC):
+    """Generate the IMG_SNAPSHOTS table of a FlyHostel SQLite dataset
+    """
 
     _basedir=None
 
@@ -19,6 +21,8 @@ class SnapshotExporter(ABC):
 
 
     def init_snapshot_table(self, dbfile):
+        """Initialize the IMG_SNAPSHOTS table of a FlyHostel SQLite dataset
+        """
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
 
@@ -26,7 +30,8 @@ class SnapshotExporter(ABC):
             cur.execute("CREATE TABLE IF NOT EXISTS IMG_SNAPSHOTS (frame_number int(11), img longblob)")
 
     def write_snapshot_table(self, dbfile, chunks):
-
+        """Populate the IMG_SNAPSHOTS table of a FlyHostel SQLite dataset
+        """
 
         with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
             index_cursor = index_db.cursor()

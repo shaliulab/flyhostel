@@ -39,7 +39,7 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
         super(SQLiteExporter, self).__init__(*args, **kwargs)
 
 
-    def export(self, dbfile, chunks, tables=None, mode="w", reset=False):
+    def export(self, dbfile, chunks, tables=None, mode="a", reset=False):
 
         if tables is None or tables == "all":
             tables = TABLES
@@ -47,13 +47,15 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
         if os.path.exists(dbfile):
             if reset and False:
                 warnings.warn(f"{dbfile} exists. Remaking from scratch and ignoring mode")
+                print(f"Remaking file {dbfile}")
                 os.remove(dbfile)
             elif mode == "w":
+                print(f"Resuming file {dbfile}")
                 warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
             elif mode == "a":
-                warnings.warn(f"{dbfile} exists. Appending (mode=a)")
+                print(f"Resuming file {dbfile}")
 
-        print(f"Initializing file {dbfile}")
+
         self.init_tables(dbfile, tables, reset=reset)
         print(f"Writing tables: {tables}")
 
@@ -192,5 +194,3 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
                     "INSERT INTO VAR_MAP (var_name, sql_type, functional_type) VALUES (?, ?, ?);",
                     val
                 )
-
-
