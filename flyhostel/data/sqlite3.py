@@ -25,6 +25,7 @@ from tqdm.auto import tqdm
 import cv2
 import pandas as pd
 import numpy as np
+import h5py
 
 from idtrackerai.list_of_blobs import ListOfBlobs
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
@@ -240,7 +241,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             tables = TABLES
 
         if os.path.exists(dbfile):
-            if reset:
+            if reset and False:
                 warnings.warn(f"{dbfile} exists. Remaking from scratch and ignoring mode")
                 os.remove(dbfile)
             elif mode == "w":
@@ -277,7 +278,7 @@ class SQLiteExporter(IdtrackeraiExporter):
             self.write_index_table(dbfile)
 
         if "ORIENTATION" in tables:
-            self.write_orientation_table(dbfile)
+            self.write_orientation_table(dbfile, **kwargs)
 
         if "BEHAVIORS" in tables:
             self.write_behaviors_table(dbfile, behaviors=behaviors)
@@ -694,13 +695,15 @@ class SQLiteExporter(IdtrackeraiExporter):
         angles=[line[-1] for line in selected_lines]
         return angles
 
-    def fetch_angle_from_h5py(database, dataset, top=1):
+
+    @staticmethod
+    def fetch_angle_from_h5py(filehandle, dataset, top=1):
         try:
-            with h5py.File(database, "r") as filehandle:
-                class_id, conf, angle = filehandle[dataset][:]
-        except Exception as error:
-            print(error)
+            class_id, conf, angle = filehandle[dataset][:]
+        except KeyError:
             angle=None
+        except Exception as error:
+            raise error
         
         return angle
 
@@ -709,7 +712,16 @@ class SQLiteExporter(IdtrackeraiExporter):
     def _parse_chunk_from_angle_file(path):
         return int(re.search("angles_([0-9][0-9][0-9][0-9][0-9][0-9]).hdf5", os.path.basename(path)).group(1))
 
-    def _write_orientation_table(self, conn, dbfile, in_frame_index=0, queue=None):
+    @staticmethod
+    def _parse_dataset(dataset):
+        frame_number, chunk, in_frame_index = dataset.split("_")
+        frame_number=int(frame_number)
+        chunk=int(chunk)
+        in_frame_index=int(in_frame_index)
+        return frame_number, chunk, in_frame_index
+
+
+    def _write_orientation_table(self, conn, dbfile, chunks, in_frame_index=0, queue=None):
 
         angle_database_path = os.path.join(self._basedir, "angles", "FlyHead", "angles")
 
@@ -725,52 +737,47 @@ class SQLiteExporter(IdtrackeraiExporter):
         angle_database = sorted(glob.glob(os.path.join(angle_database_path, "*.hdf5")))
         angle_database = {self._parse_chunk_from_angle_file(path): path for path in angle_database}
 
-        accum = 0
-        report_every_n_lines=math.inf
+        report_every_n_lines=5
  
         cur = conn.cursor()
-        records = cur.execute("SELECT chunk, frame_number FROM STORE_INDEX;")
-
         is_inferred=False
         last_chunk=0
-        import ipdb; ipdb.set_trace() 
-        for chunk, frame_number in tqdm(records, desc=f"Writing orientation data from in_frame_index {in_frame_index} to {dbfile}"):
+
+        for chunk in tqdm(chunks, desc=f"Writing orientation data from in_frame_index {in_frame_index} to {dbfile}"):
+            accum = 0
             try:
                 h5py_file = angle_database[chunk]
             except KeyError:
-                if chunk != last_chunk:
-                    warnings.warn(f"No angles for chunk {chunk}")
-                last_chunk=chunk
+                warnings.warn(f"No angles for chunk {chunk}")
                 continue
 
-            last_chunk=chunk
-            dataset = f"{frame_number}_{chunk}_{in_frame_index}"
+            with h5py.File(h5py_file, "r") as filehandle:
+                keys = list(filehandle.keys())
+                for dataset in keys:
+                    frame_number, chunk_, in_frame_index_ = self._parse_dataset(dataset)
+                    assert chunk_ == chunk
+                    if in_frame_index_ != in_frame_index:
+                        continue
+ 
+                    angle = self.fetch_angle_from_h5py(filehandle, dataset)
+                    accum+=1
+           
+                    data=(frame_number, in_frame_index, angle, is_inferred)
+                    if queue is None:
+                        cur.execute(
+                            f"INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
+                            data
+                        )
+                    else:
+                        queue.put(tuple([str(e) for e in data]), timeout=30, block=True)
+        
+            print(f"Wrote {accum} angles for chunk {chunk} in {dbfile}") 
 
-            angle = self.fetch_angle_from_h5py(h5py_file, dataset)
-            if angle is None:
-                continue
-
-            accum+=1
-            if accum % report_every_n_lines == 0:
-                print(f"{accum} angles have been added to {dbfile}")
-    
-            data=(frame_number, in_frame_index, angle, is_inferred)
-            if queue is None:
-                cur.execute(
-                    f"INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
-                    data
-                )
-            else:
-                queue.put(tuple([str(e) for e in data]), timeout=30, block=True)
-
-            if pointer == len(angle_database):
-                return
-
-    def write_orientation_table(self, dbfile):
+    def write_orientation_table(self, dbfile, chunks):
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             for in_frame_index in range(self.number_of_animals):
-                self._write_orientation_table(conn, dbfile, in_frame_index=in_frame_index, queue=None)
+                self._write_orientation_table(conn, dbfile, chunks=chunks, in_frame_index=in_frame_index, queue=None)
 
 
 def export_dataset(metadata, chunks, reset=True, tables=None):
