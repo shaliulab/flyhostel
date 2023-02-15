@@ -55,11 +55,13 @@ class MetadataExporter(ABC):
         super(MetadataExporter, self).__init__(*args, **kwargs)
 
 
-    def init_metadata_table(self, dbfile):
+    def init_metadata_table(self, dbfile, reset=True):
         """Initialize the METADATA table
         """
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
+            if reset:
+                cur.execute("DROP TABLE IF EXISTS METADATA;")
             cur.execute("CREATE TABLE IF NOT EXISTS METADATA (field char(100), value varchar(4000));")
 
     def write_metadata_table(self, dbfile):

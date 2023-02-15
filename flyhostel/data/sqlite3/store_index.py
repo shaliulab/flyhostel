@@ -8,11 +8,14 @@ class StoreIndexExporter(ABC):
 
     _index_dbfile = None
 
-    def init_index_table(self, dbfile):
+    def init_index_table(self, dbfile, reset=True):
         """Initialize STORE_INDEX table
         """
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
+
+            if reset:
+                cur.execute("DROP TABLE IF EXISTS STORE_INDEX;")
             cur.execute("CREATE TABLE IF NOT EXISTS STORE_INDEX (chunk int(3), frame_number int(11), frame_time int(11));")
 
     def write_index_table(self, dbfile):

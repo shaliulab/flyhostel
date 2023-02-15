@@ -60,9 +60,11 @@ class OrientationExporter(ABC):
         return angle
 
 
-    def init_orientation_table(self, dbfile):
+    def init_orientation_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
+            if reset:
+                cur.execute("DROP TABLE IF EXISTS ORIENTATION;")
             cur.execute("CREATE TABLE IF NOT EXISTS ORIENTATION (frame_number int(11), in_frame_index int(2), angle float(5), is_inferred int(1));")
 
 
@@ -84,25 +86,30 @@ class OrientationExporter(ABC):
                 warnings.warn(f"No angles for chunk {chunk}")
                 continue
 
-            with h5py.File(h5py_file, "r") as filehandle:
-                keys = list(filehandle.keys())
-                for dataset in keys:
-                    frame_number, chunk_, in_frame_index_ = self._parse_dataset(dataset)
-                    assert chunk_ == chunk
-                    if in_frame_index_ != in_frame_index:
-                        continue
+            try:
+                with h5py.File(h5py_file, "r") as filehandle:
+                    keys = list(filehandle.keys())
+                    for dataset in keys:
+                        frame_number, chunk_, in_frame_index_ = self._parse_dataset(dataset)
+                        assert chunk_ == chunk
+                        if in_frame_index_ != in_frame_index:
+                            continue
 
-                    angle = self.fetch_angle_from_h5py(filehandle, dataset)
-                    accum+=1
+                        angle = self.fetch_angle_from_h5py(filehandle, dataset)
+                        accum+=1
 
-                    data=(frame_number, in_frame_index, angle, is_inferred)
-                    if queue is None:
-                        cur.execute(
-                            "INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
-                            data
-                        )
-                    else:
-                        queue.put(tuple([str(e) for e in data]), timeout=30, block=True)
+                        data=(frame_number, in_frame_index, angle, is_inferred)
+                        if queue is None:
+                            cur.execute(
+                                "INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
+                                data
+                            )
+                        else:
+                            queue.put(tuple([str(e) for e in data]), timeout=30, block=True)
+            except OSError as error:
+                print(f"Unable to open file {h5py_file}")
+                raise error
+
 
             logger.debug(f"Wrote {accum} angles for chunk {chunk} in {dbfile}")
 

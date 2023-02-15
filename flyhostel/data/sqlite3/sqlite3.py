@@ -39,19 +39,15 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
         super(SQLiteExporter, self).__init__(*args, **kwargs)
 
 
-    def export(self, dbfile, chunks, tables=None, mode="a", reset=False):
+    def export(self, dbfile, chunks, tables=None, mode="a", reset=True):
 
         if tables is None or tables == "all":
             tables = TABLES
 
         if os.path.exists(dbfile):
-            if reset and False:
+            if reset:
                 warnings.warn(f"{dbfile} exists. Remaking from scratch and ignoring mode")
                 print(f"Remaking file {dbfile}")
-                os.remove(dbfile)
-            elif mode == "w":
-                print(f"Resuming file {dbfile}")
-                warnings.warn(f"{dbfile} exists. Overwriting (mode=w)")
             elif mode == "a":
                 print(f"Resuming file {dbfile}")
 
@@ -60,7 +56,7 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
         print(f"Writing tables: {tables}")
 
         if "CONCATENATION" in tables and not table_is_not_empty(dbfile, "CONCATENATION"):
-            self.write_concatenation_table(dbfile)
+            self.write_concatenation_table(dbfile, chunks=chunks)
 
         if "METADATA" in tables:
             self.write_metadata_table(dbfile)
@@ -81,7 +77,7 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
             self.write_index_table(dbfile)
 
         if "AI" in tables:
-            self.write_ai_table(dbfile)
+            self.write_ai_table(dbfile, chunks=chunks)
 
 
     @property
@@ -97,16 +93,21 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
         # Add if for all tables
 
         if "METADATA" in tables:
-            self.init_metadata_table(dbfile)
-
-        self.init_snapshot_table(dbfile)
-        self.init_roi_map_table(dbfile)
-        self.init_environment_table(dbfile)
-        self.init_var_map_table(dbfile)
-        self.init_index_table(dbfile)
-
-        self.init_ai_table(dbfile, reset=reset)
-        self.init_concatenation_table(dbfile, reset=reset)
+            self.init_metadata_table(dbfile, reset=reset)
+        if "IMG_SNAPSHOTS" in tables:
+            self.init_snapshot_table(dbfile, reset=reset)
+        if "ROI_MAP" in tables:
+            self.init_roi_map_table(dbfile, reset=reset)
+        if "ENVIRONMENT" in tables:
+            self.init_environment_table(dbfile, reset=reset)
+        if "VAR_MAP" in tables:
+            self.init_var_map_table(dbfile, reset=reset)
+        if "STORE_INDEX" in tables:
+            self.init_index_table(dbfile, reset=reset)
+        if "AI" in tables:
+            self.init_ai_table(dbfile, reset=reset)
+        if "CONCATENATION" in tables:
+            self.init_concatenation_table(dbfile, reset=reset)
 
     def build_blobs_collection(self, chunk):
         return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "blobs_collection.npy")
@@ -115,9 +116,11 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
         return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "video_object.npy")
 
     # ROI_MAP
-    def init_roi_map_table(self, dbfile):
+    def init_roi_map_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
+            if reset:
+                cur.execute("DROP TABLE IF EXISTS ROI_MAP;")
             cur.execute("CREATE TABLE IF NOT EXISTS ROI_MAP (roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), mask longblob);")
 
     def write_roi_map_table(self, dbfile):
@@ -136,9 +139,11 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
                 (0, 0, x_coord, y_coord, width, height, mask)
             )
 
-    def init_environment_table(self, dbfile):
+    def init_environment_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
+            if reset:
+                cur.execute("DROP TABLE IF EXISTS ENVIRONMENT;")
             cur.execute("CREATE TABLE IF NOT EXISTS ENVIRONMENT (frame_number int(11), camera_temperature real(6), temperature real(6), humidity real(6), light real(6));")
 
 
@@ -170,9 +175,11 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
 
 
     # VAR_MAP
-    def init_var_map_table(self, dbfile):
+    def init_var_map_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
+            if reset:
+                cur.execute("DROP TABLE IF EXISTS VAR_MAP;")
             cur.execute("CREATE TABLE IF NOT EXISTS VAR_MAP (var_name char(100), sql_type char(100), functional_type char(100));")
 
 

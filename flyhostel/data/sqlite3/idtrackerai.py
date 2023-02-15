@@ -29,7 +29,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         super(IdtrackeraiExporter, self).__init__(*args, **kwargs)
 
     # Init tables
-    def init_data(self, dbfile):
+    def init_data(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             table_name = "ROI_0"
@@ -41,12 +41,17 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
 
             formated_cols_names = ", ".join(cols_list)
             command = f"CREATE TABLE IF NOT EXISTS {table_name} ({formated_cols_names})"
+            if reset:
+                cur.execute(f"DROP TABLE IF EXISTS {table_name};")
+
             cur.execute(command)
 
    # IDENTITY
-    def init_identity_table(self, dbfile):
+    def init_identity_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
+            if reset:
+                cur.execute("DROP TABLE IF EXISTS IDENTITY;")
             cur.execute("CREATE TABLE IF NOT EXISTS IDENTITY (frame_number int(11), in_frame_index int(2), local_identity int(2), identity int(2));")
 
 
@@ -102,7 +107,11 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         area = int(round(blob.area))
         modified = blob.modified
         if modified:
-            class_name = blob._annotation["class"]
+            annotation = getattr(blob, "_annotation", None)
+            if annotation is None:
+                class_name = "UNKNOWN"
+            else:
+                class_name = annotation.get("class", "UNKNOWN")
         else:
             class_name=None
 
@@ -168,19 +177,19 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
     def init_tables(self, dbfile, tables, reset=True):
         super(IdtrackeraiExporter, self).init_tables(dbfile, tables, reset=reset)
         if "IDENTITY" in tables:
-            self.init_identity_table(dbfile)
+            self.init_identity_table(dbfile, reset=reset)
 
         if "ROI_0" in tables:
-            self.init_data(dbfile)
+            self.init_data(dbfile, reset=reset)
 
         if "ORIENTATION" in tables:
-            self.init_orientation_table(dbfile)
+            self.init_orientation_table(dbfile, reset=reset)
 
         if "BEHAVIORS" in tables:
-            self.init_behaviors_table(dbfile)
+            self.init_behaviors_table(dbfile, reset=reset)
 
 
-    def export(self, dbfile, chunks, tables="all", mode="a", reset=False, behaviors=None):
+    def export(self, dbfile, chunks, tables="all", mode="a", reset=True, behaviors=None):
         """
         Export datasets into single SQLite file
 
