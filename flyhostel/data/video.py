@@ -2,21 +2,17 @@ import os.path
 import sqlite3
 import json
 import glob
-import math
-import warnings
 import logging
 
 import cv2
-import h5py
 import numpy as np
 import joblib
-from tqdm.auto import tqdm
 import imgstore
 ENCODER_FORMAT_GPU="h264_nvenc/mp4"
 ENCODER_FORMAT_CPU="mp4v/mp4"
 
 def get_machine_id():
-    with open("/etc/machine-id", "r") as filehandle:
+    with open("/etc/machine-id", "r", encoding="utf8") as filehandle:
          return filehandle.read()
 
 from .hdf5 import HDF5ImagesReader
@@ -37,9 +33,8 @@ class SingleVideoMaker:
     def __init__(self, flyhostel_dataset, value=None):
 
         self._flyhostel_dataset = flyhostel_dataset
-        flyhostel, X, date, hour = os.path.splitext(os.path.basename(flyhostel_dataset))[0].split("_")
-        self._basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], flyhostel, X, f"{date}_{hour}")
-        print(self._basedir)
+        flyhostel, x_number_of_animals, date, hour = os.path.splitext(os.path.basename(flyhostel_dataset))[0].split("_")
+        self._basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], flyhostel, x_number_of_animals, f"{date}_{hour}")
         self._index = os.path.join(self._basedir, "index.db")
 
         self.background_color = 255
@@ -52,7 +47,7 @@ class SingleVideoMaker:
             cur.execute(cmd)
             count = int(cur.fetchone()[0])
             if count == 0:
-                raise Exception(f"{self._flyhostel_dataset} is empty")
+                raise ValueError(f"{self._flyhostel_dataset} is empty")
 
             cmd = "SELECT MIN(frame_number), MAX(frame_number) FROM ROI_0;"
             cur.execute(cmd)
@@ -63,7 +58,7 @@ class SingleVideoMaker:
             cur.execute(cmd)
             conf = cur.fetchone()[0]
             self._number_of_animals = int(json.loads(conf)["_number_of_animals"]["value"])
-            
+
             cmd = 'SELECT value FROM METADATA WHERE field = "framerate";'
             cur.execute(cmd)
             self.framerate=int(float(cur.fetchone()[0]))
@@ -92,19 +87,11 @@ class SingleVideoMaker:
             cmd = "SELECT angle FROM ORIENTATION WHERE frame_number = ? AND in_frame_index = ?"
             cur.execute(cmd, frame_number, blob_index)
             angle = float(cur.fetchone()[0])
-        
+
         return angle
 
-    def init_video_writer(self, basedir, frameSize, first_chunk=0, chunksize=None):
+    def init_video_writer(self, basedir, frame_size, first_chunk=0, chunksize=None):
 
-        # self.video_writer = cv2cuda.VideoWriter(
-        #     os.path.join(folder, os.path.splitext(os.path.basename(self._flyhostel_dataset))[0], +".mp4"),
-        #     apiPreference="FFMPEG",
-        #     fourcc="h264_nvenc",
-        #     fps=self.framerate,
-        #     frameSize=frameSize,
-        #     isColor=False,
-        # )
         if chunksize is None:
             chunksize= self.chunksize
         print(f"chunksize = {chunksize}")
@@ -114,12 +101,12 @@ class SingleVideoMaker:
             fmt=ENCODER_FORMAT_CPU,
             framerate=self.framerate,
             basedir=basedir,
-            imgshape=frameSize[::-1],
+            imgshape=frame_size[::-1],
             chunksize=chunksize,
             imgdtype=np.uint8,
             first_chunk=first_chunk,
         )
-        print(f"{basedir}:resolution={frameSize[::-1]}:framerate={self.framerate}")
+        print(f"{basedir}:resolution={frame_size[::-1]}:framerate={self.framerate}")
         return self.video_writer._capfn
 
     def frame_number2chunk(self, frame_number):
@@ -144,7 +131,7 @@ class SingleVideoMaker:
             jobs = n_jobs
         else:
             jobs = nproc + n_jobs
-            
+
         # partition_size = math.ceil(len(chunks) / jobs)
         # I cannot have the same joblib.Process continue the imgstore on to the new chunk
         # Instead, each Process needs to produce one chunk only and exit
@@ -174,15 +161,15 @@ class SingleVideoMaker:
             chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
 
         self._make_single_video(chunks=chunks, first_chunk=chunks[0], **kwargs)
-        
-        
-        
-    
+
+
+
+
     @staticmethod
     def list_episode_images(basedir, chunk):
         """
         List all episode_images_X.hdf5 files sorted by episode number (increasing)
-        
+
         Such files should have the following naming scheme: episode_images_X.hdf5
         where X is the episode number, with or without zero padding
         """
@@ -200,8 +187,8 @@ class SingleVideoMaker:
         return frame_time
 
 
-    def _make_single_video(self, chunks, output, frameSize, resolution, background_color=255, **kwargs):
-        width, height = frameSize
+    def _make_single_video(self, chunks, output, frame_size, resolution, background_color=255, **kwargs):
+        width, height = frame_size
         basedir  = self._basedir
         if output is None:
             output = os.path.join(basedir, "flyhostel", "single_animal")
@@ -212,28 +199,29 @@ class SingleVideoMaker:
             target_fn = None
 
             for chunk in chunks:
-            
+
                 written_images=0
                 count_NULL=0
                 episode_images=self.list_episode_images(basedir, chunk)
                 assert episode_images, f"{len(episode_images)} hdf5 files found"
-                video_name = os.path.join(output, f"{str(chunk).zfill(6)}.mp4")
-                #start_next_chunk = chunk != chunks[-1]
+
                 start_next_chunk = False
 
                 with HDF5ImagesReader("flyhostel", episode_images, number_of_animals=self._number_of_animals, width=width, height=height, resolution=resolution, background_color=background_color, chunks=[chunk]) as hdf5_reader:
-                
+
                     while True:
 
                         data = hdf5_reader.read(target_fn, self._number_of_animals)
                         if data is None:
                             break
-                        else:
-                            frame_number, img = data
+
+                        frame_number, img = data
+                        if img is None:
+                            break
 
                         if self.video_writer is None:
                             resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
-                            fn = self.init_video_writer(basedir=output, frameSize=resolution_full, **kwargs)
+                            fn = self.init_video_writer(basedir=output, frame_size=resolution_full, **kwargs)
                             print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}")
                             assert img.shape == resolution_full[::-1]
                             assert str(chunk).zfill(6) in fn
@@ -246,14 +234,14 @@ class SingleVideoMaker:
                         target_fn=frame_number+1
                         if fn is not None:
                             print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}, chunks={chunks}")
-                  
-                with open("status.txt", "a") as filehandle:
+
+                with open("status.txt", "a", encoding="utf8") as filehandle:
                     filehandle.write(f"Chunk {chunk}:{count_NULL}:{written_images}\n")
 
-                print(f"Validating {capfn}")
-                validate_video(capfn)
 
         self.video_writer.close()
+        print(f"Validating {capfn}")
+        validate_video(capfn)
 
 
 
