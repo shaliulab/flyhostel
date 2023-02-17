@@ -38,3 +38,6 @@ class StoreIndexExporter(ABC):
                         (chunk, frame_number, frame_time)
                     )
                     pb.update(1)
+
+
+            cur.execute("CREATE INDEX idx_fn ON STORE_INDEX (frame_number);")

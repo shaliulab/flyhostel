@@ -1,16 +1,111 @@
+from abc import ABC, abstractmethod
 import warnings
 import os.path
 import re
 import glob
-
+import sqlite3
 
 import pandas as pd
 import h5py
 import cv2
 import numpy as np
-from tqdm.auto import tqdm
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
-from .yolov7 import letterbox
+from flyhostel.data.yolov7 import letterbox
+
+
+class HDF5VideoMaker(ABC):
+
+    _basedir = None
+    _number_of_animals = None
+    _index=None
+    video_writer=None
+
+    @abstractmethod
+    def init_video_writer(self, basedir, frame_size, first_chunk=0, chunksize=None):
+        return
+
+
+    @staticmethod
+    def fetch_frame_time(cur, frame_number):
+        return
+
+
+    @staticmethod
+    def list_episode_images(basedir, chunk):
+        """
+        List all episode_images_X.hdf5 files sorted by episode number (increasing)
+
+        Such files should have the following naming scheme: episode_images_X.hdf5
+        where X is the episode number, with or without zero padding
+        """
+        segmentation_data = os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "segmentation_data")
+        pattern=os.path.join(segmentation_data, "episode_images*.hdf5")
+        episode_images = sorted(
+            glob.glob(pattern),
+            key=lambda f: int(os.path.splitext(f)[0].split("_")[-1])
+        )
+        return episode_images
+
+
+    def _make_single_video(self, chunks, output, frame_size, resolution, background_color=255, **kwargs):
+        width, height = frame_size
+        basedir  = self._basedir
+        if output is None:
+            output = os.path.join(basedir, "flyhostel", "single_animal")
+
+        with sqlite3.connect(self._index, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            target_fn = None
+
+            for chunk in chunks:
+
+                written_images=0
+                count_NULL=0
+                episode_images=self.list_episode_images(basedir, chunk)
+                assert episode_images, f"{len(episode_images)} hdf5 files found"
+
+                start_next_chunk = False
+
+                with HDF5ImagesReader("flyhostel", episode_images, number_of_animals=self._number_of_animals, width=width, height=height, resolution=resolution, background_color=background_color, chunks=[chunk]) as hdf5_reader:
+
+                    while True:
+
+                        data = hdf5_reader.read(target_fn, self._number_of_animals)
+                        if data is None:
+                            break
+
+                        frame_number, img = data
+                        if img is None:
+                            break
+
+                        if self.video_writer is None:
+                            resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
+                            fn = self.init_video_writer(basedir=output, frame_size=resolution_full, **kwargs)
+                            print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}")
+                            assert img.shape == resolution_full[::-1]
+                            assert str(chunk).zfill(6) in fn
+
+                        frame_time = self.fetch_frame_time(cur, frame_number)
+                        assert img.shape == resolution_full[::-1], f"{img.shape} != {resolution_full[::-1]}"
+                        capfn=self.video_writer._capfn
+                        fn = self.video_writer.add_image(
+                            img, frame_number, frame_time, annotate=False,
+                            start_next_chunk=start_next_chunk
+                        )
+
+                        written_images+=1
+                        target_fn=frame_number+1
+                        if fn is not None:
+                            print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}, chunks={chunks}")
+
+                with open("status.txt", "a", encoding="utf8") as filehandle:
+                    filehandle.write(f"Chunk {chunk}:{count_NULL}:{written_images}\n")
+
+
+        self.video_writer.close()
+        return capfn
+
+
 
 class HDF5ImagesReader:
 
@@ -29,7 +124,29 @@ class HDF5ImagesReader:
                frames are read and returned one frame number at a time,
                with a constant resolution
 
-            frequency (int): Frames to be sampled per second of recording
+
+            hdf5_files (list): hdf5 datasets containing the bounding box of all animals on all frames
+            of the recording. Each bounding box is stored under a key with the following pattern:
+
+                    frameNumber-blobIndex[-modified]
+
+                if a key has the suffix modified, the bounding box has been produced with a method
+                other than the basic pixel intensity segmentation from idtrackerai (prepocessing step)
+                Typically with some AI-based method
+
+            chunks (list): Chunks of the recording to be processed
+            width (int): Target width of the bounding box.
+                If smaller than that, it is padded with the background_color on the right side
+            height (int): Target height of the bounding box.
+                If smaller than that, it is padded with the background_color on the bottom side
+            resolution (tuple): Width and height of the output video.
+                If not matching width and height, then the boxes are resized to the passed resolution
+            background_color (int): 0-255 where 0 is black and 255 is white. Color that will be used to pad the boxes, if needed
+            img_size (int): YOLOv7 letterbox algorithm specific. Always leave at 640. No effect if consumer != yolov7
+            stride (int): YOLOv7 letterbox algorithm specific. Always leave at 32. No effect if consumer != yolov7
+            frequency (int): Frames to be sampled per second of recording.
+                If less than framerate, then some frames are skipped
+
         """
         self.consumer=consumer
 
@@ -45,7 +162,7 @@ class HDF5ImagesReader:
             self._NULL = np.ones((self.height, self.width), np.uint8) * self.background_color
         else:
             self.width = self.height = self.background_color = self.resolution = None
-            self._NULL = np.ones((200, 200), np.uint8) * 255
+            self._NULL = np.ones((height, width), np.uint8) * self.background_color
 
         self._files = hdf5_files
         self._file_idx = -1
@@ -71,7 +188,6 @@ class HDF5ImagesReader:
             return True
         else:
             return False
-
 
 
     @property
@@ -130,7 +246,7 @@ class HDF5ImagesReader:
     @property
     def skip_n(self):
         # if frequency = 50 and framerate =150 -> 3
-        return int(self.framerate / self.frequency) - 1
+        return max(int(self.framerate / self.frequency) - 1, 1)
 
     @property
     def key(self):
@@ -200,23 +316,20 @@ class HDF5ImagesReader:
 
         img0=[]
         keys=[]
-        source=self.source
-        if self.key is None or source is None:
+        if self.key is None or self.source is None:
             print("STOP")
             raise StopIteration
 
+        for i in range(5):
+            frame_number=self._parse_frame_number_from_key(self.key)
+            output = self._read_complex(frame_number, self._number_of_animals, stack=False)
 
-        with h5py.File(source, "r") as file:
-            for i in range(5):
-                frame_number=self._parse_frame_number_from_key(self.key)
-                output = self._read_complex(frame_number, self._number_of_animals, stack=False)
+            print(output["key"])
+            img0.extend(output["img"])
+            keys.extend(output["key"])
 
-                print(output["key"])
-                img0.extend(output["img"])
-                keys.extend(output["key"])
-
-                print(f"Skipping {self.skip_n}")
-                self.key = f"{self._parse_frame_number_from_key(self.key)+self.skip_n}-0"
+            print(f"Skipping {self.skip_n}")
+            self.key = f"{self._parse_frame_number_from_key(self.key)+self.skip_n}-0"
 
 
         if len(img0) == 0:
@@ -228,6 +341,15 @@ class HDF5ImagesReader:
 
 
     def _next_yolov7(self):
+
+        """
+        Returns:
+
+            paths (list): Path to output .png for each img in img0
+            img (np.ndarray): Array combining all images in img0 sent to YOLOv7 AI for processing
+            img0 (list): Batches of images. Every element of the list is a batch of images i.e. another list (optionally of length 1)
+            None
+        """
 
         img0, keys, source = self._move_through_h5py()
         img0 = [cv2.cvtColor(img_, cv2.COLOR_GRAY2BGR) for img_ in img0]
@@ -308,19 +430,19 @@ class HDF5ImagesReader:
 
 
     def _fetch(self, frame_number, in_frame_index):
-         modified_key = f"{frame_number}-{in_frame_index}-modified"
-         # NOTE
-         # This assumes the modified version of the key
-         # will exist in the next position
-         try:
-             if self._key_counter < (len(self._keys)-1) and self._keys[self._key_counter+1] == modified_key:
-                 self._key_counter+=1
-         except Exception as error:
-             raise error
-             #print(self._key_counter, len(self._keys))
-             #print(error)
+        modified_key = f"{frame_number}-{in_frame_index}-modified"
+        # NOTE
+        # This assumes the modified version of the key
+        # will exist in the next position
+        try:
+            if self._key_counter < (len(self._keys)-1) and self._keys[self._key_counter+1] == modified_key:
+                self._key_counter+=1
+        except Exception as error:
+            raise error
+            #print(self._key_counter, len(self._keys))
+            #print(error)
 
-         return self._read()
+        return self._read()
 
 
     def _read_complex(self, frame_number, number_of_animals=None, stack=True):

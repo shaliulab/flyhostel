@@ -11,7 +11,7 @@ import yaml
 
 from .constants import (
     METADATA_FILE,
-    DOWNLOAD_BEHAVIORAL_DATA,
+    DOWNLOAD_FLYHOSTEL_METADATA,
     RAISE_EXCEPTION_IF_METADATA_NOT_FOUND,
 
 )
@@ -144,11 +144,11 @@ class MetadataExporter(ABC):
         """
 
         # try:
-        if DOWNLOAD_BEHAVIORAL_DATA is None:
-            raise ModuleNotFoundError("Please define DOWNLOAD_BEHAVIORAL_DATA as the path to the download-behavioral-data Python binary")
+        if DOWNLOAD_FLYHOSTEL_METADATA is None:
+            raise ModuleNotFoundError("Please define DOWNLOAD_FLYHOSTEL_METADATA     as the path to the download-behavioral-data Python binary")
 
         path=path.replace(" ", "_")
-        cmd = f'{DOWNLOAD_BEHAVIORAL_DATA} --metadata {path}'
+        cmd = f'{DOWNLOAD_FLYHOSTEL_METADATA} --metadata {path}'
         cmd_list = shlex.split(cmd)
         process = subprocess.Popen(cmd_list)
         process.communicate()

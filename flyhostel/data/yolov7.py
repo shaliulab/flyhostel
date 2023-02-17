@@ -1,3 +1,4 @@
+import numpy as np
 import cv2
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):

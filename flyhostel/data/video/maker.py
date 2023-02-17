@@ -1,0 +1,82 @@
+from abc import ABC, abstractmethod
+import sqlite3
+import os.path
+
+from .reader import MP4Reader
+
+
+class MP4VideoMaker(ABC):
+
+    _basedir = None
+    _number_of_animals = None
+    video_writer=None
+    _flyhostel_dataset = None
+
+    @abstractmethod
+    def init_video_writer(self, basedir, frame_size, first_chunk=0, chunksize=None):
+        return
+
+
+    @staticmethod
+    def fetch_frame_time(cur, frame_number):
+        return
+
+    def _make_single_video(self, chunks, output, frame_size, resolution, background_color=255, **kwargs):
+        width, height = frame_size
+        store_path=os.path.join(self._basedir, "metadata.yaml")
+
+        if output is None:
+            output = os.path.join(self._basedir, "flyhostel", "single_animal")
+
+        with sqlite3.connect(self._flyhostel_dataset, check_same_thread=False) as conn:
+            cur = conn.cursor()
+            target_fn = None
+
+            for chunk in chunks:
+
+                written_images=0
+                count_NULL=0
+                start_next_chunk=False
+
+                with MP4Reader(
+                        "flyhostel", connection=conn, store_path=store_path, number_of_animals=self._number_of_animals,
+                        width=width, height=height, resolution=resolution,
+                        background_color=background_color, chunks=[chunk]
+                    ) as mp4_reader:
+
+                    while True:
+
+                        data = mp4_reader.read(target_fn, self._number_of_animals, stack=True)
+                        if data is None:
+                            break
+
+                        frame_number, img = data
+                        if img is None:
+                            break
+
+                        if self.video_writer is None:
+                            resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
+                            fn = self.init_video_writer(basedir=output, frame_size=resolution_full, **kwargs)
+                            print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}")
+                            assert img.shape == resolution_full[::-1]
+                            assert str(chunk).zfill(6) in fn
+
+                        frame_time = self.fetch_frame_time(cur, frame_number)
+                        assert img.shape == resolution_full[::-1], f"{img.shape} != {resolution_full[::-1]}"
+                        capfn=self.video_writer._capfn
+                        fn = self.video_writer.add_image(
+                            img, frame_number, frame_time, annotate=False,
+                            start_next_chunk=start_next_chunk
+                        )
+
+                        written_images+=1
+                        target_fn=frame_number+1
+                        if fn is not None:
+                            print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}, chunks={chunks}")
+
+                with open("status.txt", "a", encoding="utf8") as filehandle:
+                    filehandle.write(f"Chunk {chunk}:{count_NULL}:{written_images}\n")
+
+
+        self.video_writer.close()
+        return capfn

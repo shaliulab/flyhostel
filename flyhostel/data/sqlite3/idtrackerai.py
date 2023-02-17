@@ -32,7 +32,6 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
     def init_data(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
-            table_name = "ROI_0"
 
             cols_list = [
                 "frame_number int(11)", "in_frame_index int(2)", "x real(10)",
@@ -40,11 +39,13 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             ]
 
             formated_cols_names = ", ".join(cols_list)
-            command = f"CREATE TABLE IF NOT EXISTS {table_name} ({formated_cols_names})"
+            command = f"CREATE TABLE IF NOT EXISTS ROI_0 ({formated_cols_names})"
             if reset:
-                cur.execute(f"DROP TABLE IF EXISTS {table_name};")
+                cur.execute("DROP TABLE IF EXISTS ROI_0;")
 
             cur.execute(command)
+            cur.execute("CREATE INDEX roi0_fn ON ROI_0 (frame_number);")
+
 
    # IDENTITY
     def init_identity_table(self, dbfile, reset=True):
@@ -53,6 +54,8 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             if reset:
                 cur.execute("DROP TABLE IF EXISTS IDENTITY;")
             cur.execute("CREATE TABLE IF NOT EXISTS IDENTITY (frame_number int(11), in_frame_index int(2), local_identity int(2), identity int(2));")
+            cur.execute("CREATE INDEX id_fn ON IDENTITY (frame_number);")
+            cur.execute("CREATE INDEX id_id ON IDENTITY (identity);")
 
 
 
