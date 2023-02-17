@@ -16,7 +16,7 @@ class MP4Reader:
     _EXTENSION = ".mp4"
     BATCHES=True
     BATCH_SIZE=5
-
+    IDENTIFIER_COLUMN="identity"
 
 
     def __init__(
@@ -73,8 +73,34 @@ class MP4Reader:
         self._frame_number=self._cap.frame_number
 
         self._cur=self.connection.cursor()
-        self._cur.execute(
-            """SELECT
+        self._cur.execute(self.sqlite_query,(self._chunk,))
+
+        self._data = pd.DataFrame(self._cur.fetchall())
+        self._data.columns = ["frame_number", "x", "y", IDENTIFIER_COLUMN, "chunk"]
+        self._data.set_index(["frame_number", "identifier"], inplace=True)
+        self._data["x"] = np.int32(np.floor(self._data["x"]))
+        self._data["y"] = np.int32(np.floor(self._data["y"]))
+        self._last_frame_indices=[]
+
+    @property
+    def sqlite_query(self):
+        if self.IDENTIFIER_COLUMN=="identity":
+            cmd="""SELECT
+                DT.frame_number,
+                DT.x,
+                DT.y,
+                ID.identity,
+                IDX.chunk
+            FROM
+                ROI_0 AS DT
+                INNER JOIN STORE_INDEX AS IDX on DT.frame_number = IDX.frame_number
+                INNER JOIN IDENTITY AS ID on DT.frame_number = ID.frame_number
+            WHERE
+                IDX.chunk = ?
+            """
+
+        elif self.IDENTIFIER_COLUMN=="in_frame_index":
+            cmd="""SELECT
                 DT.frame_number,
                 DT.x,
                 DT.y,
@@ -85,16 +111,16 @@ class MP4Reader:
                 INNER JOIN STORE_INDEX AS IDX on DT.frame_number = IDX.frame_number
             WHERE
                 IDX.chunk = ?
-            """,
-            (self._chunk,)
-        )
+            """
 
-        self._data = pd.DataFrame(self._cur.fetchall())
-        self._data.columns = ["frame_number", "x", "y", "in_frame_index", "chunk"]
-        self._data.set_index(["frame_number", "in_frame_index"], inplace=True)
-        self._data["x"] = np.int32(np.floor(self._data["x"]))
-        self._data["y"] = np.int32(np.floor(self._data["y"]))
-        self._last_frame_indices=[]
+        return cmd
+
+    @property
+    def identifier_start(self):
+        if self.IDENTIFIER_COLUMN=="identity":
+            return 1
+        else:
+            return 0
 
 
     @property
@@ -204,9 +230,9 @@ class MP4Reader:
         return img_
 
 
-    def get_centroid(self, frame_number, in_frame_index):
+    def get_centroid(self, frame_number, identifier):
         try:
-            x_coord, y_coord, _ = self._data.loc[frame_number, in_frame_index].values.tolist()
+            x_coord, y_coord, _ = self._data.loc[frame_number, identifier].values.tolist()
         except KeyError:
             return None
         return (x_coord, y_coord)
@@ -226,8 +252,9 @@ class MP4Reader:
             return None
 
         arr = []
-        for in_frame_index in range(number_of_animals):
-            centroid = self.get_centroid(frame_number, in_frame_index)
+        for identity in range(number_of_animals):
+
+            centroid = self.get_centroid(frame_number, identifier=identity+self.identifier_start)
             if centroid is None:
                 continue
             img_=self.crop_image(img, centroid)
