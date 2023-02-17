@@ -39,7 +39,7 @@ class SingleVideoMaker(MP4VideoMaker):
         self._flyhostel_dataset = flyhostel_dataset
         flyhostel, x_number_of_animals, date, hour = os.path.splitext(os.path.basename(flyhostel_dataset))[0].split("_")
         self._basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], flyhostel, x_number_of_animals, f"{date}_{hour}")
-        self._index = os.path.join(self._basedir, "index.db")
+        self._index_db = os.path.join(self._basedir, "index.db")
 
         self.background_color = 255
         print(f"Reading {self._flyhostel_dataset}")
@@ -110,13 +110,13 @@ class SingleVideoMaker(MP4VideoMaker):
             imgdtype=np.uint8,
             first_chunk=first_chunk,
         )
-        print(f"{basedir}:resolution={frame_size[::-1]}:framerate={self.framerate}")
+        print(f"{basedir}:resolution={frame_size}:framerate={self.framerate}")
         return self.video_writer._capfn
 
     def frame_number2chunk(self, frame_number):
         assert frame_number is not None
 
-        with sqlite3.connect(self._index, check_same_thread=False) as conn:
+        with sqlite3.connect(self._index_db, check_same_thread=False) as conn:
 
             cur = conn.cursor()
             cmd = f"SELECT chunk FROM frames WHERE frame_number = {frame_number};"

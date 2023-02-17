@@ -56,7 +56,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             cur.execute("CREATE TABLE IF NOT EXISTS IDENTITY (frame_number int(11), in_frame_index int(2), local_identity int(2), identity int(2));")
             cur.execute("CREATE INDEX id_fn ON IDENTITY (frame_number);")
             cur.execute("CREATE INDEX id_id ON IDENTITY (identity);")
-
+            cur.execute("CREATE INDEX id_lid ON IDENTITY (local_identity);")
 
 
     # write

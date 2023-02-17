@@ -17,7 +17,8 @@ class MP4Reader:
     BATCHES=True
     BATCH_SIZE=5
     # IDENTIFIER_COLUMN="in_frame_index"
-    IDENTIFIER_COLUMN="local_identity"
+
+    IDENTIFIER_COLUMN="local_identity" # identity is similar but will not be consistent across chunks
 
 
     def __init__(
@@ -77,8 +78,8 @@ class MP4Reader:
         self._cur.execute(self.sqlite_query,(self._chunk,))
 
         self._data = pd.DataFrame(self._cur.fetchall())
-        self._data.columns = ["frame_number", "x", "y", IDENTIFIER_COLUMN, "chunk"]
-        self._data.set_index(["frame_number", "identifier"], inplace=True)
+        self._data.columns = ["frame_number", "x", "y", self.IDENTIFIER_COLUMN, "chunk"]
+        self._data.set_index(["frame_number", self.IDENTIFIER_COLUMN], inplace=True)
         self._data["x"] = np.int32(np.floor(self._data["x"]))
         self._data["y"] = np.int32(np.floor(self._data["y"]))
         self._last_frame_indices=[]
@@ -90,12 +91,12 @@ class MP4Reader:
                 DT.frame_number,
                 DT.x,
                 DT.y,
-                ID.{self.IDENTIFIER_COLUMN},
+                    ID.{self.IDENTIFIER_COLUMN},
                 IDX.chunk
             FROM
                 ROI_0 AS DT
                 INNER JOIN STORE_INDEX AS IDX on DT.frame_number = IDX.frame_number
-                INNER JOIN IDENTITY AS ID on DT.frame_number = ID.frame_number
+                INNER JOIN IDENTITY AS ID on DT.frame_number = ID.frame_number AND DT.in_frame_index = ID.in_frame_index
             WHERE
                 IDX.chunk = ?
             """
@@ -235,7 +236,13 @@ class MP4Reader:
         try:
             x_coord, y_coord, _ = self._data.loc[frame_number, identifier].values.tolist()
         except KeyError:
+            # an animal in this frame number with this identifier is not found
             return None
+        except ValueError:
+            # more than one match
+            # TODO Do something about it, at least warn the user
+            return None
+
         return (x_coord, y_coord)
 
 
@@ -345,4 +352,5 @@ class MP4Reader:
 
 
     def close(self):
-        self.connection.close()
+        if self.consumer == "yolov7":
+            self.connection.close()
