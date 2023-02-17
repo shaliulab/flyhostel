@@ -16,7 +16,8 @@ class MP4Reader:
     _EXTENSION = ".mp4"
     BATCHES=True
     BATCH_SIZE=5
-    IDENTIFIER_COLUMN="identity"
+    # IDENTIFIER_COLUMN="in_frame_index"
+    IDENTIFIER_COLUMN="local_identity"
 
 
     def __init__(
@@ -84,12 +85,12 @@ class MP4Reader:
 
     @property
     def sqlite_query(self):
-        if self.IDENTIFIER_COLUMN=="identity":
-            cmd="""SELECT
+        if self.IDENTIFIER_COLUMN in ["identity", "local_identity"]:
+            cmd=f"""SELECT
                 DT.frame_number,
                 DT.x,
                 DT.y,
-                ID.identity,
+                ID.{self.IDENTIFIER_COLUMN},
                 IDX.chunk
             FROM
                 ROI_0 AS DT
@@ -100,11 +101,11 @@ class MP4Reader:
             """
 
         elif self.IDENTIFIER_COLUMN=="in_frame_index":
-            cmd="""SELECT
+            cmd=f"""SELECT
                 DT.frame_number,
                 DT.x,
                 DT.y,
-                DT.in_frame_index,
+                DT.{self.IDENTIFIER_COLUMN},
                 IDX.chunk
             FROM
                 ROI_0 AS DT
@@ -117,9 +118,9 @@ class MP4Reader:
 
     @property
     def identifier_start(self):
-        if self.IDENTIFIER_COLUMN=="identity":
+        if self.IDENTIFIER_COLUMN in ["identity", "local_identity"]:
             return 1
-        else:
+        elif self.IDENTIFIER_COLUMN=="in_frame_index":
             return 0
 
 
@@ -252,14 +253,15 @@ class MP4Reader:
             return None
 
         arr = []
-        for identity in range(number_of_animals):
-
-            centroid = self.get_centroid(frame_number, identifier=identity+self.identifier_start)
+        for identifier in range(number_of_animals):
+            identifier=identifier+self.identifier_start
+            centroid = self.get_centroid(frame_number, identifier=identifier)
             if centroid is None:
-                continue
-            img_=self.crop_image(img, centroid)
+                img_=self._NULL.copy()
+            else:
+                img_=self.crop_image(img, centroid)
             arr.append(img_)
-            self._last_frame_indices.append(in_frame_index)
+            self._last_frame_indices.append(identifier)
 
         if stack:
             img = np.hstack(arr)
@@ -327,8 +329,8 @@ class MP4Reader:
             frame_idx = int(frame_number) % (self._chunk * self.chunksize)
 
             batch_paths = [
-                f"{frame_number}_{self._chunk}-{frame_idx}_{in_frame_index}.png"
-                for in_frame_index in indices
+                f"{frame_number}_{self._chunk}-{frame_idx}_{identifier}.png"
+                for identifier in indices
             ]
             self._last_frame_indices.clear()
 
