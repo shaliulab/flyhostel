@@ -12,6 +12,7 @@ class MP4VideoMaker(ABC):
     video_writer=None
     _flyhostel_dataset = None
     _index_db=None
+    framerate=None
 
     @abstractmethod
     def init_video_writer(self, basedir, frame_size, first_chunk=0, chunksize=None):
@@ -45,12 +46,13 @@ class MP4VideoMaker(ABC):
                     start_next_chunk=False
 
                     with MP4Reader(
-                            "flyhostel", connection=conn, store_path=store_path, number_of_animals=self._number_of_animals,
+                            "flyhostel", connection=conn, store_path=store_path,
+                            number_of_animals=self._number_of_animals,
                             width=width, height=height, resolution=resolution,
                             background_color=background_color, chunks=[chunk]
                         ) as mp4_reader:
 
-                        pb = tqdm(unit="frame")
+                        # pb = tqdm(unit="frame")
 
                         while True:
 
@@ -76,7 +78,13 @@ class MP4VideoMaker(ABC):
                                 img, frame_number, frame_time, annotate=False,
                                 start_next_chunk=start_next_chunk
                             )
-                            pb.update(1)
+
+
+                            # pb.update(1)
+                            if written_images % (self.framerate * 1) == 0:
+                                txt_file = f"{os.path.splitext(capfn)[0]}.txt"
+                                with open(txt_file, "w", encoding="utf8") as filehandle:
+                                    filehandle.write(f"{written_images}\n")
 
                             written_images+=1
                             target_fn=frame_number+1
@@ -87,7 +95,8 @@ class MP4VideoMaker(ABC):
                             #     break
 
                         self.video_writer.close()
-
+                        with open(txt_file, "w", encoding="utf8") as filehandle:
+                            filehandle.write(f"{written_images}\n")
 
                     with open("status.txt", "a", encoding="utf8") as filehandle:
                         filehandle.write(f"Chunk {chunk}:{count_NULL}:{written_images}\n")
