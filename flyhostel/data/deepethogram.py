@@ -85,7 +85,7 @@ class H5Reader:
 
         assert behavior in self._class_names
 
-        logger.debug(f"Loading %s data from %d files using %d cores", (behavior, len(self._files), n_jobs))
+        logger.debug("Loading %s data from %d files using %d cores", behavior, len(self._files), n_jobs)
 
         Output = joblib.Parallel(n_jobs=n_jobs)(
             joblib.delayed(
@@ -133,7 +133,7 @@ class H5Reader:
             local_classes = tuple([name.decode() for name in f[main_key]["class_names"][:]])
             assert local_classes == classes
             # features = f[self.main_key]["flow_features"][:]
-            p_array = f[main_key]["P"][:, classes.index(behavior)][::step, :]
+            p_array = f[main_key]["P"][::step, classes.index(behavior)]
 
         return chunk, p_array
 

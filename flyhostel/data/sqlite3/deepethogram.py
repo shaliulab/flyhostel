@@ -29,9 +29,11 @@ class DeepethogramExporter(ABC):
             cur.execute("CREATE INDEX behav_lid ON BEHAVIORS (local_identity);")
 
     def write_behaviors_table(self, *args, **kwargs):
-
-        for local_identity in range(1, self.number_of_animals+1):
-            self.write_behaviors_table_single_blob(*args, local_identity, **kwargs)
+        if self.number_of_animals == 1:
+            self.write_behaviors_table_single_blob(*args, 0, **kwargs)
+        else:
+            for local_identity in range(1, self.number_of_animals+1):
+                self.write_behaviors_table_single_blob(*args, local_identity, **kwargs)
 
     def write_behaviors_table_single_blob(self, dbfile, local_identity, behaviors=None,chunks=None):
 
@@ -40,31 +42,33 @@ class DeepethogramExporter(ABC):
 
 
         prefix = "_".join(self._basedir.split(os.path.sep)[-3:])
+        if local_identity==0:
+            deepethogram_identity=1
+        else:
+            deepethogram_identity=local_identity
+
         reader = H5Reader.from_outputs(
             data_dir=self._deepethogram_data, prefix=prefix,
-            local_identity=local_identity,
-            fps=self._store_metadata["framerate"]
+            local_identity=deepethogram_identity,
+            frequency=self._store_metadata["framerate"]
         )
 
         if behaviors is None:
             behaviors=reader.class_names
 
-
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
             with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
 
                 index_db_cur = index_db.cursor()
-
+                progress_bar=tqdm(
+                    total=len(behaviors),
+                    desc=f"Exporting behavior data for local_identity {local_identity} for all chunks",
+                    unit="behavior"
+                )
                 for behavior_idx, behavior in enumerate(behaviors):
                     chunks_avail, p_list = reader.load(behavior=behavior, n_jobs=self._n_jobs)
-                    progress_bar=tqdm(
-                        total=len(chunks_avail),
-                        desc=f"Exporting {behavior} data for local_identity {local_identity} for all chunks",
-                        position=behavior_idx,
-                        unit="chunk"
-                    )
 
+                    data=[]
                     for chunk_idx, chunk in enumerate(chunks_avail):
                         if chunks is not None and chunk not in chunks:
                             continue
@@ -82,5 +86,7 @@ class DeepethogramExporter(ABC):
                         for frame_number_idx, frame_number in enumerate(frame_numbers):
                             data.append((frame_number, local_identity, behavior, p_list[chunk_idx][frame_number_idx].item()))
 
+                    if data:
                         conn.executemany("INSERT INTO BEHAVIORS (frame_number, local_identity, behavior, probability) VALUES (?, ?, ?, ?);", data)
-                        progress_bar.update(1)
+
+                progress_bar.update(1)
