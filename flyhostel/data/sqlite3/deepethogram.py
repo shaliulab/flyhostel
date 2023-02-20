@@ -23,15 +23,17 @@ class DeepethogramExporter(ABC):
             cur = conn.cursor()
             if reset:
                 cur.execute("DROP TABLE IF EXISTS BEHAVIORS;")
-            cur.execute("CREATE TABLE IF NOT EXISTS BEHAVIORS (frame_number int(11), in_frame_index int(2), behavior char(100), probability float(5));")
-
+            cur.execute("CREATE TABLE IF NOT EXISTS BEHAVIORS (frame_number int(11), local_identity int(3), behavior char(100), probability float(5));")
+            print("Creating indices for BEHAVIORS table")
+            cur.execute("CREATE INDEX behav_fn ON BEHAVIORS (frame_number);")
+            cur.execute("CREATE INDEX behav_lid ON BEHAVIORS (local_identity);")
 
     def write_behaviors_table(self, *args, **kwargs):
 
-        for in_frame_index in range(self.number_of_animals):
-            self.write_behaviors_table_single_blob(*args, in_frame_index, **kwargs)
+        for local_identity in range(1, self.number_of_animals+1):
+            self.write_behaviors_table_single_blob(*args, local_identity, **kwargs)
 
-    def write_behaviors_table_single_blob(self, dbfile, in_frame_index, behaviors=None,chunks=None):
+    def write_behaviors_table_single_blob(self, dbfile, local_identity, behaviors=None,chunks=None):
 
         if self._deepethogram_data is None:
             raise ValueError("Please pass a deepethogram data folder")
@@ -40,7 +42,7 @@ class DeepethogramExporter(ABC):
         prefix = "_".join(self._basedir.split(os.path.sep)[-3:])
         reader = H5Reader.from_outputs(
             data_dir=self._deepethogram_data, prefix=prefix,
-            in_frame_index=in_frame_index,
+            local_identity=local_identity,
             fps=self._store_metadata["framerate"]
         )
 
@@ -55,11 +57,10 @@ class DeepethogramExporter(ABC):
                 index_db_cur = index_db.cursor()
 
                 for behavior_idx, behavior in enumerate(behaviors):
-
-                    chunks_avail, p_array = reader.load(behavior, n_jobs=self._n_jobs)
+                    chunks_avail, p_list = reader.load(behavior=behavior, n_jobs=self._n_jobs)
                     progress_bar=tqdm(
                         total=len(chunks_avail),
-                        desc=f"Loading {behavior} instances for blob index {in_frame_index}",
+                        desc=f"Exporting {behavior} data for local_identity {local_identity} for all chunks",
                         position=behavior_idx,
                         unit="chunk"
                     )
@@ -69,10 +70,17 @@ class DeepethogramExporter(ABC):
                             continue
                         index_db_cur.execute("SELECT frame_number FROM frames WHERE chunk = ?;", (chunk, ))
                         frame_numbers = [int(x[0]) for x in index_db_cur.fetchall()]
-                        assert p_array[chunk_idx].shape[0] == len(frame_numbers)
+
+                        if p_list[chunk_idx].shape[0] != len(frame_numbers):
+                            raise Exception(f"""
+                                {p_list[chunk_idx].shape[0]} frames have an annotated behavior, but the chunk has {len(frame_numbers)} frames.
+                                Has deepethogram finished running there?
+                                """
+                            )
+
 
                         for frame_number_idx, frame_number in enumerate(frame_numbers):
-                            args=(frame_number, in_frame_index, behavior, p_array[chunk_idx][frame_number_idx].item())
-                            cur.execute("INSERT INTO BEHAVIORS (frame_number, in_frame_index, behavior, probability) VALUES (?, ?, ?, ?);", args)
+                            data.append((frame_number, local_identity, behavior, p_list[chunk_idx][frame_number_idx].item()))
 
+                        conn.executemany("INSERT INTO BEHAVIORS (frame_number, local_identity, behavior, probability) VALUES (?, ?, ?, ?);", data)
                         progress_bar.update(1)

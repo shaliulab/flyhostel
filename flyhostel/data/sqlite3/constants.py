@@ -11,6 +11,15 @@ TABLES = [
     "ENVIRONMENT", "AI", "ORIENTATION"
 ]
 
+PRESETS = {
+    "all": TABLES,
+    "default": [
+        "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0",
+        "IDENTITY", "CONCATENATION","STORE_INDEX",
+        "ENVIRONMENT", "AI"
+    ]
+}
+
 RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
 METADATA_FILE = "metadata.csv"
 

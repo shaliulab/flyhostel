@@ -19,6 +19,7 @@ class ConcatenationExporter(ABC):
 
         if os.path.exists(csv_file):
             concatenation=pd.read_csv(csv_file, index_col=0)
+            data=[]
             with sqlite3.connect(dbfile, check_same_thread=False) as conn:
                 cur = conn.cursor()
                 for _, row in concatenation.iterrows():
@@ -29,12 +30,16 @@ class ConcatenationExporter(ABC):
                     args=tuple([e.item() for e in args])
                     chunk=args[0]
                     if chunk in chunks:
-                        cur.execute(
-                            "INSERT INTO CONCATENATION (chunk, in_frame_index, in_frame_index_after, local_identity, local_identity_after, identity) VALUES (?, ?, ?, ?, ?, ?);",
-                            args
-                        )
+                        data.append(args)
                     else:
                         pass
+
+                if data:
+                    conn.executemany(
+                        "INSERT INTO CONCATENATION (chunk, in_frame_index, in_frame_index_after, local_identity, local_identity_after, identity) VALUES (?, ?, ?, ?, ?, ?);",
+                        data
+                    )
+
         else:
             if "1X" in self._basedir:
                 with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -51,5 +56,3 @@ class ConcatenationExporter(ABC):
                     Please make sure idtrackerai_concatenation step is run for {self._basedir}
                     """
                 )
-
-        print("CONCATENATION table done")

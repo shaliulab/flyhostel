@@ -34,29 +34,28 @@ class SnapshotExporter(ABC):
     def write_snapshot_table(self, dbfile, chunks):
         """Populate the IMG_SNAPSHOTS table of a FlyHostel SQLite dataset
         """
+        data=[]
 
         with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
             index_cursor = index_db.cursor()
 
-            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-                cur = conn.cursor()
 
-                for chunk in chunks:
-                    index_cursor.execute(f"SELECT frame_number FROM frames WHERE chunk = {chunk} AND frame_idx = 0;")
-                    try:
-                        frame_number = int(index_cursor.fetchone()[0])
-                    # this happens if fetchone() returns None (is not indexable)
-                    except TypeError:
-                        warnings.warn(f"Cannot find first frame number of chunk {chunk}")
-                        continue
+            for chunk in chunks:
+                index_cursor.execute(f"SELECT frame_number FROM frames WHERE chunk = {chunk} AND frame_idx = 0;")
+                try:
+                    frame_number = int(index_cursor.fetchone()[0])
+                # this happens if fetchone() returns None (is not indexable)
+                except TypeError:
+                    warnings.warn(f"Cannot find first frame number of chunk {chunk}")
+                    continue
 
+                snapshot_path = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.png")
+                if not os.path.exists(snapshot_path):
+                    raise ValueError(f"Cannot save chunk {chunk} snapshot. {snapshot_path} does not exist")
+                arr=cv2.imread(snapshot_path)
+                bstring = serialize_arr(arr, self._temp_path)
+                data.append((frame_number, bstring))
 
-                    snapshot_path = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.png")
-                    if not os.path.exists(snapshot_path):
-                        raise ValueError(f"Cannot save chunk {chunk} snapshot. {snapshot_path} does not exist")
-                    arr=cv2.imread(snapshot_path)
-                    bstring = serialize_arr(arr, self._temp_path)
-                    cur.execute(
-                        "INSERT INTO IMG_SNAPSHOTS (frame_number, img) VALUES (?, ?)",
-                        (frame_number, bstring)
-                    )
+            if data:
+                with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                    conn.executemany("INSERT INTO IMG_SNAPSHOTS (frame_number, img) VALUES (?, ?)", data)

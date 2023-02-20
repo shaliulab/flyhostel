@@ -169,8 +169,9 @@ class SingleVideoMaker(MP4VideoMaker):
     def _make_and_validate_single_video(self, *args, **kwargs):
 
         filename=self._make_single_video(*args, **kwargs)
-        print(f"Validating {filename}")
-        validate_video(filename)
+        if filename is not None:
+            print(f"Validating {filename}")
+            validate_video(filename)
 
 
     @staticmethod

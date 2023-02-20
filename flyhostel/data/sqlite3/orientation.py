@@ -67,18 +67,18 @@ class OrientationExporter(ABC):
                 cur.execute("DROP TABLE IF EXISTS ORIENTATION;")
             cur.execute("CREATE TABLE IF NOT EXISTS ORIENTATION (frame_number int(11), in_frame_index int(2), angle float(5), is_inferred int(1));")
 
+            print("Creating indices for ORIENTATION table")
+            cur.execute("CREATE INDEX ori_fn ON ORIENTATION (frame_number);")
 
-    def _write_orientation_table(self, conn, dbfile, chunks, in_frame_index=0, queue=None):
+    def _write_orientation_table(self, conn, dbfile, chunks, in_frame_index=0):
 
         angle_database_path = os.path.join(self._basedir, "angles", "FlyHead", "angles")
 
         angle_database = sorted(glob.glob(os.path.join(angle_database_path, "*.hdf5")))
         angle_database = {self._parse_chunk_from_angle_file(path): path for path in angle_database}
-
-        cur = conn.cursor()
         is_inferred=False
 
-        for chunk in tqdm(chunks, desc=f"Writing orientation data from in_frame_index {in_frame_index} to {dbfile}"):
+        for chunk in tqdm(chunks, desc=f"Exporting orientation data for in_frame_index {in_frame_index}", unit="chunk"):
             accum = 0
             try:
                 h5py_file = angle_database[chunk]
@@ -89,6 +89,7 @@ class OrientationExporter(ABC):
             try:
                 with h5py.File(h5py_file, "r") as filehandle:
                     keys = list(filehandle.keys())
+                    data=[]
                     for dataset in keys:
                         frame_number, chunk_, in_frame_index_ = self._parse_dataset(dataset)
                         assert chunk_ == chunk
@@ -98,18 +99,17 @@ class OrientationExporter(ABC):
                         angle = self.fetch_angle_from_h5py(filehandle, dataset)
                         accum+=1
 
-                        data=(frame_number, in_frame_index, angle, is_inferred)
-                        if queue is None:
-                            cur.execute(
-                                "INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
-                                data
-                            )
-                        else:
-                            queue.put(tuple([str(e) for e in data]), timeout=30, block=True)
+                        args=(frame_number, in_frame_index, angle, is_inferred)
+                        data.append(args)
+                    if data:
+                        conn.executemany(
+                            "INSERT INTO ORIENTATION (frame_number, in_frame_index, angle, is_inferred) VALUES (?, ?, ?, ?);",
+                            data
+                        )
+
             except OSError as error:
                 print(f"Unable to open file {h5py_file}")
                 raise error
-
 
             logger.debug(f"Wrote {accum} angles for chunk {chunk} in {dbfile}")
 
@@ -120,6 +120,5 @@ class OrientationExporter(ABC):
             raise ValueError("ORIENTATION table requires STORE_INDEX")
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-
             for in_frame_index in range(self.number_of_animals):
-                self._write_orientation_table(conn, dbfile, chunks=chunks, in_frame_index=in_frame_index, queue=None)
+                self._write_orientation_table(conn, dbfile, chunks=chunks, in_frame_index=in_frame_index)

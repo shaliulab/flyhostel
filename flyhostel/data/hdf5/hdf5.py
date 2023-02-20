@@ -179,7 +179,7 @@ class HDF5ImagesReader:
         self._number_of_animals=number_of_animals
         self.img_size=img_size
         self.stride=stride
-        self.frequency=frequency
+        self._data_framerate=frequency
         self.mode="image"
 
     @property
@@ -244,9 +244,17 @@ class HDF5ImagesReader:
         return int(self._experiment_metadata["framerate"])
 
     @property
+    def data_framerate(self):
+        if self._data_framerate is None:
+            return self.framerate
+        else:
+            return self._data_framerate
+
+
+    @property
     def skip_n(self):
         # if frequency = 50 and framerate =150 -> 3
-        return max(int(self.framerate / self.frequency) - 1, 1)
+        return max(int(self.framerate / self.data_framerate) - 1, 1)
 
     @property
     def key(self):

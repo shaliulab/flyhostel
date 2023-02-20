@@ -17,27 +17,31 @@ class StoreIndexExporter(ABC):
             if reset:
                 cur.execute("DROP TABLE IF EXISTS STORE_INDEX;")
             cur.execute("CREATE TABLE IF NOT EXISTS STORE_INDEX (chunk int(3), frame_number int(11), frame_time int(11));")
+            print("Creating indices for STORE_INDEX table")
+            cur.execute("CREATE INDEX idx_fn ON STORE_INDEX (frame_number);")
 
     def write_index_table(self, dbfile):
         """Populate STORE_INDEX table
         """
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
-                index_db_cur = index_db.cursor()
+        data=[]
 
-                index_db_cur.execute("SELECT COUNT(*) FROM frames;")
-                count = int(index_db_cur.fetchone()[0])
+        with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
+            index_db_cur = index_db.cursor()
 
-                index_db_cur.execute("SELECT chunk, frame_number, frame_time FROM frames;")
-                pb=tqdm(total=count)
+            index_db_cur.execute("SELECT COUNT(*) FROM frames;")
+            count = int(index_db_cur.fetchone()[0])
 
-                for chunk, frame_number, frame_time in index_db_cur:
-                    cur.execute(
-                        "INSERT INTO STORE_INDEX (chunk, frame_number, frame_time) VALUES (?, ?, ?);",
-                        (chunk, frame_number, frame_time)
-                    )
-                    pb.update(1)
+            index_db_cur.execute("SELECT chunk, frame_number, frame_time FROM frames;")
+            pb=tqdm(total=count, desc="Writing index", unit="frame")
 
+            for chunk, frame_number, frame_time in index_db_cur:
+                data.append((chunk, frame_number, frame_time))
+                pb.update(1)
 
-            cur.execute("CREATE INDEX idx_fn ON STORE_INDEX (frame_number);")
+        if data:
+            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                conn.executemany(
+                    "INSERT INTO STORE_INDEX (chunk, frame_number, frame_time) VALUES (?, ?, ?);",
+                    data
+                )
+

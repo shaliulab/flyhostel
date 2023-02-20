@@ -1,4 +1,4 @@
-
+import time
 import os.path
 import warnings
 import sqlite3
@@ -12,7 +12,7 @@ from idtrackerai.list_of_blobs import ListOfBlobs
 from .sqlite3 import SQLiteExporter
 from .deepethogram import DeepethogramExporter
 from .orientation import OrientationExporter
-from .constants import TABLES
+from .constants import PRESETS
 from .utils import (
     table_is_not_empty,
     ensure_type
@@ -23,10 +23,23 @@ logger = logging.getLogger(__name__)
 
 class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExporter):
 
-    def __init__(self, basedir, deepethogram_data, *args, **kwargs):
+    def __init__(self, basedir, deepethogram_data, framerate=None, *args, **kwargs):
         self._basedir = basedir
         self._deepethogram_data = deepethogram_data
+        self._data_framerate = framerate
         super(IdtrackeraiExporter, self).__init__(*args, **kwargs)
+
+
+    @property
+    def data_framerate(self):
+        if self._data_framerate is None:
+            return self.framerate
+        else:
+            return self._data_framerate
+
+    @property
+    def step(self):
+        return max(int(self.framerate / self.data_framerate), 1)
 
     # Init tables
     def init_data(self, dbfile, reset=True):
@@ -44,7 +57,9 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
                 cur.execute("DROP TABLE IF EXISTS ROI_0;")
 
             cur.execute(command)
+            print("Creating indices for ROI_0 table")
             cur.execute("CREATE INDEX roi0_fn ON ROI_0 (frame_number);")
+            cur.execute("CREATE INDEX roi0_ifi ON ROI_0 (in_frame_index);")
 
 
    # IDENTITY
@@ -53,10 +68,12 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             cur = conn.cursor()
             if reset:
                 cur.execute("DROP TABLE IF EXISTS IDENTITY;")
+            print("Creating indices for IDENTITY table")
             cur.execute("CREATE TABLE IF NOT EXISTS IDENTITY (frame_number int(11), in_frame_index int(2), local_identity int(2), identity int(2));")
             cur.execute("CREATE INDEX id_fn ON IDENTITY (frame_number);")
             cur.execute("CREATE INDEX id_id ON IDENTITY (identity);")
             cur.execute("CREATE INDEX id_lid ON IDENTITY (local_identity);")
+            cur.execute("CREATE INDEX id_ifi ON IDENTITY (in_frame_index);")
 
 
     # write
@@ -79,30 +96,70 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
                 )
                 blobs_in_video=list_of_blobs.blobs_in_video[start_end[0]:start_end[1]]
 
-                for blobs_in_frame in tqdm(blobs_in_video, desc=f"Exporting chunk {chunk}", unit="frame"):
-                    for blob in blobs_in_frame:
-                        self.add_blob(cur, blob, **kwargs)
+                r0_data =[]
+                id_data=[]
+
+                cmd="SELECT local_identity, identity FROM CONCATENATION WHERE chunk = ?"
+                cur.execute(cmd, (chunk, ))
+
+                id_mapping = {
+                    local_identity: identity
+                    for local_identity, identity in cur.fetchall()
+                }
+
+
+                for frame_idx, blobs_in_frame in tqdm(enumerate(blobs_in_video), desc=f"Exporting trajectory/identity data for chunk {chunk}", unit="frame"):
+                    if frame_idx % (self.step) == 0 or any((blob.modified for blob in blobs_in_frame)):
+                        for blob in blobs_in_frame:
+                            r0_args, id_args = self.add_blob(blob, id_mapping=id_mapping, **kwargs)
+                            if r0_args is not None:
+                                r0_data.append(r0_args)
+                            if id_args is not None:
+                                id_data.append(id_args)
+
+
+                if r0_data:
+                    command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, area, modified, class_name) VALUES(?, ?, ?, ?, ?, ?, ?);"
+                    print(command)
+                    conn.executemany(command, r0_data)
+
+                if id_data:
+                    command = "INSERT INTO IDENTITY (frame_number, in_frame_index, local_identity, identity) VALUES(?, ?, ?, ?);"
+                    print(command)
+                    conn.executemany(command, id_data)
 
         else:
             warnings.warn(f"{blobs_collection} not found")
 
 
+
+
+
     def write_trajectory_and_identity(self, dbfile, chunks, **kwargs):
 
         for chunk in chunks:
-            logger.debug("Exporting chunk %s", chunk)
+            before=time.time()
             self.write_trajectory_and_identity_single_chunk(dbfile, chunk=chunk, **kwargs)
+            after=time.time()
+            logger.debug("Exporting chunk %s in %s seconds", chunk, after-before)
 
 
-    def add_blob(self, cur, blob, w_trajectory=True, w_identity=True):
+    def add_blob(self, blob, id_mapping, w_trajectory=True, w_identity=True):
+
         if w_trajectory:
-            self.write_blob_trajectory(cur, blob)
+            r0_args=self.write_blob_trajectory(blob)
+        else:
+            r0_args=None
 
         if w_identity:
-            self.write_blob_identity(cur, blob)
+            id_args=self.write_blob_identity(blob, id_mapping)
+        else:
+            id_args=None
+
+        return r0_args, id_args
 
 
-    def write_blob_trajectory(self, cur, blob):
+    def write_blob_trajectory(self, blob):
 
         frame_number = ensure_type(blob.frame_number, "frame_number", int)
         in_frame_index = ensure_type(blob.in_frame_index, "in_frame_index", int)
@@ -118,17 +175,21 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         else:
             class_name=None
 
-        command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, area, modified, class_name) VALUES(?, ?, ?, ?, ?, ?, ?);"
-        cur.execute(command, [frame_number, in_frame_index, x_coord, y_coord, area, modified, class_name])
+        args = (frame_number, in_frame_index, x_coord, y_coord, area, modified, class_name)
+        return args
 
-    def write_blob_identity(self, cur, blob):
+    def write_blob_identity(self, blob, id_mapping):
         frame_number = ensure_type(blob.frame_number, "frame_number", int)
         in_frame_index = ensure_type(blob.in_frame_index, "in_frame_index", int)
 
         local_identity = self._get_blob_local_identity(blob)
-        identity_reference_to_ref_chunk = self._get_blob_identity(cur, blob, local_identity)
-        command = "INSERT INTO IDENTITY (frame_number, in_frame_index, local_identity, identity) VALUES(?, ?, ?, ?);"
-        cur.execute(command, [frame_number, in_frame_index, local_identity, identity_reference_to_ref_chunk])
+        try:
+            identity_reference_to_ref_chunk = id_mapping[local_identity]
+        except KeyError:
+            identity_reference_to_ref_chunk=0
+
+        args=(frame_number, in_frame_index, local_identity, identity_reference_to_ref_chunk)
+        return args
 
 
     def _get_blob_local_identity(self, blob):
@@ -139,7 +200,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         local_identity=ensure_type(local_identity, "local_identity", int)
         return local_identity
 
-    def _get_blob_identity(self, cur, blob, local_identity):
+    def _get_blob_identity_sqlite3(self, cur, blob, local_identity):
 
         chunk=blob.chunk
         chunk=ensure_type(chunk, "chunk", int)
@@ -207,9 +268,10 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         """
 
         if tables is None or tables == "all":
-            tables = TABLES
+            tables = PRESETS["all"]
 
-        assert chunks is not None
+        elif tables in PRESETS:
+            tables=PRESETS[tables]
 
         super(IdtrackeraiExporter, self).export(dbfile, chunks=chunks, tables=tables, mode=mode, reset=reset)
 
@@ -226,9 +288,17 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
                 w_identity=w_identity,
                 chunks=chunks
             )
+            if "ROI_0" in tables:
+                print("ROI_0 done")
+
+            if "IDENTITY" in tables:
+                print("IDENTITY done")
+
 
         if "ORIENTATION" in tables:
             self.write_orientation_table(dbfile, chunks=chunks)
+            print("ORIENTATION done")
 
         if "BEHAVIORS" in tables:
             self.write_behaviors_table(dbfile, behaviors=behaviors)
+            print("BEHAVIORS done")

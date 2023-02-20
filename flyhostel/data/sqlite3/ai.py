@@ -35,17 +35,18 @@ class AIExporter(ABC):
                     pickle_files.append(path)
 
         if pickle_files:
-            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-                cur = conn.cursor()
+            data=[]
+            for file in pickle_files:
+                with open(file, "rb") as filehandle:
+                    ai_mods = pickle.load(filehandle)
+                    frames=ai_mods["success"]
 
-                for file in pickle_files:
-                    with open(file, "rb") as filehandle:
-                        ai_mods = pickle.load(filehandle)
-                        frames=ai_mods["success"]
+                for frame_number in frames:
+                    data.append((frame_number, "YOLOv7"))
 
-                    for frame_number in frames:
-                        cur.execute("INSERT INTO AI (frame_number, ai) VALUES (?, ?);", (frame_number, "YOLOv7"))
-
+            if data:
+                with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                    conn.executemany("INSERT INTO AI (frame_number, ai) VALUES (?, ?);", data)
 
         if chunks is None:
             fragment_files=sorted(glob.glob(
@@ -59,21 +60,19 @@ class AIExporter(ABC):
                     fragment_files.append(path)
 
         if fragment_files:
-            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-                cur = conn.cursor()
 
-                for file in fragment_files:
-                    frames = []
-                    list_of_fragments = np.load(file, allow_pickle=True).item()
+            for file in fragment_files:
+                frames = []
+                list_of_fragments = np.load(file, allow_pickle=True).item()
 
-                    # maybe this would work too
-                    # has_been_accumulated=video_object.has_protocol1_finished
+                # maybe this would work too
+                # has_been_accumulated=video_object.has_protocol1_finished
 
-                    has_been_accumulated=any((fragment.accumulation_step == 0 for fragment in list_of_fragments.fragments))
-                    if has_been_accumulated:
-                        for fragment in list_of_fragments.fragments:
-                            if (fragment.accumulation_step is None or fragment.accumulation_step > 1) and fragment.assigned_identities[0] != 0:
-                                frames.append(fragment.start_end[0])
+                has_been_accumulated=any((fragment.accumulation_step == 0 for fragment in list_of_fragments.fragments))
+                if has_been_accumulated:
+                    for fragment in list_of_fragments.fragments:
+                        if (fragment.accumulation_step is None or fragment.accumulation_step > 1) and fragment.assigned_identities[0] != 0:
+                            frames.append(fragment.start_end[0])
 
-                        for frame_number in frames:
+                    for frame_number in frames:
                             cur.execute("INSERT INTO AI (frame_number, ai) VALUES (?, ?);", (frame_number, "idtrackerai"))

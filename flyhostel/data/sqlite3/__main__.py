@@ -1,7 +1,8 @@
 import os.path
 from .idtrackerai import IdtrackeraiExporter
+from .constants import PRESETS
 
-def export_dataset(store_path, chunks, reset=True, tables=None):
+def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
     """
     Store all data available for a FlyHostel experiment into a single SQLite (.db) file
 
@@ -18,5 +19,9 @@ def export_dataset(store_path, chunks, reset=True, tables=None):
 
     dbfile = os.path.join(basedir, dbfile_basename)
     basedir=os.path.realpath(basedir)
-    dataset = IdtrackeraiExporter(basedir, deepethogram_data=os.environ["DEEPETHOGRAM_DATA"])
+    dataset = IdtrackeraiExporter(basedir, deepethogram_data=os.environ["DEEPETHOGRAM_DATA"], framerate=framerate)
+
+    if len(tables)== 1 and tables[0] in PRESETS:
+        tables=tables[0]
+
     dataset.export(dbfile=dbfile, chunks=chunks, tables=tables, mode="a", reset=reset)

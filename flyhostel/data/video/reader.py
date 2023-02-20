@@ -44,6 +44,7 @@ class MP4Reader:
         assert width is not None
         assert height is not None
         assert resolution is not None
+
         assert background_color is not None
 
 
@@ -67,7 +68,7 @@ class MP4Reader:
         self._number_of_animals=number_of_animals
         self.img_size=img_size
         self.stride=stride
-        self.frequency=frequency
+        self._data_framerate=frequency
         self.mode="image"
         self.rect=True
 
@@ -119,11 +120,17 @@ class MP4Reader:
 
     @property
     def identifier_start(self):
-        if self.IDENTIFIER_COLUMN in ["identity", "local_identity"]:
-            return 1
-        elif self.IDENTIFIER_COLUMN=="in_frame_index":
+        if self.IDENTIFIER_COLUMN=="in_frame_index":
             return 0
 
+        elif self._number_of_animals == 1:
+            return 0
+
+        elif self.IDENTIFIER_COLUMN in ["identity", "local_identity"]:
+            return 1
+
+        else:
+            raise Exception("Unable to set identifier start")
 
     @property
     def count(self):
@@ -143,9 +150,15 @@ class MP4Reader:
         return int(self._experiment_metadata["framerate"])
 
     @property
-    def skip_n(self):
-        # if frequency = 50 and framerate =150 -> 3
-        return max(int(self.framerate / self.frequency) - 1, 1)
+    def data_framerate(self):
+        if self._data_framerate is None:
+            return self.framerate
+        else:
+            return self._data_framerate
+
+    @property
+    def step(self):
+        return max(int(self.framerate / self.data_framerate), 1)
 
 
     @classmethod
@@ -162,7 +175,7 @@ class MP4Reader:
         flyhostel_dataset = glob.glob(os.path.join(os.path.dirname(store_path), "FlyHostel*db"))
         assert flyhostel_dataset, f"FlyHostel dataset not found for experiment {store_path}"
         flyhostel_dataset=flyhostel_dataset[0]
-        conn=sqlite3.connect(flyhostel_dataset, check_same_thread=False)
+        conn=sqlite3.connect(f"file:{flyhostel_dataset}?mode=ro", uri=True)
 
         return cls(
             consumer, connection=conn, store_path=store_path, chunks=chunks[:1],
@@ -331,6 +344,7 @@ class MP4Reader:
 
             frame_number_, batch=self.read(frame_number, self._number_of_animals)
             if batch is None:
+                self.connection.close()
                 raise StopIteration
             indices=self._last_frame_indices
             frame_idx = int(frame_number) % (self._chunk * self.chunksize)

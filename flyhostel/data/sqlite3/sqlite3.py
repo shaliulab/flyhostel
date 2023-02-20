@@ -39,15 +39,11 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
         super(SQLiteExporter, self).__init__(*args, **kwargs)
 
 
-    def export(self, dbfile, chunks, tables=None, mode="a", reset=True):
-
-        if tables is None or tables == "all":
-            tables = TABLES
+    def export(self, dbfile, chunks, tables, mode="a", reset=True):
 
         if os.path.exists(dbfile):
             if reset:
-                warnings.warn(f"{dbfile} exists. Remaking from scratch and ignoring mode")
-                print(f"Remaking file {dbfile}")
+                warnings.warn(f"{dbfile} exists. Remaking tables {tables} from scratch and ignoring mode")
             elif mode == "a":
                 print(f"Resuming file {dbfile}")
 
@@ -57,27 +53,35 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
 
         if "CONCATENATION" in tables and not table_is_not_empty(dbfile, "CONCATENATION"):
             self.write_concatenation_table(dbfile, chunks=chunks)
+            print("CONCATENATION done")
 
         if "METADATA" in tables:
             self.write_metadata_table(dbfile)
+            print("METADATA done")
 
         if "IMG_SNAPSHOTS" in tables:
             self.write_snapshot_table(dbfile, chunks=chunks)
+            print("IMG_SNAPSHOTS done")
 
         if "ROI_MAP" in tables:
             self.write_roi_map_table(dbfile)
+            print("ROI_MAP done")
 
         if "ENVIRONMENT" in tables:
             self.write_environment_table(dbfile, chunks=chunks)
+            print("ENVIRONMENT done")
 
         if "VAR_MAP" in tables:
             self.write_var_map_table(dbfile)
+            print("VAR_MAP done")
 
         if "STORE_INDEX" in tables:
             self.write_index_table(dbfile)
+            print("STORE_INDEX done")
 
         if "AI" in tables:
             self.write_ai_table(dbfile, chunks=chunks)
+            print("AI done")
 
 
     @property
@@ -88,9 +92,6 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
 
 
     def init_tables(self, dbfile, tables, reset=True):
-
-        #TODO
-        # Add if for all tables
 
         if "METADATA" in tables:
             self.init_metadata_table(dbfile, reset=reset)
@@ -149,9 +150,9 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
 
     def write_environment_table(self, dbfile, chunks):
 
-        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
+        data=[]
 
+        with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             for chunk in chunks:
 
                 extra_json = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.extra.json")
@@ -160,18 +161,16 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
                     warnings.warn(f"No environmental data available for chunk {chunk}")
                     return
 
-
                 with open(extra_json, "r", encoding="utf8") as filehandle:
                     extra_data = json.load(filehandle)
 
                 for row in extra_data:
+                    data.append((row["frame_number"], row["camera_temperature"], row["temperature"], row["humidity"], row["light"]))
 
-                    values = (row["frame_number"], row["camera_temperature"], row["temperature"], row["humidity"], row["light"])
-
-                    cur.execute(
-                        "INSERT INTO ENVIRONMENT (frame_number, camera_temperature, temperature, humidity, light) VALUES (?, ?, ?, ?, ?);",
-                        values
-                    )
+                conn.executemany(
+                    "INSERT INTO ENVIRONMENT (frame_number, camera_temperature, temperature, humidity, light) VALUES (?, ?, ?, ?, ?);",
+                    data
+                )
 
 
     # VAR_MAP

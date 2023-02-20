@@ -31,6 +31,7 @@ class MetadataExporter(ABC):
     """
 
     _basedir = None
+    data_framerate = None
 
     def __init__(self, *args, **kwargs):
         self._index_dbfile = os.path.join(self._basedir, "index.db")
@@ -53,6 +54,11 @@ class MetadataExporter(ABC):
             self._camera_metadata_path = None
 
         super(MetadataExporter, self).__init__(*args, **kwargs)
+
+
+    @property
+    def framerate(self):
+        return self._store_metadata["framerate"]
 
 
     def init_metadata_table(self, dbfile, reset=True):
@@ -97,10 +103,10 @@ class MetadataExporter(ABC):
 
         try:
             pixels_per_cm = self._store_metadata["pixels_per_cm"]
-        except KeyError:
+        except KeyError as exc:
             raise ValueError(
                 f"Please enter the pixels_per_cm parameter in {self._store_metadata_path}"
-            )
+            ) from exc
 
         with sqlite3.connect(self._index_dbfile, check_same_thread=False) as index_db:
             cur=index_db.cursor()
@@ -111,13 +117,14 @@ class MetadataExporter(ABC):
         chunks = f"{first_chunk},{last_chunk}"
 
 
-        values = [
+        data = [
             ("machine_id", machine_id),
             ("machine_name", machine_name),
             ("date_time", date_time),
             ("frame_width", self._store_metadata["imgshape"][1]),
             ("frame_height", self._store_metadata["imgshape"][0]),
-            ("framerate", self._store_metadata["framerate"]),
+            ("framerate", self.framerate),
+            ("data_framerate", self.data_framerate),
             ("chunksize", self._store_metadata["chunksize"]),
             ("pixels_per_cm", pixels_per_cm),
             ("version", "1"),
@@ -128,13 +135,10 @@ class MetadataExporter(ABC):
         ]
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-            cur = conn.cursor()
-            for val in values:
-
-                cur.execute(
-                    "INSERT INTO METADATA (field, value) VALUES (?, ?);",
-                    val
-                )
+            conn.executemany(
+                "INSERT INTO METADATA (field, value) VALUES (?, ?);",
+                data
+            )
 
 
     @staticmethod

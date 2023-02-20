@@ -33,6 +33,7 @@ class MP4VideoMaker(ABC):
         if not os.path.exists(output):
             os.makedirs(output)
 
+        capfn=None
 
         with sqlite3.connect(f"file:{self._flyhostel_dataset}?mode=ro", uri=True) as conn:
             with sqlite3.connect(f"file:{self._index_db}?mode=ro", uri=True) as index_conn:
@@ -44,6 +45,18 @@ class MP4VideoMaker(ABC):
                     written_images=0
                     count_NULL=0
                     start_next_chunk=False
+
+                    txt_file = os.path.join(output, f"{str(chunk).zfill(6)}.txt")
+                    if os.path.exists(txt_file):
+                        with open(txt_file, "r") as filehandle:
+                            try:
+                                cached_images=int(filehandle.readline().strip("\n"))
+                            except ValueError:
+                                cached_images=0
+
+                            if cached_images == self.chunksize:
+                                continue
+
 
                     with MP4Reader(
                             "flyhostel", connection=conn, store_path=store_path,
@@ -87,12 +100,9 @@ class MP4VideoMaker(ABC):
                                     filehandle.write(f"{written_images}\n")
 
                             written_images+=1
-                            target_fn=frame_number+1
+                            target_fn=frame_number+mp4_reader.step
                             if fn is not None:
                                 print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}, chunks={chunks}")
-
-                            # if written_images == 160*10:
-                            #     break
 
                         self.video_writer.close()
                         with open(txt_file, "w", encoding="utf8") as filehandle:
