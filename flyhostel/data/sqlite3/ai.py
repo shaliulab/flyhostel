@@ -60,6 +60,7 @@ class AIExporter(ABC):
                     fragment_files.append(path)
 
         if fragment_files:
+            data=[]
 
             for file in fragment_files:
                 frames = []
@@ -75,4 +76,9 @@ class AIExporter(ABC):
                             frames.append(fragment.start_end[0])
 
                     for frame_number in frames:
-                            cur.execute("INSERT INTO AI (frame_number, ai) VALUES (?, ?);", (frame_number, "idtrackerai"))
+                        data.append((frame_number, "idtrackerai"))
+
+            if data:
+                with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                    conn.executemany("INSERT INTO AI (frame_number, ai) VALUES (?, ?);", data)
+

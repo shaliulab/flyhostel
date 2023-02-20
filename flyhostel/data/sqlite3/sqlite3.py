@@ -14,9 +14,6 @@ import cv2
 import numpy as np
 
 from .async_writer import AsyncSQLiteWriter
-from .constants import (
-    TABLES,
-)
 from .utils import table_is_not_empty, serialize_arr
 from .store_index import StoreIndexExporter
 from .ai import AIExporter

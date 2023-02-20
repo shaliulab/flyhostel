@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExporter):
 
-    def __init__(self, basedir, deepethogram_data, framerate=None, *args, **kwargs):
+    def __init__(self, basedir, deepethogram_data, *args, framerate=None, **kwargs):
         self._basedir = basedir
         self._deepethogram_data = deepethogram_data
         self._data_framerate = framerate
@@ -253,7 +253,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             self.init_behaviors_table(dbfile, reset=reset)
 
 
-    def export(self, dbfile, chunks, tables="all", mode="a", reset=True, behaviors=None):
+    def export(self, dbfile, chunks, tables, mode="a", reset=True, behaviors=None):
         """
         Export datasets into single SQLite file
 
@@ -261,17 +261,11 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
 
             dbfile (str): Path to SQLite output file
             chunks (list): Chunks to be processed
-            tables (list, str): List of tables to be exported or "all" if all should be
+            tables (list, str): List of tables to be exported
             mode (str)
             reset (bool):
             behaviors (list):
         """
-
-        if tables is None or tables == "all":
-            tables = PRESETS["all"]
-
-        elif tables in PRESETS:
-            tables=PRESETS[tables]
 
         super(IdtrackeraiExporter, self).export(dbfile, chunks=chunks, tables=tables, mode=mode, reset=reset)
 

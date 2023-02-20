@@ -111,7 +111,7 @@ class OrientationExporter(ABC):
                 print(f"Unable to open file {h5py_file}")
                 raise error
 
-            logger.debug(f"Wrote {accum} angles for chunk {chunk} in {dbfile}")
+            logger.debug("Wrote %d angles for chunk %d in %s", accum, chunk, dbfile)
 
 
     def write_orientation_table(self, dbfile, chunks):
