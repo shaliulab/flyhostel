@@ -11,13 +11,21 @@ TABLES = [
     "ENVIRONMENT", "AI", "ORIENTATION"
 ]
 
+BEHAVIORS=["background", "inactive", "walk", "pe", "rejection", "groom", "fall"]
+
 PRESETS = {
     "all": TABLES,
     "default": [
-        "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0",
-        "IDENTITY", "CONCATENATION","STORE_INDEX",
+        "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP",
+        "CONCATENATION","STORE_INDEX",
         "ENVIRONMENT", "AI"
-    ]
+    ],
+    "trajectory": [
+        "ROI_0", "IDENTITY"
+    ],
+    "index": [
+        "STORE_INDEX"
+    ],
 }
 
 RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True

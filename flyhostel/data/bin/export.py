@@ -23,9 +23,4 @@ def main(args=None, ap=None):
         ap = get_parser(ap)
         args = ap.parse_args()
 
-    if args.tables[0] == "all":
-        tables="all"
-    else:
-        tables=args.tables
-
-    export_dataset(args.metadata, args.chunks, reset=args.reset, framerate=args.framerate, tables=tables)
+    export_dataset(args.metadata, args.chunks, reset=args.reset, framerate=args.framerate, tables=args.tables)

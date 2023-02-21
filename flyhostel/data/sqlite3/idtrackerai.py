@@ -12,10 +12,10 @@ from idtrackerai.list_of_blobs import ListOfBlobs
 from .sqlite3 import SQLiteExporter
 from .deepethogram import DeepethogramExporter
 from .orientation import OrientationExporter
-from .constants import PRESETS
+
 from .utils import (
     table_is_not_empty,
-    ensure_type
+    ensure_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -238,7 +238,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
 
 
 
-    def init_tables(self, dbfile, tables, reset=True):
+    def init_tables(self, dbfile, tables, behaviors=None, reset=True):
         super(IdtrackeraiExporter, self).init_tables(dbfile, tables, reset=reset)
         if "IDENTITY" in tables:
             self.init_identity_table(dbfile, reset=reset)
@@ -250,7 +250,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             self.init_orientation_table(dbfile, reset=reset)
 
         if "BEHAVIORS" in tables:
-            self.init_behaviors_table(dbfile, reset=reset)
+            self.init_behaviors_table(dbfile, behaviors=behaviors, reset=reset)
 
 
     def export(self, dbfile, chunks, tables, mode="a", reset=True, behaviors=None):
@@ -267,7 +267,21 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             behaviors (list):
         """
 
-        super(IdtrackeraiExporter, self).export(dbfile, chunks=chunks, tables=tables, mode=mode, reset=reset)
+        if os.path.exists(dbfile):
+            warnings.warn(f"{dbfile} exists")
+            if reset and mode == "w":
+                warnings.warn(f"Removing {dbfile}")
+                os.remove(dbfile)
+            elif mode == "a":
+                print(f"Resuming file {dbfile}")
+
+
+        super(IdtrackeraiExporter, self).export(
+            dbfile, chunks=chunks,
+            tables=tables, mode=mode,
+            behaviors=behaviors,
+            reset=reset
+        )
 
         if "ROI_0" in tables or "IDENTITY" in tables:
             w_trajectory="ROI_0" in tables

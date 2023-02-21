@@ -23,7 +23,7 @@ from .snapshot import SnapshotExporter
 logger = logging.getLogger(__name__)
 
 
-class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, ConcatenationExporter, MetadataExporter, ABC):
+class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, MetadataExporter, StoreIndexExporter, ABC):
 
     _CLASSES = {0: "head"}
     _AsyncWriter = AsyncSQLiteWriter
@@ -36,16 +36,9 @@ class SQLiteExporter(StoreIndexExporter, SnapshotExporter, AIExporter, Concatena
         super(SQLiteExporter, self).__init__(*args, **kwargs)
 
 
-    def export(self, dbfile, chunks, tables, mode="a", reset=True):
+    def export(self, dbfile, chunks, tables, mode="a", reset=True, **kwargs):
 
-        if os.path.exists(dbfile):
-            if reset:
-                warnings.warn(f"{dbfile} exists. Remaking tables {tables} from scratch and ignoring mode")
-            elif mode == "a":
-                print(f"Resuming file {dbfile}")
-
-
-        self.init_tables(dbfile, tables, reset=reset)
+        self.init_tables(dbfile, tables, reset=reset, **kwargs)
         print(f"Writing tables: {tables}")
 
         if "CONCATENATION" in tables and not table_is_not_empty(dbfile, "CONCATENATION"):

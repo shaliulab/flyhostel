@@ -84,6 +84,7 @@ class MP4Reader:
         self._data["x"] = np.int32(np.floor(self._data["x"]))
         self._data["y"] = np.int32(np.floor(self._data["y"]))
         self._last_frame_indices=[]
+        print(f"MP4 reader initialized with step = {self.step}")
 
     @property
     def sqlite_query(self):
@@ -306,7 +307,7 @@ class MP4Reader:
 
         if self.consumer == "flyhostel":
             assert self._number_of_animals is not None
-            frame_number, frame =self.read(self.count+1, self._number_of_animals)
+            frame_number, frame =self.read(self.count+self.step, self._number_of_animals)
             return frame
 
         if self.consumer == "yolov7":
