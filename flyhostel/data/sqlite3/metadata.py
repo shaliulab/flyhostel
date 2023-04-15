@@ -78,13 +78,13 @@ class MetadataExporter(ABC):
         machine_name = os.path.basename(os.path.dirname(os.path.dirname(self._basedir)))
 
         created_utc=self._store_metadata["created_utc"].split(".")[0]
-        date_time = datetime.datetime.strptime(created_utc, "%Y-%m-%dT%H:%M:%S").timestamp()
+        dt = datetime.datetime.strptime(created_utc, "%Y-%m-%dT%H:%M:%S")
+        timestamp = dt.timestamp()
 
         ### NOTE:
         ## Make sure the saved timestamp is relative to the UTC timezone
         ## and not the TZ of the computer where this is running
-        dt = datetime.datetime.now().astimezone()
-        date_time += dt.tzinfo.utcoffset(dt).seconds
+        timestamp += dt.astimezone().tzinfo.utcoffset(dt).seconds
         ####################################################
 
 
@@ -127,7 +127,7 @@ class MetadataExporter(ABC):
         data = [
             ("machine_id", machine_id),
             ("machine_name", machine_name),
-            ("date_time", date_time),
+            ("date_time", timestamp),
             ("frame_width", self._store_metadata["imgshape"][1]),
             ("frame_height", self._store_metadata["imgshape"][0]),
             ("framerate", self.framerate),
@@ -156,7 +156,7 @@ class MetadataExporter(ABC):
 
         # try:
         if DOWNLOAD_FLYHOSTEL_METADATA is None:
-            raise ModuleNotFoundError("Please define DOWNLOAD_FLYHOSTEL_METADATA     as the path to the download-behavioral-data Python binary")
+            raise ModuleNotFoundError("Please define DOWNLOAD_FLYHOSTEL_METADATA as the path to the download-behavioral-data Python binary")
 
         path=path.replace(" ", "_")
         cmd = f'{DOWNLOAD_FLYHOSTEL_METADATA} --metadata {path}'
