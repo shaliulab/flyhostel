@@ -80,6 +80,13 @@ class MetadataExporter(ABC):
         created_utc=self._store_metadata["created_utc"].split(".")[0]
         date_time = datetime.datetime.strptime(created_utc, "%Y-%m-%dT%H:%M:%S").timestamp()
 
+        ### NOTE:
+        ## Make sure the saved timestamp is relative to the UTC timezone
+        ## and not the TZ of the computer where this is running
+        dt = datetime.datetime.now().astimezone()
+        date_time += dt.tzinfo.utcoffset(dt).seconds
+        ####################################################
+
 
         with open(self._idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
             idtrackerai_conf_str = filehandle.read()
