@@ -34,6 +34,7 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
         self._number_of_animals = None
         self._index_dbfile = os.path.join(self._basedir, "index.db")
         super(SQLiteExporter, self).__init__(*args, **kwargs)
+        self._must_have_snapshot = self._store_metadata.get("must_have_snapshot", True)
 
 
     def export(self, dbfile, chunks, tables, mode="a", reset=True, **kwargs):
@@ -42,34 +43,42 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
         print(f"Writing tables: {tables}")
 
         if "CONCATENATION" in tables and not table_is_not_empty(dbfile, "CONCATENATION"):
+            print("Writing CONCATENATION")
             self.write_concatenation_table(dbfile, chunks=chunks)
             print("CONCATENATION done")
 
         if "METADATA" in tables:
+            print("Writing METADATA")
             self.write_metadata_table(dbfile)
             print("METADATA done")
 
         if "IMG_SNAPSHOTS" in tables:
+            print("Writing IMG_SNAPSHOTS")
             self.write_snapshot_table(dbfile, chunks=chunks)
             print("IMG_SNAPSHOTS done")
 
         if "ROI_MAP" in tables:
+            print("Writing ROI_MAP")
             self.write_roi_map_table(dbfile)
             print("ROI_MAP done")
 
         if "ENVIRONMENT" in tables:
+            print("Writing ENVIRONMENT")
             self.write_environment_table(dbfile, chunks=chunks)
             print("ENVIRONMENT done")
 
         if "VAR_MAP" in tables:
+            print("Writing VAR_MAP")
             self.write_var_map_table(dbfile)
             print("VAR_MAP done")
 
         if "STORE_INDEX" in tables:
+            print("Writing STORE_INDEX")
             self.write_index_table(dbfile)
             print("STORE_INDEX done")
 
         if "AI" in tables:
+            print("Writing AI")
             self.write_ai_table(dbfile, chunks=chunks)
             print("AI done")
 
@@ -134,6 +143,7 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             if reset:
+                print("Dropping ENVIRONMENT")
                 cur.execute("DROP TABLE IF EXISTS ENVIRONMENT;")
             cur.execute("CREATE TABLE IF NOT EXISTS ENVIRONMENT (frame_number int(11), camera_temperature real(6), temperature real(6), humidity real(6), light real(6));")
 

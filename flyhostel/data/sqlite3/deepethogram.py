@@ -123,9 +123,7 @@ class DeepethogramExporter(ABC):
 
 
                     if data:
-                        print(len(data))
                         cmd=f"INSERT INTO {behavior} (frame_number, local_identity, probability) VALUES (?, ?, ?);"
-                        print(cmd)
                         before=time.time()
                         conn.executemany(cmd, data)
                         after=time.time()

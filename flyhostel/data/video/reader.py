@@ -24,7 +24,7 @@ class MP4Reader:
     def __init__(
         self,
         consumer, connection, store_path, chunks, width=None, height=None, resolution=None, background_color=255,
-        img_size=640, stride=32, frequency=1, number_of_animals=None
+        img_size=640, stride=32, frequency=None, number_of_animals=None
         ):
 
         """
@@ -248,7 +248,18 @@ class MP4Reader:
 
     def get_centroid(self, frame_number, identifier):
         try:
-            x_coord, y_coord, _ = self._data.loc[frame_number, identifier].values.tolist()
+            subset = self._data.loc[frame_number, identifier]
+            # this happens when all blobs have identity 0 in the same frame
+            # maybe also if > 1 has identity 0?
+            # I need to figure out why
+            if type(subset) is pd.DataFrame:
+                x_coord, y_coord, _ = subset.values.tolist()[0]
+            # this is the normal
+            elif type(subset) is pd.Series:
+                x_coord, y_coord, _ = subset.values.tolist()
+            else:
+                raise Exception(f"Invalid data for frame_number {frame_number} and identifier {identifier}")
+
         except KeyError:
             # an animal in this frame number with this identifier is not found
             return None

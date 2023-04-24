@@ -2,7 +2,7 @@ import os.path
 import sqlite3
 import json
 import logging
-
+import warnings
 import cv2
 import numpy as np
 import joblib
@@ -26,11 +26,13 @@ def validate_video(path):
 
     cap = cv2.VideoCapture(path)
     ret, frame = cap.read()
-    assert ret, f"Validation for {path} failed"
-    assert isinstance(frame, np.ndarray), f"Validation for {path} failed"
-    assert frame.shape[0] > 0 and frame.shape[1] > 0, f"Validation for {path} failed"
+    if not ret:
+        warnings.warn(f"Validation for {path} failed. ret not True")
 
-
+    if not isinstance(frame, np.ndarray):
+        warnings.warn(f"Validation for {path} failed. output is not an array")
+    if not (frame.shape[0] > 0 and frame.shape[1] > 0):
+        warnings.warn(f"Validation for {path} failed. frame has size 0 in one of its dimensions")
 
 class SingleVideoMaker(MP4VideoMaker):
 

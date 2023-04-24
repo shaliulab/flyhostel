@@ -30,8 +30,7 @@ class MP4VideoMaker(ABC):
         if output is None:
             output = os.path.join(self._basedir, "flyhostel", "single_animal")
 
-        if not os.path.exists(output):
-            os.makedirs(output)
+        os.makedirs(output, exist_ok=True)
 
         capfn=None
 
@@ -65,7 +64,6 @@ class MP4VideoMaker(ABC):
                             background_color=background_color, chunks=[chunk]
                         ) as mp4_reader:
 
-                        # pb = tqdm(unit="frame")
 
                         while True:
 
@@ -81,12 +79,13 @@ class MP4VideoMaker(ABC):
                                 resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
                                 fn = self.init_video_writer(basedir=output, frame_size=resolution_full, **kwargs)
                                 print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {start_next_chunk}")
-                                assert img.shape == resolution_full[::-1]
+                                assert img.shape == resolution_full[::-1], f"{img.shape} != {resolution_full[::-1]}"
                                 assert str(chunk).zfill(6) in fn
 
                             frame_time = self.fetch_frame_time(index_cur, frame_number)
                             assert img.shape == resolution_full[::-1], f"{img.shape} != {resolution_full[::-1]}"
                             capfn=self.video_writer._capfn
+                            # print(f"add_image {img.shape} -> {capfn}")
                             fn = self.video_writer.add_image(
                                 img, frame_number, frame_time, annotate=False,
                                 start_next_chunk=start_next_chunk

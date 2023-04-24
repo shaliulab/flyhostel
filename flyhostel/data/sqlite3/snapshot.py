@@ -13,6 +13,7 @@ class SnapshotExporter(ABC):
     """
 
     _basedir=None
+    _must_have_snapshot = None
 
     def __init__(self, *args, **kwargs):
         self._temp_path = tempfile.mktemp(prefix="flyhostel_", suffix=".jpg")
@@ -51,7 +52,13 @@ class SnapshotExporter(ABC):
 
                 snapshot_path = os.path.join(self._basedir, f"{str(chunk).zfill(6)}.png")
                 if not os.path.exists(snapshot_path):
-                    raise ValueError(f"Cannot save chunk {chunk} snapshot. {snapshot_path} does not exist")
+                    message = f"Cannot save chunk {chunk} snapshot. {snapshot_path} does not exist"
+                    if self._must_have_snapshot:
+                        raise ValueError(message)
+                    else:
+                        warnings.warn(message)
+                        continue
+
                 arr=cv2.imread(snapshot_path)
                 bstring = serialize_arr(arr, self._temp_path)
                 data.append((frame_number, bstring))

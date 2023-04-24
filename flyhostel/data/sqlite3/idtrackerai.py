@@ -21,6 +21,8 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
+# only use these indices: id_fn      id_id      id_lid     idx_chunk  idx_fn     idx_hs     roi0_fn
+
 class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExporter):
 
     def __init__(self, basedir, deepethogram_data, *args, framerate=None, **kwargs):
@@ -59,7 +61,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             cur.execute(command)
             print("Creating indices for ROI_0 table")
             cur.execute("CREATE INDEX roi0_fn ON ROI_0 (frame_number);")
-            cur.execute("CREATE INDEX roi0_ifi ON ROI_0 (in_frame_index);")
+            # cur.execute("CREATE INDEX roi0_ifi ON ROI_0 (in_frame_index);")
 
 
    # IDENTITY
@@ -73,7 +75,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             cur.execute("CREATE INDEX id_fn ON IDENTITY (frame_number);")
             cur.execute("CREATE INDEX id_id ON IDENTITY (identity);")
             cur.execute("CREATE INDEX id_lid ON IDENTITY (local_identity);")
-            cur.execute("CREATE INDEX id_ifi ON IDENTITY (in_frame_index);")
+            # cur.execute("CREATE INDEX id_ifi ON IDENTITY (in_frame_index);")
 
 
     # write
@@ -85,7 +87,12 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         if os.path.exists(blobs_collection):
 
             list_of_blobs = ListOfBlobs.load(blobs_collection)
+
+            cwd = os.getcwd()
+            os.chdir(os.path.join(self._basedir, "idtrackerai"))
+            logger.debug("Loading %s", video_path)
             video_object = np.load(video_path, allow_pickle=True).item()
+            os.chdir(cwd)
 
             with sqlite3.connect(dbfile, check_same_thread=False) as conn:
                 cur = conn.cursor()
@@ -274,6 +281,8 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
                 os.remove(dbfile)
             elif mode == "a":
                 print(f"Resuming file {dbfile}")
+
+        import ipdb; ipdb.set_trace()
 
 
         super(IdtrackeraiExporter, self).export(

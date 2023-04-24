@@ -20,12 +20,18 @@ PRESETS = {
         "CONCATENATION","STORE_INDEX",
         "ENVIRONMENT", "AI"
     ],
+    "roi0": [
+        "ROI_0"
+    ],
     "trajectory": [
         "ROI_0", "IDENTITY"
     ],
     "index": [
         "STORE_INDEX"
     ],
+    "identity": [
+        "CONCATENATION", "IDENTITY", "METADATA"
+    ]
 }
 
 RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
