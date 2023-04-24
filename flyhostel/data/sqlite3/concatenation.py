@@ -11,6 +11,7 @@ class ConcatenationExporter(ABC):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
             if reset:
+                print("Dropping CONCATENATION")
                 cur.execute("DROP TABLE IF EXISTS CONCATENATION;")
             cur.execute("CREATE TABLE IF NOT EXISTS CONCATENATION (chunk int(3), in_frame_index int(2), in_frame_index_after int(2), local_identity int(2), local_identity_after int(2), identity int(2));")
 

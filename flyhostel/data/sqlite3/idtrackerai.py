@@ -282,9 +282,6 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             elif mode == "a":
                 print(f"Resuming file {dbfile}")
 
-        import ipdb; ipdb.set_trace()
-
-
         super(IdtrackeraiExporter, self).export(
             dbfile, chunks=chunks,
             tables=tables, mode=mode,
