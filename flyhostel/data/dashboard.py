@@ -5,7 +5,6 @@ Quickly obtain an overview of the status of the pipeline for different experimen
 import os.path
 import pickle
 import glob
-import os
 import os.path
 import sqlite3
 
@@ -19,15 +18,15 @@ def validate_file_exists_and_its_non_zero(path):
     return os.path.exists(path) and os.path.getsize(path) > 0
 
 def validate_ai_file(path):
-    
+
     validated=os.path.exists(path)
     if not validated:
         return validated
-    
+
     try:
         with open(path, "rb") as filehandle:
             pickle.load(filehandle)
-        
+
         return True
     except:
         return False
@@ -43,7 +42,7 @@ def validate_idtrackerai_preprocessing(flyhostel_id, number_of_animals, date_tim
         validated=validated and validate_file_exists_and_its_non_zero(blobs_collection)
         if not validated:
             break
-    
+
     return validated
 
 
@@ -56,7 +55,7 @@ def validate_idtrackerai_integration(flyhostel_id, number_of_animals, date_time,
         validated=validated and validate_ai_file(ai_file)
         if not validated:
             break
-    
+
     return validated
 
 
@@ -69,7 +68,7 @@ def validate_idtrackerai_crossings_detection_and_fragmentation(flyhostel_id, num
         validated=validated and validate_file_exists_and_its_non_zero(fragments_file)
         if not validated:
             break
-    
+
     return validated
 
 
@@ -78,11 +77,11 @@ def validate_idtrackerai_tracking(flyhostel_id, number_of_animals, date_time, ch
     validated=True
 
     for chunk in range(chunk_start, chunk_end+1):
-        trrajectories_file=os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "trrajectories", "trrajectories.npy")
-        validated=validated and validate_file_exists_and_its_non_zero(trrajectories_file)
+        trajectories_file=os.path.join(basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "trajectories", "trajectories.npy")
+        validated=validated and validate_file_exists_and_its_non_zero(trajectories_file)
         if not validated:
             break
-    
+
     return validated
 
 
@@ -98,7 +97,7 @@ def validate_flyhostel_export(flyhostel_id, number_of_animals, date_time, chunk_
 
     with sqlite3.connect(dbfile, check_same_thread=False) as conn:
         cur = conn.cursor()
-        
+
         cur.execute("SELECT value FROM METADATA WHERE field = 'chunks';")
         chunks=[int(x) for x in cur.fetchone().split(",")]
 
@@ -106,9 +105,9 @@ def validate_flyhostel_export(flyhostel_id, number_of_animals, date_time, chunk_
         if not validated:
             return validated
 
-        
+
         try:
-            cur.execute("SELECT COUNT(*) FROM BEHAVIORS LIMIT 1;")
+            cur.execute("SELECT COUNT(*) FROM INACTIVE LIMIT 1;")
             count=cur.fetchone()[0]
             if count > 0:
                 return 2
@@ -118,7 +117,7 @@ def validate_flyhostel_export(flyhostel_id, number_of_animals, date_time, chunk_
 
 
 def validate_video(path, expected_frame_count):
-    
+
     cap = cv2.VideoCapture(path)
     pos=cap.get(1)
 
@@ -134,11 +133,11 @@ def validate_flyhostel_make_video(flyhostel_id, number_of_animals, date_time, ch
     basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], f"FlyHostel{flyhostel_id}", f"{number_of_animals}X", date_time)
     store_folder = os.path.join(basedir, "flyhostel", "single_animal")
     metadata_file=os.path.join(store_folder, "metadata.yaml")
-    
+
     validated = os.path.exists(metadata_file)
     with open(metadata_file, "r") as filehandle:
         metadata=yaml.load(filehandle, yaml.SafeLoader)
-    
+
     chunksize=int(metadata["__store"]["chunksize"])
 
     if not validated:
@@ -158,7 +157,7 @@ def validate_deepethogram_prediction(flyhostel_id, number_of_animals, date_time,
 
     for chunk in range(chunk_start, chunk_end+1):
         key=f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}_{str(chunk).zfill(6)}"
-        filename=f"{key}_00_outputs.h5" 
+        filename=f"{key}_00_outputs.h5"
         output_file=os.path.join(data_dir, key, filename)
         if not os.path.exists(output_file):
             filename=f"{key}_outputs.h5"
@@ -210,7 +209,7 @@ def validate_experiment(flyhostel_id, number_of_animals, date_time, chunk_start,
     for start, end in intervals:
         print(start, end)
         data.append(validate_experiment_(start,end-1, flyhostel_id=flyhostel_id, number_of_animals=number_of_animals, date_time=date_time))
-    
+
     data=pd.concat(data)
     #str_data=data.to_csv(index=False).strip('\n').split('\n')
     #for row in str_data:
