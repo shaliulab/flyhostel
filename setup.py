@@ -32,6 +32,7 @@ setup(
         "scikit-learn",
         "recordtype",
         "tqdm",
+        "yolov7tools",
         #"feed_integration",
     ],
     entry_points={
