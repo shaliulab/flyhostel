@@ -10,7 +10,7 @@ HERE = pathlib.Path(__file__).parent
 README = (HERE / "README.md").read_text()
 
 PKG_NAME = "flyhostel"
-version = "1.1.5"
+version = "1.1.6"
 
 setup(
     name=PKG_NAME,
@@ -32,7 +32,7 @@ setup(
         "scikit-learn",
         "recordtype",
         "tqdm",
-        "yolov7tools",
+        "yolov7tools==1.1",
         #"feed_integration",
     ],
     entry_points={
