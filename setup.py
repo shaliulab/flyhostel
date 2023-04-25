@@ -39,6 +39,8 @@ setup(
         "console_scripts": [
             "fh=flyhostel.__main__:main",
             "fh-server=flyhostel.server.server:main",
+            "fh-validate=flyhostel.data.bin.dashboard:main",
+            "missing-chunk-detector=flyhostel.utils.missing_chunk_detector:main",
             ]
     },
 )
