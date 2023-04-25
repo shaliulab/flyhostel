@@ -22,7 +22,6 @@ setup(
             "recordtype",
             "trajectorytools-shaliulab==0.3.5"
         ],
-        "dropbox": ["dropy"]
     },
     install_requires=[
         "zeitgeber>=0.0.2",
