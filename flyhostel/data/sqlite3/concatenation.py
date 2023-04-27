@@ -28,7 +28,14 @@ class ConcatenationExporter(ABC):
                         row["chunk"], row["in_frame_index_before"], row["in_frame_index_after"],
                         row["local_identity"], row["local_identity_after"], row["identity"]
                     )
-                    args=tuple([e.item() for e in args])
+                    args2=[]
+                    for e in args:
+                        try:
+                            e = e.item()
+                        except AttributeError:
+                            pass
+                        args2.append(e)
+                    args=tuple(args2)
                     chunk=args[0]
                     if chunk in chunks:
                         data.append(args)
