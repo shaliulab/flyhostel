@@ -110,7 +110,11 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
             self.init_concatenation_table(dbfile, reset=reset)
 
     def build_blobs_collection(self, chunk):
-        return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "blobs_collection.npy")
+        path=os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "tracking", "blobs_collection.npy")
+        if not os.path.exists(path):
+            path=os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "blobs_collection.npy")
+        return path
+    
 
     def build_video_object(self, chunk):
         return os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "video_object.npy")
