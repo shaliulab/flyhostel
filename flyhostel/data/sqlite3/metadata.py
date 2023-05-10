@@ -15,6 +15,7 @@ from .constants import (
     RAISE_EXCEPTION_IF_METADATA_NOT_FOUND,
 
 )
+from .utils import parse_experiment_properties
 from imgstore.constants import STORE_MD_FILENAME
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 
@@ -37,14 +38,11 @@ class MetadataExporter(ABC):
         self._index_dbfile = os.path.join(self._basedir, "index.db")
         self._store_metadata_path = os.path.join(self._basedir, STORE_MD_FILENAME)
         self._store_metadata = _extract_store_metadata(self._store_metadata_path)
-
-        self._idtrackerai_conf_path = os.path.join(
-            self._basedir,
-            f"{os.path.basename(self._basedir)}.conf"
-        )
-
-        with open(self._idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
-            self._idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
+        
+        # this information should be read from index_information table in index.db
+        (idtrackerai_conf_path, self._idtrackerai_conf), (self._flyhostel_id, self._number_of_animals, self._date_time) = parse_experiment_properties()
+        with open(idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
+            self._idtrackerai_conf_str = filehandle.read()
 
         matches = glob.glob(os.path.join(self._basedir, "*pfs"))
         if matches:
@@ -88,8 +86,6 @@ class MetadataExporter(ABC):
         ####################################################
 
 
-        with open(self._idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
-            idtrackerai_conf_str = filehandle.read()
 
 
         if self._camera_metadata_path is not None and os.path.exists(self._camera_metadata_path):
@@ -137,7 +133,7 @@ class MetadataExporter(ABC):
             ("version", "1"),
             ("ethoscope_metadata", ethoscope_metadata_str),
             ("camera_metadata", camera_metadata_str),
-            ("idtrackerai_conf", idtrackerai_conf_str),
+            ("idtrackerai_conf", self._idtrackerai_conf_str),
             ("chunks", chunks),
         ]
 
@@ -148,8 +144,7 @@ class MetadataExporter(ABC):
             )
 
 
-    @staticmethod
-    def download_metadata(path):
+    def download_metadata(self, path):
         """
         Download the metadata from a Google Sheets database
         """
@@ -159,7 +154,7 @@ class MetadataExporter(ABC):
             raise ModuleNotFoundError("Please define DOWNLOAD_FLYHOSTEL_METADATA as the path to the download-behavioral-data Python binary")
 
         path=path.replace(" ", "_")
-        cmd = f'{DOWNLOAD_FLYHOSTEL_METADATA} --metadata {path}'
+        cmd = f'{DOWNLOAD_FLYHOSTEL_METADATA} --metadata {path} --flyhostel-id {self._flyhostel_id} --date-time {self._date_time} --number-of-animals {self._number_of_animals}'
         cmd_list = shlex.split(cmd)
         process = subprocess.Popen(cmd_list)
         process.communicate()

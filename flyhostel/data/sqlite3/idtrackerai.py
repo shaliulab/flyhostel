@@ -260,7 +260,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             self.init_behaviors_table(dbfile, behaviors=behaviors, reset=reset)
 
 
-    def export(self, dbfile, chunks, tables, mode="a", reset=True, behaviors=None):
+    def export(self, dbfile, chunks, tables, reset=True, behaviors=None):
         """
         Export datasets into single SQLite file
 
@@ -274,17 +274,9 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             behaviors (list):
         """
 
-        if os.path.exists(dbfile):
-            warnings.warn(f"{dbfile} exists")
-            if reset and mode == "w":
-                warnings.warn(f"Removing {dbfile}")
-                os.remove(dbfile)
-            elif mode == "a":
-                print(f"Resuming file {dbfile}")
-
         super(IdtrackeraiExporter, self).export(
             dbfile, chunks=chunks,
-            tables=tables, mode=mode,
+            tables=tables,
             behaviors=behaviors,
             reset=reset
         )

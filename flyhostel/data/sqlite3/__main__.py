@@ -21,12 +21,9 @@ def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
     basedir=os.path.realpath(basedir)
     print("Initializing exporter")
     dataset = IdtrackeraiExporter(basedir, deepethogram_data=os.environ["DEEPETHOGRAM_DATA"], framerate=framerate)
-    mode="a"
     if len(tables)== 1 and tables[0] in PRESETS:
-        if tables[0] == "default":
-            mode = "w"
         tables=PRESETS[tables[0]]
 
 
     print(f"Start export of tables {tables}")
-    dataset.export(dbfile=dbfile, chunks=chunks, tables=tables, behaviors=BEHAVIORS, mode=mode, reset=reset)
+    dataset.export(dbfile=dbfile, chunks=chunks, tables=tables, behaviors=BEHAVIORS, reset=reset)

@@ -37,7 +37,7 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
         self._must_have_snapshot = self._store_metadata.get("must_have_snapshot", True)
 
 
-    def export(self, dbfile, chunks, tables, mode="a", reset=True, **kwargs):
+    def export(self, dbfile, chunks, tables, reset=True, **kwargs):
 
         self.init_tables(dbfile, tables, reset=reset, **kwargs)
         print(f"Writing tables: {tables}")
