@@ -58,7 +58,7 @@ def predict_video(video, local_identity, stride, nodes=None, output_file=None):
         )
 
     if output_file is not None:
-        data = pd.concat(output)
+        data = pd.DataFrame.from_records(output)
         data.columns=["frame_number", "node", "x", "y", "score"]
         data.to_csv(output_file)
 
