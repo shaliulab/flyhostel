@@ -1,4 +1,9 @@
+import os.path
+import re
+import glob
 import sqlite3
+
+import yaml
 import cv2
 
 def table_is_not_empty(dbfile, table_name):
@@ -35,3 +40,20 @@ def serialize_arr(arr, path):
         bstring = filehandle.read()
 
     return bstring
+
+
+
+def parse_experiment_properties():
+    idtrackerai_conf_path = glob.glob("20*.conf")[0]
+    date_time = re.search("(20.*).conf", idtrackerai_conf_path).group(1)
+    flyhostel_id = int(re.search(
+        "FlyHostel([0-9])",
+        os.path.realpath("metadata.yaml")
+    ).group(1))
+
+
+    with open(idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
+        idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
+
+    number_of_animals = int(idtrackerai_conf["_number_of_animals"]["value"])
+    return (idtrackerai_conf_path, idtrackerai_conf), (flyhostel_id, number_of_animals, date_time)
