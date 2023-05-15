@@ -12,6 +12,7 @@ from idtrackerai.list_of_blobs import ListOfBlobs
 from .sqlite3 import SQLiteExporter
 from .deepethogram import DeepethogramExporter
 from .orientation import OrientationExporter
+from .sleap import SleapExporter
 
 from .utils import (
     table_is_not_empty,
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # only use these indices: id_fn      id_id      id_lid     idx_chunk  idx_fn     idx_hs     roi0_fn
 
-class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExporter):
+class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, OrientationExporter):
 
     def __init__(self, basedir, deepethogram_data, *args, framerate=None, **kwargs):
         self._basedir = basedir
@@ -243,9 +244,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         return identity_reference_to_ref_chunk
 
 
-
-
-    def init_tables(self, dbfile, tables, behaviors=None, reset=True):
+    def init_tables(self, dbfile, tables, behaviors=None, nodes=None, reset=True):
         super(IdtrackeraiExporter, self).init_tables(dbfile, tables, reset=reset)
         if "IDENTITY" in tables:
             self.init_identity_table(dbfile, reset=reset)
@@ -259,8 +258,11 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         if "BEHAVIORS" in tables:
             self.init_behaviors_table(dbfile, behaviors=behaviors, reset=reset)
 
+        if "POSE" in tables:
+            self.init_pose_table(dbfile, nodes=nodes, reset=reset)
 
-    def export(self, dbfile, chunks, tables, reset=True, behaviors=None):
+
+    def export(self, dbfile, chunks, tables, reset=True, behaviors=None, nodes=None):
         """
         Export datasets into single SQLite file
 
@@ -278,6 +280,7 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
             dbfile, chunks=chunks,
             tables=tables,
             behaviors=behaviors,
+            nodes=nodes,
             reset=reset
         )
 
@@ -308,3 +311,6 @@ class IdtrackeraiExporter(SQLiteExporter, DeepethogramExporter, OrientationExpor
         if "BEHAVIORS" in tables:
             self.write_behaviors_table(dbfile, behaviors=behaviors)
             print("BEHAVIORS done")
+
+        if "POSE" in tables:
+            self.write_pose_table(dbfile, chunks=chunks, nodes=nodes)

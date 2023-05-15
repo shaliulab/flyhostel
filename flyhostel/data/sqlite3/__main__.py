@@ -2,7 +2,7 @@ import os.path
 import re
 import glob
 from .idtrackerai import IdtrackeraiExporter
-from .constants import PRESETS, BEHAVIORS
+from .constants import PRESETS, BEHAVIORS, NODES
 from .utils import parse_experiment_properties
 
 def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
@@ -24,10 +24,15 @@ def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
     dbfile = os.path.join(basedir, dbfile_basename)
     basedir=os.path.realpath(basedir)
     print("Initializing exporter")
-    dataset = IdtrackeraiExporter(basedir, deepethogram_data=os.environ["DEEPETHOGRAM_DATA"], framerate=framerate)
+    dataset = IdtrackeraiExporter(
+        basedir,
+        deepethogram_data=os.environ["DEEPETHOGRAM_DATA"],
+        sleap_data=os.environ["SLEAP_DATA"],
+        framerate=framerate
+    )
     if len(tables)== 1 and tables[0] in PRESETS:
         tables=PRESETS[tables[0]]
 
 
     print(f"Start export of tables {tables}")
-    dataset.export(dbfile=dbfile, chunks=chunks, tables=tables, behaviors=BEHAVIORS, reset=reset)
+    dataset.export(dbfile=dbfile, chunks=chunks, tables=tables, behaviors=BEHAVIORS, nodes=NODES, reset=reset)

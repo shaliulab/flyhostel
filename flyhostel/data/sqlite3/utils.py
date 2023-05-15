@@ -43,13 +43,23 @@ def serialize_arr(arr, path):
 
 
 
-def parse_experiment_properties():
-    idtrackerai_conf_path = glob.glob("20*.conf")[0]
-    date_time = re.search("(20.*).conf", idtrackerai_conf_path).group(1)
-    flyhostel_id = int(re.search(
-        "FlyHostel([0-9])",
-        os.path.realpath("metadata.yaml")
-    ).group(1))
+def parse_experiment_properties(basedir=None):
+    wd=os.getcwd()
+
+    if basedir is not None:
+        os.chdir(basedir)
+    
+    try:   
+        idtrackerai_conf_path = glob.glob("20*.conf")[0]
+        
+        date_time = re.search("(20.*).conf", idtrackerai_conf_path).group(1)
+        flyhostel_id = int(re.search(
+            "FlyHostel([0-9])",
+            os.path.realpath("metadata.yaml")
+        ).group(1))
+    
+    finally:
+        os.chdir(wd)
 
 
     with open(idtrackerai_conf_path, "r", encoding="utf8") as filehandle:

@@ -34,6 +34,10 @@ PRESETS = {
     ]
 }
 
+PRESETS["default_and_trajectory"] = PRESETS["default"] + PRESETS["trajectory"]
+NODES=["proboscis", "head", "abdomen", "midLeg_right", "midLeg_left"]
+
+
 RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
 METADATA_FILE = "metadata.csv"
 
