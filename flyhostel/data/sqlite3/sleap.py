@@ -25,7 +25,7 @@ class SleapExporter(ABC):
             if reset:
                 print("DROP TABLE IF EXISTS POSE;")
                 cur.execute("DROP TABLE IF EXISTS POSE;")
-            cur.execute("CREATE TABLE IF NOT EXISTS POSE (frame_number int(11), local_identity int(3), node char(20), x int(4), y int(4), score float(5));")
+            cur.execute("CREATE TABLE IF NOT EXISTS POSE (frame_number int(11), local_identity int(3), node char(20), visible int(1), x int(4), y int(4), score float(5));")
             print(f"Creating indices for POSE table")
             cur.execute(f"CREATE INDEX pose_fn ON POSE (frame_number);")
             cur.execute(f"CREATE INDEX pose_lid ON POSE (local_identity);")
@@ -49,9 +49,9 @@ class SleapExporter(ABC):
 
         data=[]
         for i, row in pose.iterrows():
-            command = "INSERT INTO POSE (frame_number, local_identity, node, x, y, score) VALUES(?, ?, ?, ?, ?, ?);"
+            command = "INSERT INTO POSE (frame_number, local_identity, node, visible, x, y, score) VALUES(?, ?, ?, ?, ?, ?);"
             frame_number=row["frame_idx"]+chunk*chunksize
             
-            data.append((frame_number, row["local_identity"], row["node"], row["x"], row["y"], row["score"]))
+            data.append((frame_number, row["local_identity"], row["node"], row["visible"], row["x"], row["y"], row["score"]))
         conn.executemany(command, data)
 
