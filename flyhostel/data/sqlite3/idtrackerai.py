@@ -106,6 +106,7 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
 
                 r0_data =[]
                 id_data=[]
+                mod_data=set()
 
                 cmd="SELECT local_identity, identity FROM CONCATENATION WHERE chunk = ?"
                 cur.execute(cmd, (chunk, ))
@@ -119,11 +120,13 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
                 for frame_idx, blobs_in_frame in tqdm(enumerate(blobs_in_video), desc=f"Exporting trajectory/identity data for chunk {chunk}", unit="frame"):
                     if frame_idx % (self.step) == 0 or any((blob.modified for blob in blobs_in_frame)):
                         for blob in blobs_in_frame:
-                            r0_args, id_args = self.add_blob(blob, id_mapping=id_mapping, **kwargs)
+                            r0_args, id_args, mod_args = self.add_blob(blob, id_mapping=id_mapping, **kwargs)
                             if r0_args is not None:
                                 r0_data.append(r0_args)
                             if id_args is not None:
                                 id_data.append(id_args)
+                            if mod_args is not None:
+                                mod_data.add(mod_args)
 
 
                 if r0_data:
@@ -135,6 +138,13 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
                     command = "INSERT INTO IDENTITY (frame_number, in_frame_index, local_identity, identity) VALUES(?, ?, ?, ?);"
                     print(command)
                     conn.executemany(command, id_data)
+
+                if mod_data:
+                    mod_data=list(mod_data)
+                    command="INSERT INTO AI (frame_number, ai) VALUES (?, ?);"
+                    print(command)
+                    conn.executemany(command, mod_data)
+
 
         else:
             warnings.warn(f"{blobs_collection} not found")
@@ -164,7 +174,11 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
         else:
             id_args=None
 
-        return r0_args, id_args
+        mod_args=None
+        if blob.modified:
+            mod_args=(blob.frame_number, "YOLOv7")
+
+        return r0_args, id_args, mod_args
 
 
     def write_blob_trajectory(self, blob):

@@ -24,38 +24,13 @@ class AIExporter(ABC):
     def write_ai_table(self, dbfile, chunks=None):
 
         if chunks is None:
-            pickle_files=sorted(glob.glob(
-                os.path.join(self._basedir, "idtrackerai", "session_*", "preprocessing", "ai.pkl")
-            ))
-        else:
-            pickle_files = []
-            for chunk in chunks:
-                path=os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "ai.pkl")
-                if os.path.exists(path):
-                    pickle_files.append(path)
-
-        if pickle_files:
-            data=[]
-            for file in pickle_files:
-                with open(file, "rb") as filehandle:
-                    ai_mods = pickle.load(filehandle)
-                    frames=ai_mods["success"]
-
-                for frame_number in frames:
-                    data.append((frame_number, "YOLOv7"))
-
-            if data:
-                with sqlite3.connect(dbfile, check_same_thread=False) as conn:
-                    conn.executemany("INSERT INTO AI (frame_number, ai) VALUES (?, ?);", data)
-
-        if chunks is None:
             fragment_files=sorted(glob.glob(
-                os.path.join(self._basedir, "idtrackerai", "session_*", "preprocessing", "fragments.npy")
+                os.path.join(self._basedir, "idtrackerai", "session_*", "crossings_detection_and_fragmentation", "fragments.npy")
             ))
         else:
             fragment_files = []
             for chunk in chunks:
-                path = os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "preprocessing", "fragments.npy")
+                path = os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "crossings_detection_and_fragmentation", "fragments.npy")
                 if os.path.exists(path):
                     fragment_files.append(path)
 
