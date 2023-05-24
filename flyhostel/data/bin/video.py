@@ -16,6 +16,7 @@ def get_parser(ap=None):
     ap.add_argument("--output", type=str, required=False, default=None, help="Folder where the output will be generated")
     ap.add_argument("--chunksize", type=int, default=None, help="If provided, chunksize of the output")
     ap.add_argument("--chunks", type=int, nargs="+", help="Chunks to be processed")
+    ap.add_argument("--identifiers", type=int, nargs="+", help="Local identities", default=[-1])
     return ap
 
 
@@ -24,9 +25,9 @@ def main(args=None, ap=None):
         ap = get_parser(ap)
         args = ap.parse_args()
 
-    video_maker=SingleVideoMaker(flyhostel_dataset=args.dataset, value=args.frame_number, stacked=args.stacked, identifiers=identifiers)
+
+    video_maker=SingleVideoMaker(flyhostel_dataset=args.dataset, value=args.frame_number, stacked=args.stacked, identifiers=args.identifiers)
     resolution=tuple([int(e) for e in args.resolution.split("x")])
-    identifiers=list(range(1, video_maker.number_of_animals+1))
 
 
     if args.n_jobs == 1:

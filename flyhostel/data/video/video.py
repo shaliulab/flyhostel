@@ -40,7 +40,9 @@ class SingleVideoMaker(MP4VideoMaker):
     def __init__(self, flyhostel_dataset, identifiers, stacked=False, value=None):
         """
         
-        identifiers (list): Local identity of the animals whose video you want to create
+        identifiers (list): Local identity of the animals whose video you want to create.
+            A list whose only element is -1 is interpreted as all identifiers available in this dataset
+
         """
 
         self._flyhostel_dataset = flyhostel_dataset
@@ -82,6 +84,10 @@ class SingleVideoMaker(MP4VideoMaker):
             self.chunksize=int(float(cur.fetchone()[0]))
 
 
+        if len(self._identifiers) == 0 or (len(self._identifiers) == 1 and self._identifiers[0] == -1):
+            self._identifiers = list(range(1, self._number_of_animals+1))
+
+
         if value is None:
             self._value = (self.min_frame_number, self.max_frame_number)
 
@@ -113,9 +119,6 @@ class SingleVideoMaker(MP4VideoMaker):
         if chunksize is None:
             chunksize= self.chunksize
         print(f"chunksize = {chunksize}")
-        if self.video_writer is None:
-            self.video_writer={}
-            self.txt_file={}
 
         self.video_writer[identifier] = imgstore.new_for_format(
             mode="w",
@@ -130,6 +133,7 @@ class SingleVideoMaker(MP4VideoMaker):
         print(f"{basedir}:resolution={frame_size}:framerate={self.framerate}")
 
         txt_file = os.path.join(basedir, f"{str(chunk).zfill(6)}.txt")
+        cached_images=0
         if os.path.exists(txt_file):
             with open(txt_file, "r") as filehandle:
                 try:
@@ -138,11 +142,11 @@ class SingleVideoMaker(MP4VideoMaker):
                     cached_images=0
 
                 if cached_images == self.chunksize:
-                    return None
+                    return None, cached_images
                 
         self.txt_file[identifier]=txt_file
 
-        return self.video_writer._capfn
+        return self.video_writer[identifier]._capfn, cached_images
 
     def frame_number2chunk(self, frame_number):
         assert frame_number is not None

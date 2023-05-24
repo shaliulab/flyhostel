@@ -3,7 +3,7 @@ import sqlite3
 import os.path
 from tqdm.auto import tqdm
 from .reader import MP4Reader
-
+FLYHOSTEL_SINGLE_VIDEOS="./flyhostel/single_animal/"
 
 class MP4VideoMaker(ABC):
 
@@ -27,10 +27,11 @@ class MP4VideoMaker(ABC):
     def _make_single_video(self, chunks, output, frame_size, resolution, background_color=255, **kwargs):
         width, height = frame_size
         store_path=os.path.join(self._basedir, "metadata.yaml")
-
-        os.makedirs(output, exist_ok=True)
-
         capfn=None
+
+        self.video_writer={id: None for id in [0] + list(range(1, self._number_of_animals+1))}
+        self.txt_file={id: None for id in [0] + list(range(1, self._number_of_animals+1))}
+
 
         with sqlite3.connect(f"file:{self._flyhostel_dataset}?mode=ro", uri=True) as conn:
             with sqlite3.connect(f"file:{self._index_db}?mode=ro", uri=True) as index_conn:
@@ -48,6 +49,8 @@ class MP4VideoMaker(ABC):
                             width=width, height=height, resolution=resolution,
                             background_color=background_color, chunks=[chunk]
                         ) as mp4_reader:
+                            
+                        resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
 
 
                         while True:
@@ -61,16 +64,19 @@ class MP4VideoMaker(ABC):
                                 break
 
                             if self._stacked:
-                                fn=self.write_frame(img, output, chunk, frame_number, 0, resolution, index_cur=index_cur, **kwargs)
+                                fn, written_images=self.write_frame(img, output, chunk, frame_number, 0, resolution_full, index_cur=index_cur, written_images=written_images, **kwargs)
                                 if fn is not None:
                                     print(f"Working on chunk 000/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
 
 
                             else:
-                                for identifier in self._identifiers:
-                                    fn=self.write_frame(img, output, chunk, frame_number, identifier, resolution, index_cur=index_cur, **kwargs)
+                                for i, identifier in enumerate(self._identifiers):
+                                    fn, written_images=self.write_frame(img[i], output, chunk, frame_number, identifier, resolution, index_cur=index_cur, written_images=written_images, **kwargs)
                                     if fn is not None:
                                         print(f"Working on chunk {str(identifier).zfill(3)}/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
+
+                            target_fn=frame_number+mp4_reader.step
+
 
                         if self.stacked:
                             self.video_writer[0].close()
@@ -91,19 +97,19 @@ class MP4VideoMaker(ABC):
 
 
 
-    def write_frame(self, img, output, chunk, frame_number, identifier, resolution, index_cur, **kwargs):
+    def write_frame(self, img, output, chunk, frame_number, identifier, resolution, index_cur, written_images, **kwargs):
         if self.video_writer[identifier] is None:
-            resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
-            output=os.path.join(output, str(identifier).zfill(3))
-            fn = self.init_video_writer(basedir=output, frame_size=resolution_full, identifier=identifier,chunk=chunk, **kwargs)
+            output=os.path.join(FLYHOSTEL_SINGLE_VIDEOS, str(identifier).zfill(3))
+            os.makedirs(output, exist_ok=True)
+            fn, written_images = self.init_video_writer(basedir=output, frame_size=resolution, identifier=identifier,chunk=chunk, **kwargs)
             if fn is None:
-                return fn
+                return fn, written_images
             print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}")
-            assert img.shape == resolution_full[::-1], f"{img.shape} != {resolution_full[::-1]}"
+            assert img.shape == resolution[::-1], f"{img.shape} != {resolution[::-1]}"
             assert str(chunk).zfill(6) in fn
 
         frame_time = self.fetch_frame_time(index_cur, frame_number)
-        assert img.shape == resolution_full[::-1], f"{img.shape} != {resolution_full[::-1]}"
+        assert img.shape == resolution[::-1], f"{img.shape} != {resolution[::-1]}"
         capfn=self.video_writer[identifier]._capfn
         fn = self.video_writer[identifier].add_image(
             img, frame_number, frame_time, annotate=False,
@@ -117,4 +123,4 @@ class MP4VideoMaker(ABC):
                 filehandle.write(f"{written_images}\n")
 
         written_images+=1
-        return fn
+        return fn, written_images

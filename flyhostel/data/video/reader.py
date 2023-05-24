@@ -267,7 +267,7 @@ class MP4Reader:
         return (x_coord, y_coord)
 
 
-    def read(self, frame_number, identifiers, stack=False):
+    def read(self, frame_number, identifiers, stacked=False):
 
         if frame_number is None:
             frame_number = self._cap.frame_number
@@ -291,7 +291,7 @@ class MP4Reader:
             arr.append(img_)
             self._last_frame_indices.append(identifier)
 
-        if stack:
+        if stacked:
             img = np.hstack(arr)
         else:
             img = arr
