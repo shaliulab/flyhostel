@@ -94,6 +94,7 @@ class MP4VideoMaker(ABC):
     def write_frame(self, img, output, chunk, frame_number, identifier, resolution, index_cur, **kwargs):
         if self.video_writer[identifier] is None:
             resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
+            output=os.path.join(output, str(identifier).zfill(3))
             fn = self.init_video_writer(basedir=output, frame_size=resolution_full, identifier=identifier,chunk=chunk, **kwargs)
             if fn is None:
                 return fn
