@@ -34,14 +34,20 @@ def validate_video(path):
     if not (frame.shape[0] > 0 and frame.shape[1] > 0):
         warnings.warn(f"Validation for {path} failed. frame has size 0 in one of its dimensions")
 
+
 class SingleVideoMaker(MP4VideoMaker):
 
-    def __init__(self, flyhostel_dataset, value=None):
+    def __init__(self, flyhostel_dataset, identifiers, stacked=False, value=None):
+        """
+        
+        identifiers (list): Local identity of the animals whose video you want to create
+        """
 
         self._flyhostel_dataset = flyhostel_dataset
-        flyhostel, x_number_of_animals, date, hour = os.path.splitext(os.path.basename(flyhostel_dataset))[0].split("_")
-        self._basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], flyhostel, x_number_of_animals, f"{date}_{hour}")
+        self._basedir = "."
         self._index_db = os.path.join(self._basedir, "index.db")
+        self._identifiers = identifiers
+        self._stacked=stacked
 
         self.background_color = 255
         print(f"Reading {self._flyhostel_dataset}")
@@ -50,6 +56,8 @@ class SingleVideoMaker(MP4VideoMaker):
 
             cur = conn.cursor()
             cmd = "SELECT COUNT(frame_number) FROM ROI_0;"
+            # NOTE
+            # This does not check if the local_identity desired is available
             cur.execute(cmd)
             count = int(cur.fetchone()[0])
             if count == 0:
@@ -85,6 +93,10 @@ class SingleVideoMaker(MP4VideoMaker):
         self._video_object_list={}
         self.video_writer = None
 
+    @property
+    def number_of_animals(self):
+        return self._number_of_animals
+
 
     def fetch_angle(self, frame_number, blob_index):
 
@@ -96,13 +108,16 @@ class SingleVideoMaker(MP4VideoMaker):
 
         return angle
 
-    def init_video_writer(self, basedir, frame_size, first_chunk=0, chunksize=None):
+    def init_video_writer(self, basedir, frame_size, identifier, chunk, first_chunk=0, chunksize=None):
 
         if chunksize is None:
             chunksize= self.chunksize
         print(f"chunksize = {chunksize}")
+        if self.video_writer is None:
+            self.video_writer={}
+            self.txt_file={}
 
-        self.video_writer = imgstore.new_for_format(
+        self.video_writer[identifier] = imgstore.new_for_format(
             mode="w",
             fmt=ENCODER_FORMAT_CPU,
             framerate=self.framerate,
@@ -113,6 +128,20 @@ class SingleVideoMaker(MP4VideoMaker):
             first_chunk=first_chunk,
         )
         print(f"{basedir}:resolution={frame_size}:framerate={self.framerate}")
+
+        txt_file = os.path.join(basedir, f"{str(chunk).zfill(6)}.txt")
+        if os.path.exists(txt_file):
+            with open(txt_file, "r") as filehandle:
+                try:
+                    cached_images=int(filehandle.readline().strip("\n"))
+                except ValueError:
+                    cached_images=0
+
+                if cached_images == self.chunksize:
+                    return None
+                
+        self.txt_file[identifier]=txt_file
+
         return self.video_writer._capfn
 
     def frame_number2chunk(self, frame_number):
@@ -163,6 +192,7 @@ class SingleVideoMaker(MP4VideoMaker):
 
 
     def make_single_video_single_process(self, chunks=None, **kwargs):
+
         if chunks is None:
             chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
 

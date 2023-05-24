@@ -166,24 +166,21 @@ class MP4Reader:
     def from_store_path(cls, consumer, store_path, chunks=None, **kwargs):
 
         number_of_animals=int(os.path.basename(os.path.dirname(os.path.dirname(store_path))).split("X")[0])
-
-        if chunks is None:
-            session_folders = sorted(glob.glob(os.path.join(os.path.dirname(store_path), "idtrackerai", "session_*/")))
-            s_chunk = [int(re.search("/session_([0-9]*)/", p).group(1)) for p in session_folders]
-            df=pd.DataFrame({"chunk": s_chunk})
-            chunks = sorted(list(set(df["chunk"].values.tolist())))
-
         flyhostel_dataset = glob.glob(os.path.join(os.path.dirname(store_path), "FlyHostel*db"))
         assert flyhostel_dataset, f"FlyHostel dataset not found for experiment {store_path}"
         flyhostel_dataset=flyhostel_dataset[0]
         conn=sqlite3.connect(f"file:{flyhostel_dataset}?mode=ro", uri=True)
 
+        if chunks is None:
+            cur=conn.cursor()
+            cur.execute("SELECT DISTINCT chunk FROM STORE_INDEX;")
+            # chunks=[row[0] for row in cur.fetchall()]
+            first_chunk=cur.fetchone()[0]
+
         return cls(
-            consumer, connection=conn, store_path=store_path, chunks=chunks[:1],
+            consumer, connection=conn, store_path=store_path, chunks=[first_chunk],
             number_of_animals=number_of_animals, **kwargs
         )
-
-
 
 
     def get_bounding_box(self, x_coord, y_coord):
@@ -242,7 +239,6 @@ class MP4Reader:
             cv2.BORDER_CONSTANT,
             value=self.background_color
         )
-        # print(img_.shape, diff_y, diff_h, diff_x, diff_w)
         return img_
 
 
@@ -271,7 +267,7 @@ class MP4Reader:
         return (x_coord, y_coord)
 
 
-    def read(self, frame_number, number_of_animals, stack=False):
+    def read(self, frame_number, identifiers, stack=False):
 
         if frame_number is None:
             frame_number = self._cap.frame_number
@@ -285,7 +281,7 @@ class MP4Reader:
             return None
 
         arr = []
-        for identifier in range(number_of_animals):
+        for identifier in identifiers:
             identifier=identifier+self.identifier_start
             centroid = self.get_centroid(frame_number, identifier=identifier)
             if centroid is None:
