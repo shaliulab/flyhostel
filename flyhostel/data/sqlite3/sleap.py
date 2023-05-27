@@ -1,4 +1,5 @@
 from abc import ABC
+import glob
 import os.path
 import sqlite3
 
@@ -9,7 +10,7 @@ from flyhostel.data.sqlite3.utils import parse_experiment_properties
 from flyhostel.data.deepethogram.video import build_key
 
 class SleapExporter(ABC):
-    _basedir = None
+    _basedir = None # 
 
     def __init__(self, sleap_data, *args, **kwargs):
         self._sleap_data = sleap_data
@@ -38,20 +39,35 @@ class SleapExporter(ABC):
     def _write_pose_table(self, conn, dbfile, chunk, nodes):
         _, (flyhostel_id, number_of_animals, date_time) = parse_experiment_properties(self._basedir)
         key = build_key(flyhostel_id, number_of_animals, date_time, chunk, local_identity=None)
-        csv_file = os.path.join(
-            self._basedir, "sleap", key + ".csv"
-        )
-        pose = pd.read_csv(csv_file)
-        pose=pose.loc[pose["node"].isin(nodes)]
+
         cur = conn.cursor()
         cur.execute("SELECT value FROM METADATA where field = 'chunksize';")
         chunksize=int(float(cur.fetchone()[0]))
 
-        data=[]
-        for i, row in pose.iterrows():
-            command = "INSERT INTO POSE (frame_number, local_identity, node, visible, x, y, score) VALUES(?, ?, ?, ?, ?, ?);"
-            frame_number=row["frame_idx"]+chunk*chunksize
+        if self.number_of_animals > 1:
+            local_identities = list(range(1, self.number_of_animals+1))
+        else:
+            local_identities=[0]
             
-            data.append((frame_number, row["local_identity"], row["node"], row["visible"], row["x"], row["y"], row["score"]))
-        conn.executemany(command, data)
+
+        for local_identity in local_identities:
+            csv_file_pattern = os.path.join(
+                self._basedir, "flyhostel", "single_animal",
+                str(local_identity).zfill(3),
+                f"{str(chunk).zfill(6)}.*.predictions.csv"
+            )
+            hits=glob.glob(csv_file_pattern)
+            assert len(hits) == 1, f'No hits for {csv_file_pattern}'
+            csv_file = hits[0]
+
+            pose = pd.read_csv(csv_file)
+            pose=pose.loc[pose["node"].isin(nodes)]
+
+            data=[]
+            for i, row in pose.iterrows():
+                command = "INSERT INTO POSE (frame_number, local_identity, node, x, y, score) VALUES(?, ?, ?, ?, ?);"
+                frame_number=row["frame_idx"]+chunk*chunksize
+                
+                data.append((frame_number, row["local_identity"], row["node"], row["x"], row["y"], row["score"]))
+            conn.executemany(command, data)
 
