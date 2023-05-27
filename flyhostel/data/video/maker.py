@@ -40,7 +40,6 @@ class MP4VideoMaker(ABC):
                 for chunk in chunks:
                     target_fn = None
 
-                    written_images=0
                     count_NULL=0
                     
                     with MP4Reader(
@@ -51,7 +50,8 @@ class MP4VideoMaker(ABC):
                         ) as mp4_reader:
                             
                         resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
-
+                        written_images={identifier: 0 for identifier in [0] + self._identifiers}
+                       
 
                         while True:
 
@@ -64,17 +64,19 @@ class MP4VideoMaker(ABC):
                                 break
 
                             if self._stacked:
-                                fn, written_images=self.write_frame(img, output, chunk, frame_number, 0, resolution_full, index_cur=index_cur, written_images=written_images, **kwargs)
+                                fn, written_images_=self.write_frame(img, output, chunk, frame_number, 0, resolution_full, index_cur=index_cur, written_images=written_images[0], **kwargs)
+                                written_images[identifier]=written_images_
                                 if fn is not None:
                                     print(f"Working on chunk 000/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
 
 
                             else:
                                 for i, identifier in enumerate(self._identifiers):
-                                    fn, written_images=self.write_frame(img[i], output, chunk, frame_number, identifier, resolution, index_cur=index_cur, written_images=written_images, **kwargs)
+                                    fn, written_images_=self.write_frame(img[i], output, chunk, frame_number, identifier, resolution, index_cur=index_cur, written_images=written_images[identifier], **kwargs)
+                                    written_images[identifier]=written_images_
                                     if fn is not None:
                                         print(f"Working on chunk {str(identifier).zfill(3)}/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
-
+                                
                             target_fn=frame_number+mp4_reader.step
 
 
@@ -82,16 +84,18 @@ class MP4VideoMaker(ABC):
                             self.video_writer[0].close()
 
                             with open(self.txt_file[0], "w", encoding="utf8") as filehandle:
-                                filehandle.write(f"{written_images}\n")
+                                filehandle.write(f"{written_images[0]}\n")
+                            with open("status.txt", "a", encoding="utf8") as filehandle:
+                                filehandle.write(f"Chunk {chunk}:{count_NULL}:{written_images[0]}\n")
 
                         else:
-                            for identifier in self._identifiers:
-                                self.video_writer[identifier].close()
-                                with open(self.txt_file[identifier], "w", encoding="utf8") as filehandle:
-                                    filehandle.write(f"{written_images}\n")
-
-                    with open("status.txt", "a", encoding="utf8") as filehandle:
-                        filehandle.write(f"Chunk {chunk}:{count_NULL}:{written_images}\n")
+                            with open("status.txt", "a", encoding="utf8") as filehandle:
+                                for identifier in self._identifiers:
+                                    self.video_writer[identifier].close()
+                                    with open(self.txt_file[identifier], "w", encoding="utf8") as filehandle2:
+                                        filehandle2.write(f"{written_images[identifier]}\n")
+                                    
+                                    filehandle.write(f"Chunk {chunk}:{count_NULL}:{written_images[0]}\n")
 
         return capfn
 

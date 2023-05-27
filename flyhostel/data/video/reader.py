@@ -120,20 +120,6 @@ class MP4Reader:
         return cmd
 
     @property
-    def identifier_start(self):
-        if self.IDENTIFIER_COLUMN=="in_frame_index":
-            return 0
-
-        elif self._number_of_animals == 1:
-            return 0
-
-        elif self.IDENTIFIER_COLUMN in ["identity", "local_identity"]:
-            return 1
-
-        else:
-            raise Exception("Unable to set identifier start")
-
-    @property
     def count(self):
         return self._frame_number
 
@@ -282,7 +268,7 @@ class MP4Reader:
 
         arr = []
         for identifier in identifiers:
-            identifier=identifier+self.identifier_start
+            identifier=identifier
             centroid = self.get_centroid(frame_number, identifier=identifier)
             if centroid is None:
                 img_=self._NULL.copy()

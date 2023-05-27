@@ -85,7 +85,10 @@ class SingleVideoMaker(MP4VideoMaker):
 
 
         if len(self._identifiers) == 0 or (len(self._identifiers) == 1 and self._identifiers[0] == -1):
-            self._identifiers = list(range(1, self._number_of_animals+1))
+            if self._number_of_animals == 1:
+                self._identifiers = [0]
+            else:
+                self._identifiers = list(range(1, self._number_of_animals+1))
 
 
         if value is None:
@@ -143,6 +146,8 @@ class SingleVideoMaker(MP4VideoMaker):
 
                 if cached_images == self.chunksize:
                     return None, cached_images
+                elif cached_images != self.chunksize:
+                    cached_images=0
                 
         self.txt_file[identifier]=txt_file
 
