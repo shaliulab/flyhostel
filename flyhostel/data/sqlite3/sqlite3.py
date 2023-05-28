@@ -22,7 +22,6 @@ from .metadata import MetadataExporter
 from .snapshot import SnapshotExporter
 logger = logging.getLogger(__name__)
 
-
 class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, MetadataExporter, StoreIndexExporter, ABC):
 
     _CLASSES = {0: "head"}
@@ -41,8 +40,8 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
 
         self.init_tables(dbfile, tables, reset=reset, **kwargs)
         print(f"Writing tables: {tables}")
-
-        if "CONCATENATION" in tables and not table_is_not_empty(dbfile, "CONCATENATION"):
+        
+        if "CONCATENATION" in tables:
             print("Writing CONCATENATION")
             self.write_concatenation_table(dbfile, chunks=chunks)
             print("CONCATENATION done")

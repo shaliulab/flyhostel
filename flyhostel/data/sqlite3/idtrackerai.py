@@ -18,6 +18,7 @@ from .utils import (
     table_is_not_empty,
     ensure_type,
 )
+from .constants import TABLES
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
             cur = conn.cursor()
 
             cols_list = [
-                "frame_number int(11)", "in_frame_index int(2)", "x real(10)",
+                "id INTEGER PRIMARY KEY AUTOINCREMENT", "frame_number int(11)", "in_frame_index int(2)", "x real(10)",
                 "area int(11)", "y real(10)", "modified int(1)", "class_name char(10)"
             ]
 
@@ -72,7 +73,7 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
             if reset:
                 cur.execute("DROP TABLE IF EXISTS IDENTITY;")
             print("Creating indices for IDENTITY table")
-            cur.execute("CREATE TABLE IF NOT EXISTS IDENTITY (frame_number int(11), in_frame_index int(2), local_identity int(2), identity int(2));")
+            cur.execute("CREATE TABLE IF NOT EXISTS IDENTITY (id INTEGER PRIMARY KEY AUTOINCREMENT, frame_number int(11), in_frame_index int(2), local_identity int(2), identity int(2));")
             cur.execute("CREATE INDEX id_fn ON IDENTITY (frame_number);")
             cur.execute("CREATE INDEX id_id ON IDENTITY (identity);")
             cur.execute("CREATE INDEX id_lid ON IDENTITY (local_identity);")
@@ -148,9 +149,6 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
 
         else:
             warnings.warn(f"{blobs_collection} not found")
-
-
-
 
 
     def write_trajectory_and_identity(self, dbfile, chunks, **kwargs):
@@ -259,6 +257,11 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
 
 
     def init_tables(self, dbfile, tables, behaviors=None, nodes=None, reset=True):
+
+        for table in tables:
+            if table not in TABLES:
+                raise Exception(f"{table} is not one of {TABLES}. Do you have a typo?")
+
         super(IdtrackeraiExporter, self).init_tables(dbfile, tables, reset=reset)
         if "IDENTITY" in tables:
             self.init_identity_table(dbfile, reset=reset)
