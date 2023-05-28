@@ -6,6 +6,8 @@ import pandas as pd
 class ConcatenationExporter(ABC):
 
     _basedir = None
+    cmd = "INSERT INTO CONCATENATION (chunk, in_frame_index, in_frame_index_after, local_identity, local_identity_after, is_inferred, is_broken, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?);"
+
 
     def init_concatenation_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
@@ -13,7 +15,7 @@ class ConcatenationExporter(ABC):
             if reset:
                 print("Dropping CONCATENATION")
                 cur.execute("DROP TABLE IF EXISTS CONCATENATION;")
-            cur.execute("CREATE TABLE IF NOT EXISTS CONCATENATION (chunk int(3), in_frame_index int(2), in_frame_index_after int(2), local_identity int(2), local_identity_after int(2), identity int(2));")
+            cur.execute("CREATE TABLE IF NOT EXISTS CONCATENATION (id INTEGER PRIMARY KEY AUTOINCREMENT, chunk int(3), in_frame_index int(2), in_frame_index_after int(2), local_identity int(2), local_identity_after int(2), is_inferred int(1), is_broken int(1), identity int(2));")
 
     def write_concatenation_table(self, dbfile, chunks):
         csv_file = os.path.join(self._basedir, "idtrackerai", "concatenation-overlap.csv")
@@ -26,7 +28,9 @@ class ConcatenationExporter(ABC):
                 for _, row in concatenation.iterrows():
                     args = (
                         row["chunk"], row["in_frame_index_before"], row["in_frame_index_after"],
-                        row["local_identity"], row["local_identity_after"], row["identity"]
+                        row["local_identity"], row["local_identity_after"],
+                        row["is_inferred"], row["is_broken"],
+                        row["identity"],
                     )
                     args2=[]
                     for e in args:
@@ -44,7 +48,7 @@ class ConcatenationExporter(ABC):
 
                 if data:
                     conn.executemany(
-                        "INSERT INTO CONCATENATION (chunk, in_frame_index, in_frame_index_after, local_identity, local_identity_after, identity) VALUES (?, ?, ?, ?, ?, ?);",
+                        self.cmd,
                         data
                     )
 
@@ -54,8 +58,8 @@ class ConcatenationExporter(ABC):
                     cur=conn.cursor()
                     for chunk in chunks:
                         cur.execute(
-                                "INSERT INTO CONCATENATION (chunk, in_frame_index, in_frame_index_after, local_identity, local_identity_after, identity) VALUES (?, ?, ?, ?, ?, ?);",
-                                (chunk, 0, 0, 1, 1, 1)
+                                self.cmd
+                                (chunk, 0, 0, 1, 1, 0, 0, 1)
                             )
 
             else:
