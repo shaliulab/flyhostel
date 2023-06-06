@@ -6,16 +6,17 @@ import warnings
 
 import numpy as np
 
-from flyhostel.data.trajectorytools import get_trajectory_files
+# from flyhostel.data.trajectorytools import get_trajectory_files
 from flyhostel.utils import copy_files_to_store
 from flyhostel.quantification.imgstore import read_store_description, read_store_metadata
-from .blobtools import read_blobs_data
-from .trajectorytools import load_trajectories, pad_beginning_so_always_referenced_to_record_start
-from .csvtools import read_csv_data
+#from flyhostel.data.blobtools import read_blobs_data
+#from flyhostel.data.trajectorytools import load_trajectories, pad_beginning_so_always_referenced_to_record_start
+from flyhostel.data.csvtools import read_csv_data
 
 logger = logging.getLogger(__name__)
 
 def copy_idtrackerai_data(imgstore_folder, analysis_folder, allow_wo_gaps=True, interval=None, overwrite=True):
+    raise NotImplementedError()
     trajectories_paths = get_trajectory_files(analysis_folder, allow_wo_gaps=allow_wo_gaps)
     if interval is not None:
         sessions = [f"session_{str(chunk).zfill(6)}" for chunk in range(*interval)]
@@ -35,7 +36,8 @@ def copy_idtrackerai_data(imgstore_folder, analysis_folder, allow_wo_gaps=True, 
 
 def read_idtrackerai_data(imgstore_folder, pixels_per_cm, interval=None, **kwargs):
     """
-    """    
+    """
+    raise NotImplementedError()
     
     trajectories_paths = sorted(
         glob.glob(os.path.join(imgstore_folder, "*.npy"))
@@ -69,6 +71,7 @@ def read_data(imgstore_folder, interval, interpolate_nans=False, source="traject
 
         if not "1X" in imgstore_folder:
             logger.warning("Loading a multi-fly dataset from blobs. Identity maintenance is not guaranteed")
+        raise NotImplementedError()
 
         (tr, chunks), (timestamps, missing_timestamps) = read_blobs_data(
             imgstore_folder,
