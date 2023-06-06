@@ -120,8 +120,8 @@ def generate_single_file(datasets, node_names, files, dest_file):
     # node_names is a dataset with a character array. each name is byte encoded
     node_names_bytes = np.array([name.encode() for name in node_names])
     files_bytes = np.array([f.encode() for f in files])
-
-    dataset = np.vstack(datasets).reshape((1, 2, len(node_names), -1))
+    
+    dataset = np.concatenate(datasets, axis=3)
 
     with h5py.File(dest_file, 'w') as file:
         node_names_d=file.create_dataset("node_names", (len(node_names), ), dtype='|S12')
