@@ -41,6 +41,7 @@ setup(
             "fh-server=flyhostel.server.server:main",
             "fh-validate=flyhostel.data.bin.dashboard:main",
             "missing-chunk-detector=flyhostel.utils.missing_chunk_detector:main",
+            "bsoid=flyhostel.data.bin.bsoid:main",
             ]
     },
 )
