@@ -80,7 +80,7 @@ class MP4VideoMaker(ABC):
                             target_fn=frame_number+mp4_reader.step
 
 
-                        if self.stacked:
+                        if self._stacked:
                             self.video_writer[0].close()
 
                             with open(self.txt_file[0], "w", encoding="utf8") as filehandle:
