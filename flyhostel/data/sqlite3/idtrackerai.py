@@ -51,8 +51,15 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
             cur = conn.cursor()
 
             cols_list = [
-                "id INTEGER PRIMARY KEY AUTOINCREMENT", "frame_number int(11)", "in_frame_index int(2)", "x real(10)",
-                "area int(11)", "y real(10)", "modified int(1)", "class_name char(10)"
+                "id INTEGER PRIMARY KEY AUTOINCREMENT",
+                "frame_number int(11)",
+                "in_frame_index int(2)",
+                "x real(10)",
+                "y real(10)",
+                "fragment int(3)",
+                "area int(11)",
+                "modified int(1)",
+                "class_name char(10)"
             ]
 
             formated_cols_names = ", ".join(cols_list)
@@ -131,7 +138,7 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
 
 
                 if r0_data:
-                    command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, area, modified, class_name) VALUES(?, ?, ?, ?, ?, ?, ?);"
+                    command = "INSERT INTO ROI_0 (frame_number, in_frame_index, x, y, fragment, area, modified, class_name) VALUES(?, ?, ?, ?, ?, ?, ?, ?);"
                     print(command)
                     conn.executemany(command, r0_data)
 
@@ -186,6 +193,11 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
         x_coord, y_coord = blob.centroid
         area = int(round(blob.area))
         modified = blob.modified
+        fragment = blob.fragment_identifier
+        if fragment is None:
+            fragment=0
+
+
         if modified:
             annotation = getattr(blob, "_annotation", None)
             if annotation is None:
@@ -195,7 +207,8 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
         else:
             class_name=None
 
-        args = (frame_number, in_frame_index, x_coord, y_coord, area, modified, class_name)
+        # the order here must match the one seen in the line containing 'command = "INSERT INTO ROI_0 ('
+        args = (frame_number, in_frame_index, x_coord, y_coord, fragment, area, modified, class_name)
         return args
 
     def write_blob_identity(self, blob, id_mapping):
