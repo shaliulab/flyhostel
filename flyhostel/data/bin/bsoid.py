@@ -1,3 +1,7 @@
+"""
+Interface between flyhostel outputs abd B-SOID
+"""
+
 import argparse
 import sqlite3
 import os.path
@@ -5,6 +9,13 @@ import joblib
 from flyhostel.data.bsoid import pipeline, load_concatenation_table, parse_number_of_animals
 
 def main():
+    """
+    Concatenate the .h5 files produced in the analysis Nextflow process
+    (which reformats existing .slp files into .h5 files)
+    into a single file using the concatenation information
+
+    .h5 files must be available under basedir/flyhostel/single_animal/id/
+    """
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", default=False)

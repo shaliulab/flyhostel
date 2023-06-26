@@ -161,10 +161,10 @@ def load_concatenation_table(cur, basedir):
 
 def pipeline(experiment_name, identity, concatenation):
 
-        concatenation_i=concatenation.loc[concatenation["identity"]==identity]
-        files=concatenation_i["dfile"]
-        datasets, node_names=load_files(files)
-        dest_file=os.path.join(BSOID_DATA, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
-        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-        generate_single_file(datasets, node_names, files, dest_file=dest_file)
-        assert os.path.exists(dest_file)
+    concatenation_i=concatenation.loc[concatenation["identity"]==identity]
+    files=concatenation_i["dfile"]
+    datasets, node_names=load_files(files)
+    dest_file=os.path.join(BSOID_DATA, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
+    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+    generate_single_file(datasets, node_names, files, dest_file=dest_file)
+    assert os.path.exists(dest_file)
