@@ -32,6 +32,7 @@ setup(
         "scikit-learn",
         "recordtype",
         "tqdm",
+        "h5py",
         "yolov7tools==1.1",
         #"feed_integration",
     ],
