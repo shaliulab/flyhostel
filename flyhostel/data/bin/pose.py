@@ -6,7 +6,7 @@ import argparse
 import sqlite3
 import os.path
 import joblib
-from flyhostel.data.bsoid import pipeline, load_concatenation_table, parse_number_of_animals
+from flyhostel.data.pose import pipeline, load_concatenation_table, parse_number_of_animals
 
 def main():
     """
@@ -20,6 +20,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", default=False)
     ap.add_argument("--dbfile", type=str, required=True)
+    ap.add_argument("--chunks", type=int, nargs="+", required=False, default=None)
     ap.add_argument("--n-jobs", type=int, default=1)
     args=ap.parse_args()
 
@@ -36,7 +37,7 @@ def main():
         joblib.delayed(
             pipeline
         )(
-            experiment_name, identity, concatenation
+            experiment_name, identity, concatenation, args.chunks
         )
         for identity in range(1, number_of_animals+1)
     )
