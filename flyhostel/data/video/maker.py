@@ -1,3 +1,4 @@
+import warnings
 from abc import ABC, abstractmethod
 import sqlite3
 import os.path
@@ -48,6 +49,11 @@ class MP4VideoMaker(ABC):
                             width=width, height=height, resolution=resolution,
                             background_color=background_color, chunks=[chunk]
                         ) as mp4_reader:
+
+                        if not mp4_reader.success:
+                            # warnings.warn(f"Skipping chunk {chunk}")
+                            raise Exception(f"Cannot fetch data for chunk {chunk}")
+                            
                             
                         resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
                         written_images={identifier: 0 for identifier in [0] + self._identifiers}

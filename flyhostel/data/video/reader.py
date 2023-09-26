@@ -1,4 +1,4 @@
-import re
+import warnings
 import glob
 import os.path
 import sqlite3
@@ -79,12 +79,24 @@ class MP4Reader:
         self._cur.execute(self.sqlite_query,(self._chunk,))
 
         self._data = pd.DataFrame(self._cur.fetchall())
-        self._data.columns = ["frame_number", "x", "y", self.IDENTIFIER_COLUMN, "chunk"]
-        self._data.set_index(["frame_number", self.IDENTIFIER_COLUMN], inplace=True)
-        self._data["x"] = np.int32(np.floor(self._data["x"]))
-        self._data["y"] = np.int32(np.floor(self._data["y"]))
         self._last_frame_indices=[]
-        print(f"MP4 reader initialized with step = {self.step}")
+
+        self.success=True
+        if not self._data.shape[0] > 0:
+            self.success=False
+            warnings.warn(f"No data found for query {self.sqlite_query}, chunk ({self._chunk})")
+        if not self._data.shape[1] == 5:
+            self.success=False
+            warnings.warn(f"Data does not contain 5 fields ({self._data.shape[1]})")
+        
+        if self.success:
+            self._data.columns = ["frame_number", "x", "y", self.IDENTIFIER_COLUMN, "chunk"]
+            self._data.set_index(["frame_number", self.IDENTIFIER_COLUMN], inplace=True)
+            self._data["x"] = np.int32(np.floor(self._data["x"]))
+            self._data["y"] = np.int32(np.floor(self._data["y"]))
+            print(f"MP4 reader initialized with step = {self.step}")
+        else:
+            print("MP4 reader failed initializing due to warnings displayed above")
 
     @property
     def sqlite_query(self):
