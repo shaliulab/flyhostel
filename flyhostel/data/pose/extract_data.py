@@ -128,7 +128,7 @@ def main():
     data_directories=os.listdir(root_path)
     data_directories=[directory for directory in data_directories if directory.startswith(experiment.replace("/","_"))]
     data_directories=sorted(data_directories)
-    pattern=os.path.join(os.environ["BSOID_DATA"],  data_directories[0], "*h5")
+    pattern=os.path.join(os.environ["POSE+DATA"],  data_directories[0], "*h5")
 
     animals=data_directories
     assert len(animals) == number_of_animals

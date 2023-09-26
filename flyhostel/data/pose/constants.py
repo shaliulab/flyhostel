@@ -46,4 +46,4 @@ DATASETS=os.environ["MOTIONMAPPER_DATA"]
 
 palette="rainbow"
 prefix="2023-07-19"
-root_path=os.environ["BSOID_DATA"]
+root_path=os.environ["POSE_DATA"]

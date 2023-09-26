@@ -1,1 +1,1 @@
-from .bsoid import *
+from .pose import *

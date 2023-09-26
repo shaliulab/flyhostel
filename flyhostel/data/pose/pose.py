@@ -183,7 +183,7 @@ def pipeline(experiment_name, identity, concatenation, chunks=None):
     concatenation_i=concatenation.loc[concatenation["identity"]==identity]
     files=concatenation_i["dfile"]
     node_names, datasets, point_scores = load_files(files)
-    dest_file=os.path.join(BSOID_DATA, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
+    dest_file=os.path.join(POSE_DATA, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
     generate_single_file(node_names, datasets, point_scores, files, dest_file=dest_file)
     assert os.path.exists(dest_file)
