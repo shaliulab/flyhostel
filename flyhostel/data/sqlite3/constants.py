@@ -8,7 +8,7 @@ import warnings
 TABLES = [
     "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0",
     "IDENTITY", "CONCATENATION", "BEHAVIORS", "STORE_INDEX",
-    "ENVIRONMENT", "AI", "ORIENTATION"
+    "ENVIRONMENT", "AI", "ORIENTATION", "POSE"
 ]
 
 BEHAVIORS=["background", "inactive", "walk", "pe", "rejection", "groom", "fall"]
@@ -35,7 +35,8 @@ PRESETS = {
 }
 
 PRESETS["default_and_trajectory"] = PRESETS["default"] + PRESETS["trajectory"]
-NODES=["proboscis", "head", "abdomen", "midLeg_right", "midLeg_left"]
+# NODES=["proboscis", "head", "abdomen", "midLeg_right", "midLeg_left"]
+NODES=['proboscis', 'thorax', 'abdomen', 'foreLeft_Leg', 'midLeftLeg', 'rearLeftLeg', 'foreRightLeg', 'midRightLeg', 'rearRightLeg', 'head', 'leftWing', 'rightWing']
 
 
 RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
