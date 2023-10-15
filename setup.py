@@ -43,10 +43,10 @@ setup(
             "fh-validate=flyhostel.data.bin.dashboard:main",
             "missing-chunk-detector=flyhostel.utils.missing_chunk_detector:main",
             "compile-pose=flyhostel.data.bin.pose:main",
+            "preprocess-pose=flyhostel.data.bin.pose:preprocess",
             ]
     },
 )
-
 
 
 warnings.warn("Make sure that idtrackerai, torch, torchvision, confapp, zeitgeber, trajectorytools, feed_integration, dropy are installed")
