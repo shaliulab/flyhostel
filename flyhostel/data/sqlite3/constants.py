@@ -8,7 +8,7 @@ import warnings
 TABLES = [
     "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0",
     "IDENTITY", "CONCATENATION", "BEHAVIORS", "STORE_INDEX",
-    "ENVIRONMENT", "AI", "ORIENTATION"
+    "ENVIRONMENT", "AI", "ORIENTATION", "QC"
 ]
 
 BEHAVIORS=["background", "inactive", "walk", "pe", "rejection", "groom", "fall"]
@@ -18,7 +18,7 @@ PRESETS = {
     "default": [
         "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP",
         "CONCATENATION","STORE_INDEX",
-        "ENVIRONMENT", "AI"
+        "ENVIRONMENT", "AI", "QC",
     ],
     "roi0": [
         "ROI_0"
@@ -31,7 +31,8 @@ PRESETS = {
     ],
     "identity": [
         "CONCATENATION", "IDENTITY", "METADATA"
-    ]
+    ],
+    "qc": ["QC"],
 }
 
 PRESETS["default_and_trajectory"] = PRESETS["default"] + PRESETS["trajectory"]
