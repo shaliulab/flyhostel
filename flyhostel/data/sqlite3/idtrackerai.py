@@ -13,6 +13,7 @@ from .sqlite3 import SQLiteExporter
 from .deepethogram import DeepethogramExporter
 from .orientation import OrientationExporter
 from .sleap import SleapExporter
+from .qc import QCExporter
 
 from .utils import (
     table_is_not_empty,
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 # only use these indices: id_fn      id_id      id_lid     idx_chunk  idx_fn     idx_hs     roi0_fn
 
-class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, OrientationExporter):
+class IdtrackeraiExporter(SQLiteExporter, QCExporter, SleapExporter, DeepethogramExporter, OrientationExporter):
 
     def __init__(self, basedir, deepethogram_data, *args, framerate=None, **kwargs):
         """
@@ -297,6 +298,9 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
         if "POSE" in tables:
             self.init_pose_table(dbfile, nodes=nodes, reset=reset)
 
+        if "QC" in tables:
+            self.init_qc_table(dbfile, reset=reset)
+        
 
     def export(self, dbfile, chunks, tables, reset=True, behaviors=None, nodes=None, **kwargs):
         """
@@ -350,3 +354,8 @@ class IdtrackeraiExporter(SQLiteExporter, SleapExporter, DeepethogramExporter, O
 
         if "POSE" in tables:
             self.write_pose_table(dbfile, chunks=chunks, nodes=nodes, **kwargs)
+
+        if "QC" in tables:
+            print("Writing QC")
+            self.write_qc_table(dbfile, chunks=chunks)
+            print("QC done")

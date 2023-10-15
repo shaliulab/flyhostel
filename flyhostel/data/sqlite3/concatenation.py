@@ -3,10 +3,12 @@ import sqlite3
 import os.path
 import pandas as pd
 
+cmd = "INSERT INTO CONCATENATION (chunk, in_frame_index, in_frame_index_after, local_identity, local_identity_after, is_inferred, is_broken, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?);"
+
 class ConcatenationExporter(ABC):
 
     _basedir = None
-    cmd = "INSERT INTO CONCATENATION (chunk, in_frame_index, in_frame_index_after, local_identity, local_identity_after, is_inferred, is_broken, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?);"
+    
 
 
     def init_concatenation_table(self, dbfile, reset=True):
@@ -48,7 +50,7 @@ class ConcatenationExporter(ABC):
 
                 if data:
                     conn.executemany(
-                        self.cmd,
+                        cmd,
                         data
                     )
 
@@ -58,7 +60,7 @@ class ConcatenationExporter(ABC):
                     cur=conn.cursor()
                     for chunk in chunks:
                         cur.execute(
-                                self.cmd
+                                cmd
                                 (chunk, 0, 0, 1, 1, 0, 0, 1)
                             )
 

@@ -5,6 +5,8 @@ import time
 
 from tqdm.auto import tqdm
 from flyhostel.data.deepethogram import H5Reader
+from flyhostel.data.sqlite3.utils import parse_experiment_properties
+from flyhostel.data.deepethogram.video import build_key
 
 class DeepethogramExporter(ABC):
 
@@ -57,8 +59,9 @@ class DeepethogramExporter(ABC):
         if self._deepethogram_data is None:
             raise ValueError("Please pass a deepethogram data folder")
 
+        _, (flyhostel_id, number_of_animals, date_time) = parse_experiment_properties(self._basedir)
+        prefix = build_key(flyhostel_id, number_of_animals, date_time, chunk, local_identity=None)
 
-        prefix = "_".join(self._basedir.split(os.path.sep)[-3:])
         if local_identity==0:
             deepethogram_identity=1
         else:

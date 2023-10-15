@@ -108,6 +108,7 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
         if "CONCATENATION" in tables:
             self.init_concatenation_table(dbfile, reset=reset)
 
+
     def build_blobs_collection(self, chunk):
         path=os.path.join(self._basedir, "idtrackerai", f"session_{str(chunk).zfill(6)}", "tracking", "blobs_collection.npy")
         if not os.path.exists(path):
