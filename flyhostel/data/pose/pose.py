@@ -91,7 +91,7 @@ def load_file(file):
             score = filehandle["point_scores"][:]
 
     except Exception as error:
-        logging.warning(f"Cannot open file {file}")
+        logging.warning("Cannot open file %s", file)
         raise error
 
     

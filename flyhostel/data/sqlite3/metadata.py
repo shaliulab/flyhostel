@@ -88,8 +88,7 @@ class MetadataExporter(ABC):
         timestamp += dt.astimezone().tzinfo.utcoffset(dt).seconds
         ####################################################
 
-
-
+        first_time=np.load(os.path.join(self._basedir, "000000.npz"))["frame_time"][0]       
 
         if self._camera_metadata_path is not None and os.path.exists(self._camera_metadata_path):
             with open(self._camera_metadata_path, "r", encoding="utf8") as filehandle:
@@ -138,6 +137,7 @@ class MetadataExporter(ABC):
             ("camera_metadata", camera_metadata_str),
             ("idtrackerai_conf", self._idtrackerai_conf_str),
             ("chunks", chunks),
+            ("first_time", first_time),
         ]
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
