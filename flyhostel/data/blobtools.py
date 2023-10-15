@@ -11,7 +11,7 @@ from imgstore.interface import VideoCapture
 from imgstore.constants import STORE_MD_FILENAME
 from idtrackerai.list_of_blobs import ListOfBlobs
 from idtrackerai.crossings_detection.model_area import compute_model_area_and_body_length
-from feed_integration.idtrackerai.paths import blobs2trajectories
+#from feed_integration.idtrackerai.paths import blobs2trajectories
 from trajectorytools.trajectories import import_idtrackerai_dict
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ def read_blobs_collection(blobs_path, chunk, store_dir, number_of_animals, missi
        logger.debug(f"Loading {tr_path}")
        trajectory = np.load(tr_path, allow_pickle=True)
    else:
+       raise NotImplementedError()
 
        try:
            trajectory = blobs2trajectories(

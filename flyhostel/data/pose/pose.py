@@ -1,4 +1,5 @@
 import os.path
+import logging
 import json
 import re
 import time
@@ -8,7 +9,7 @@ import pandas as pd
 import h5py
 
 MINS=.5
-BSOID_DATA=os.environ["BSOID_DATA"]
+POSE_DATA=os.environ["POSE_DATA"]
 
 def find_files(directory, pattern):
     hits=[]
@@ -82,16 +83,23 @@ def impute_body_part(analysis_file, body_part, reference):
 
 def load_file(file):
 
-    with h5py.File(file, 'r') as filehandle:
-        node_names = filehandle["node_names"][:]
-        node_names=[e.decode() for e in node_names]
-        tracks = filehandle["tracks"][:]
+    try:
+        with h5py.File(file, 'r') as filehandle:
+            node_names = filehandle["node_names"][:]
+            node_names=[e.decode() for e in node_names]
+            tracks = filehandle["tracks"][:]
+            score = filehandle["point_scores"][:]
+
+    except Exception as error:
+        logging.warning("Cannot open file %s", file)
+        raise error
+
     
-    return node_names, tracks
+    return node_names, tracks, score, file
 
 def load_files(files, n_jobs=1):
 
-    files=sorted(files)
+    # files=sorted(files)
 
     Output = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
@@ -103,18 +111,22 @@ def load_files(files, n_jobs=1):
     )
 
     datasets=[]
+    point_scores=[]
     previous_node_names=None
 
-    for node_names, tracks in Output:
-        datasets.append(tracks)
+    for node_names, dataset, score, file in Output:
+        datasets.append(dataset)
+        point_scores.append(score)
         if previous_node_names is not None:
             assert all([node_names[i] == previous_node_names[i] for i in range(len(node_names))])
         previous_node_names=node_names
 
-    return datasets, node_names
+    nframes = sum([dataset.shape[3] for dataset in datasets])
+    print(f"{nframes} frames loaded")
+    return node_names, datasets, point_scores
 
 
-def generate_single_file(datasets, node_names, files, dest_file):
+def generate_single_file(node_names, datasets, point_scores, files, dest_file):
     # need to populate node_names and tracks
     # tracks has shape 1 x 2 x node_names x timepoints (frames in video)
     # node_names is a dataset with a character array. each name is byte encoded
@@ -122,6 +134,7 @@ def generate_single_file(datasets, node_names, files, dest_file):
     files_bytes = np.array([f.encode() for f in files])
     
     dataset = np.concatenate(datasets, axis=3)
+    point_scores = np.concatenate(point_scores, axis=2)
 
     with h5py.File(dest_file, 'w') as file:
         node_names_d=file.create_dataset("node_names", (len(node_names), ), dtype='|S12')
@@ -131,6 +144,9 @@ def generate_single_file(datasets, node_names, files, dest_file):
         
         tracks_d=file.create_dataset("tracks", dataset.shape)
         tracks_d[:]=dataset
+
+        point_scores_d=file.create_dataset("point_scores", point_scores.shape)
+        point_scores_d[:]=point_scores
 
     return dest_file
 
@@ -159,12 +175,16 @@ def load_concatenation_table(cur, basedir):
     return concatenation
 
 
-def pipeline(experiment_name, identity, concatenation):
+def pipeline(experiment_name, identity, concatenation, chunks=None):
+    if chunks is not None:
+        concatenation=concatenation.loc[concatenation["chunk"].isin(chunks)]
 
-        concatenation_i=concatenation.loc[concatenation["identity"]==identity]
-        files=concatenation_i["dfile"]
-        datasets, node_names=load_files(files)
-        dest_file=os.path.join(BSOID_DATA, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
-        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-        generate_single_file(datasets, node_names, files, dest_file=dest_file)
-        assert os.path.exists(dest_file)
+
+    concatenation_i=concatenation.loc[concatenation["identity"]==identity]
+    files=concatenation_i["dfile"]
+    node_names, datasets, point_scores = load_files(files)
+    dest_file=os.path.join(POSE_DATA, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
+    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+    generate_single_file(node_names, datasets, point_scores, files, dest_file=dest_file)
+    assert os.path.exists(dest_file)
+

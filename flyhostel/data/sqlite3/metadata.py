@@ -40,9 +40,12 @@ class MetadataExporter(ABC):
         self._store_metadata = _extract_store_metadata(self._store_metadata_path)
         
         # this information should be read from index_information table in index.db
-        (idtrackerai_conf_path, self._idtrackerai_conf), (self._flyhostel_id, self._number_of_animals, self._date_time) = parse_experiment_properties()
-        with open(idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
-            self._idtrackerai_conf_str = filehandle.read()
+        (idtrackerai_conf_path, self._idtrackerai_conf), (self._flyhostel_id, self._number_of_animals, self._date_time) = parse_experiment_properties(basedir=self._basedir)
+        # with open(idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
+        #     self._idtrackerai_conf_str = filehandle.read()
+
+        import json
+        self._idtrackerai_conf_str = json.dumps(self._idtrackerai_conf)
 
         matches = glob.glob(os.path.join(self._basedir, "*pfs"))
         if matches:
@@ -85,8 +88,7 @@ class MetadataExporter(ABC):
         timestamp += dt.astimezone().tzinfo.utcoffset(dt).seconds
         ####################################################
 
-
-
+        first_time=np.load(os.path.join(self._basedir, "000000.npz"))["frame_time"][0]       
 
         if self._camera_metadata_path is not None and os.path.exists(self._camera_metadata_path):
             with open(self._camera_metadata_path, "r", encoding="utf8") as filehandle:
@@ -135,6 +137,7 @@ class MetadataExporter(ABC):
             ("camera_metadata", camera_metadata_str),
             ("idtrackerai_conf", self._idtrackerai_conf_str),
             ("chunks", chunks),
+            ("first_time", first_time),
         ]
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:

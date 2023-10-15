@@ -22,8 +22,8 @@ from idtrackerai.postprocessing.individual_videos import (
     compute_width_height_individual_video,
 )
 from idtrackerai.video import Video
-from feed_integration.lists_of_blobs import CachedListOfBlobs
-from feed_integration.idtrackerai.paths import load_number_of_animals
+# from feed_integration.lists_of_blobs import CachedListOfBlobs
+# from feed_integration.idtrackerai.paths import load_number_of_animals
 
 from .parser import get_parser
 
@@ -54,6 +54,8 @@ def create_video_object(store, lists_of_blobs, chunks):
     return experiment_name, video
 
 def main(args=None, ap = None):
+
+    raise NotImplementedError()
     if args is None:
         ap = get_parser(ap)
         args = ap.parse_args()

@@ -58,12 +58,11 @@ def parse_experiment_properties(basedir=None):
             os.path.realpath("metadata.yaml")
         ).group(1))
     
+        with open(idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
+            idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
+
     finally:
         os.chdir(wd)
-
-
-    with open(idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
-        idtrackerai_conf = yaml.load(filehandle, yaml.SafeLoader)
 
     number_of_animals = int(idtrackerai_conf["_number_of_animals"]["value"])
     return (idtrackerai_conf_path, idtrackerai_conf), (flyhostel_id, number_of_animals, date_time)

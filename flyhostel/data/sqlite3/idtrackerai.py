@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 class IdtrackeraiExporter(SQLiteExporter, QCExporter, SleapExporter, DeepethogramExporter, OrientationExporter):
 
     def __init__(self, basedir, deepethogram_data, *args, framerate=None, **kwargs):
+        """
+        Arguments:
+            basedir (str): Path to flyhostel experiment folder with raw recordings
+            deepethogram_data (str): Path where the deg results are to be found
+            framerate (int): Framerate of the output. For now, only None is supported
+        """
         self._basedir = basedir
         self._deepethogram_data = deepethogram_data
         self._data_framerate = framerate
@@ -296,7 +302,7 @@ class IdtrackeraiExporter(SQLiteExporter, QCExporter, SleapExporter, Deepethogra
             self.init_qc_table(dbfile, reset=reset)
         
 
-    def export(self, dbfile, chunks, tables, reset=True, behaviors=None, nodes=None):
+    def export(self, dbfile, chunks, tables, reset=True, behaviors=None, nodes=None, **kwargs):
         """
         Export datasets into single SQLite file
 
@@ -347,7 +353,7 @@ class IdtrackeraiExporter(SQLiteExporter, QCExporter, SleapExporter, Deepethogra
             print("BEHAVIORS done")
 
         if "POSE" in tables:
-            self.write_pose_table(dbfile, chunks=chunks, nodes=nodes)
+            self.write_pose_table(dbfile, chunks=chunks, nodes=nodes, **kwargs)
 
         if "QC" in tables:
             print("Writing QC")
