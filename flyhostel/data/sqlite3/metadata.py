@@ -7,6 +7,7 @@ import glob
 import warnings
 from abc import ABC
 
+import numpy as np
 import yaml
 
 from .constants import (
@@ -88,7 +89,8 @@ class MetadataExporter(ABC):
         timestamp += dt.astimezone().tzinfo.utcoffset(dt).seconds
         ####################################################
 
-        first_time=np.load(os.path.join(self._basedir, "000000.npz"))["frame_time"][0]       
+        first_chunk_index = os.path.join(self._basedir, "000000.npz")
+        first_time = int(np.load(first_chunk_index)["frame_time"][0] / 1000)
 
         if self._camera_metadata_path is not None and os.path.exists(self._camera_metadata_path):
             with open(self._camera_metadata_path, "r", encoding="utf8") as filehandle:
@@ -119,6 +121,8 @@ class MetadataExporter(ABC):
             first_chunk = int(cur.fetchone()[0])
             cur.execute("SELECT chunk FROM frames ORDER BY chunk DESC LIMIT 1;")
             last_chunk = int(cur.fetchone()[0])
+
+
         chunks = f"{first_chunk},{last_chunk}"
 
 
