@@ -123,3 +123,13 @@ def filter_parts(out, parts):
         (out["bp2"].isin(parts))
     ]
     return out
+
+
+bodyparts = [
+    'thorax', 'abdomen', 'foreLeft_Leg', 'foreRightLeg', 'head', 'leftWing',
+    'midLeftLeg', 'midRightLeg', 'proboscis', 'rearLeftLeg',
+    'rearRightLeg', 'rightWing'
+]
+legs = [bp for bp in bodyparts if "leg" in bp.lower()]
+wings = [bp for bp in bodyparts if "wing" in bp.lower()]
+core = ["thorax", "abdomen", "head", "proboscis"]

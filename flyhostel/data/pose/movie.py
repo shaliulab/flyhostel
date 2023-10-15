@@ -1,4 +1,5 @@
 import glob
+import itertools
 import os
 import sqlite3
 import matplotlib.colors as colors
@@ -6,6 +7,7 @@ import cv2
 import numpy as np
 import joblib
 from imgstore.interface import VideoCapture
+from flyhostel.data.interactions.bodyparts import bodyparts, legs
 
 animal_colors=["#1A281F", "#635255", "#CE7B91", "#C0E8F9", "#B8D3D1", "#F2E86D"]
 
@@ -60,16 +62,8 @@ def draw_fly(canvas, t, dt, id):
     Draw the pose of an animal
     """
     dt_animal = dt.loc[id]
-    row=dt_animal.iloc[np.abs(dt_animal["t"]-t).argmin()]
-    legs = [
-        'foreLeft_Leg',
-        'foreRightLeg',
-        'midLeftLeg',
-        'midRightLeg',
-        'rearLeftLeg',
-        'rearRightLeg'
-    ]
 
+    row=dt_animal.iloc[np.abs(dt_animal["t"]-t).argmin()]
     identity = row["identity"].item()
     color = [int(255*e) for e in colors.hex2color(animal_colors[identity-1])]
     canvas=connect_bps(canvas, bp1="centroid", bp2="abdomen", row=row, color=color)
@@ -113,17 +107,17 @@ def partition_list(input_list, chunk_size):
         yield input_list[i:i + chunk_size]
 
 
-def make_pose_movie(basedir, dt, ts=None, frame_numbers=None, **kwargs):
+def make_pose_movie(basedir, dt, ts=None, frame_numbers=None, n_jobs=24, **kwargs):
     if ts is None:
         points_name="frame_numbers"
-        points = frame_numbers        
+        points = frame_numbers
     else:
         points_name="ts"
         points = ts
     
     points_partition = list(partition_list(points, 300))
     
-    return joblib.Parallel(n_jobs=24)(
+    return joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             make_pose_segment
         )(
@@ -133,38 +127,66 @@ def make_pose_movie(basedir, dt, ts=None, frame_numbers=None, **kwargs):
     )
 
 
-def make_pose_segment(basedir, dt, output_folder=".", ts=None, frame_numbers=None, segment_number=0):
+def make_pose_segment(basedir, dt, output_folder=".", ts=None, frame_numbers=None, segment_number=0, roi=None):
+    f"""
+    dt:
+    index is id
+    must contain column t with time (should be seconds since zt0 but not required)
+    must contain column frame_number with the corresponding frame number of the original recording
+    must contain two columns called bp_x and bp_y where bp is all of the bodyparts in {bodyparts}. Must also contain centroid_x and centroid_y 
+
+    roi = x, y, w, h
+    """
+
+    columns=[[bp + "_x", bp + "_y"] for bp in bodyparts + ["centroid"]]
+    columns=itertools.chain(*columns)
+    assert [col in dt.columns for col in columns]
+
     dbfiles = glob.glob(basedir + "/FlyHostel*.db")
     assert len(dbfiles) == 1, f"{len(dbfiles)} FlyHostel dbfiles found, but only one should be present"
     dbfile = dbfiles[0]
-    store=VideoCapture(basedir + "/metadata.yaml", 100)
-    vw=None
-    if ts is None:
-        assert frame_numbers
-        points_name = "frame_number"
-        points=frame_numbers
-    else:
-        points_name = "t"
-        points = ts
 
-    identities=sorted(np.unique(dt.index))
-        
-    for point in points:
-        frame, canvas = draw_frame(dbfile, dt=dt, identities=identities, store=store, **{points_name: point})
-        wh=canvas.shape[:2][::-1]
-        
-        if vw is None:
-            path=output_folder+f"/video_with_pose_{str(segment_number).zfill(3)}.mp4"
-            os.makedirs(output_folder, exist_ok=True)
+    try:
+        store=VideoCapture(basedir + "/metadata.yaml", 100)
+        vw=None
+        if ts is None:
+            assert frame_numbers
+            points_name = "frame_number"
+            points=frame_numbers
+            points=[int(e) for e in points]
+            
+        else:
+            points_name = "t"
+            points = ts
+            points=[float(e) for e in points]
+    
 
-            vw=cv2.VideoWriter(
-                path,
-                cv2.VideoWriter_fourcc(*"DIVX"),
-                fps=2,
-                frameSize=wh,
-                isColor=True,
-            )
-        vw.write(canvas)
-    vw.release()
-    store.release()
+        identities=sorted(np.unique(dt.index))
+            
+        for point in points:
+            frame, canvas = draw_frame(dbfile, dt=dt, identities=identities, store=store, **{points_name: point})
+
+            if roi is not None:
+                x, y, w, h = roi
+                canvas = canvas[y:(y+h), x:(x+w)]
+
+            wh=canvas.shape[:2][::-1]
+            
+            if vw is None:
+                path=output_folder+f"/video_with_pose_{str(segment_number).zfill(3)}.mp4"
+                os.makedirs(output_folder, exist_ok=True)
+
+                vw=cv2.VideoWriter(
+                    path,
+                    cv2.VideoWriter_fourcc(*"DIVX"),
+                    fps=2,
+                    frameSize=wh,
+                    isColor=True,
+                )
+            vw.write(canvas)
+    finally:
+        if vw is not None:
+            vw.release()
+        store.release()
+
     return path

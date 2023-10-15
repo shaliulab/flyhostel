@@ -7,16 +7,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from .centroids import load_centroid_data, to_behavpy, sleep_annotation, time_window_length
-from .bodyparts import make_absolute_pose_coordinates, find_closest_bps_parallel
+from .bodyparts import make_absolute_pose_coordinates, find_closest_bps_parallel, bodyparts, legs
 from flyhostel.data.pose.movie import make_pose_movie
 
 root_folder = "/Users/FlySleepLab Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/MOTIONMAPPER_DATA"
-bodyparts = [
-    'thorax', 'abdomen', 'foreLeft_Leg', 'foreRightLeg', 'head', 'leftWing',
-    'midLeftLeg', 'midRightLeg', 'proboscis', 'rearLeftLeg',
-    'rearRightLeg', 'rightWing'
-]
-legs = [bp for bp in bodyparts if "leg" in bp.lower()]
+
 
 
 def dunder_to_slash(experiment):
@@ -67,7 +62,6 @@ class InteractionDetector:
         self.dt2_absolute=None
         self.out=None
         self.out_filtered=None
-        
 
 
     def pipeline1(self):
@@ -100,7 +94,7 @@ class InteractionDetector:
         dt_sleep = to_behavpy(data = dt_sleep, meta = self.dt.meta, check = True)
         return dt_sleep
 
-    def pipeline2(self, n_jobs=-2, dist_max=None):
+    def pipeline2(self, n_jobs=-2, dist_max=None, bodyparts=legs):
 
         if dist_max is None:
             dist_max=self.dist_max
@@ -126,7 +120,7 @@ class InteractionDetector:
         # we want to instead keep one row for each (because which one is which has no meaning)
         interactions_complete=interactions_complete.loc[interactions_complete["id1"] == interactions_complete["id"]]
         
-        self.out, self.out_filtered = find_closest_bps_parallel(interactions_complete, n_jobs=n_jobs, chunksize=100, max_distance=10, parts=legs)
+        self.out, self.out_filtered = find_closest_bps_parallel(interactions_complete, n_jobs=n_jobs, chunksize=100, max_distance=10, parts=bodyparts)
         
         m2 = self.merge_with_sleep_status()
 

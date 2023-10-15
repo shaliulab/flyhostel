@@ -2,7 +2,7 @@ import ethoscopy as etho
 from functools import partial
 
 metadata_folder='/home/vibflysleep/FlySleepLab Dropbox/Antonio/FSLLab/Projects/ethoscopy/home/vibflysleep/metadata'
-meta_loc = f'{metadata_folder}/2023_flyhostel.csv' 
+meta_loc = f'{metadata_folder}/2023_flyhostel.csv'
 remote = '/flyhostel_data/videos'
 local = '/flyhostel_data/videos'
 flyhostel_cache='/flyhostel_data/cache'
