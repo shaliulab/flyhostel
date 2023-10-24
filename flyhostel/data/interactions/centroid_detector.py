@@ -4,7 +4,7 @@ import numpy as np
 import zeitgeber.rle
 
 
-from flyhostel.data.interactions.utils import get_metadata_prop
+from flyhostel.data.interactions.utils import load_metadata_prop
 
 def centroid_interaction_detector(animal0, animal1, dt0, dt1, dt_index, distance_threshold=0.15):
     """
@@ -13,9 +13,9 @@ def centroid_interaction_detector(animal0, animal1, dt0, dt1, dt_index, distance
         distance_threshold (float): Max distance in cm between animals during interaction
     """
 
-    pixels_per_cm0 = int(float(get_metadata_prop(animal0, "pixels_per_cm")))
-    pixels_per_cm1 = int(float(get_metadata_prop(animal1, "pixels_per_cm")))
-    chunksize = int(float(get_metadata_prop(animal0, "chunksize")))
+    pixels_per_cm0 = int(float(load_metadata_prop("pixels_per_cm", animal0)))
+    pixels_per_cm1 = int(float(load_metadata_prop("pixels_per_cm", animal1)))
+    chunksize = int(float(load_metadata_prop("chunksize", animal0)))
 
     xy0=dt0.loc[:, pd.IndexSlice[:, "centroid", ["x", "y"]]].values / pixels_per_cm0
     xy1=dt1.loc[:, pd.IndexSlice[:, "centroid", ["x", "y"]]].values / pixels_per_cm1

@@ -7,30 +7,36 @@ import itertools
 import numpy as np
 import pandas as pd
 import joblib
-
+from .utils import parse_identity
+ROI_WIDTH=ROI_HEIGHT=100
+anchor_bp="thorax"
 
 def make_absolute_pose_coordinates(dt, bodyparts, roi_width):
-    # convert to absolute coordinates
-    # dt2 contaions the coordinates of the centroid in units relative to the roi_width e.g. 1,1 means bottom right corner
-    # and the coordinates of the body parts relative to the top left corner of the inset of the animal (50 pixels up and right from centroid)
-    # to obtain the centroid in absolute 
-    dt_absolute=dt.copy()
+    """
+    Convert to absolute coordinates
+    
+    dt contaions the coordinates of the centroid in units relative to the roi_width e.g. 1,1 means bottom right corner
+    and the coordinates of the body parts relative to the top left corner of the inset of the animal (50 pixels up and right from centroid)
+    to obtain all bodyparts in absolute:
 
+        1. Obtain the absolute coordinates of the centroid, by multiplying by the roi width and height
+        2. Obtain the absolute coordinates of the other parts, by adding to the coordinate of the top left corner
+            the relative coordinate of the body part
+    """
 
-    dt_absolute["centroid_x"] = dt_absolute["x"] *roi_width
-    dt_absolute["tl_x"] = dt_absolute["centroid_x"]-50 #dt_absolute["thorax_x"]
-    dt_absolute["centroid_y"] = dt_absolute["y"] *roi_width
-    dt_absolute["tl_y"] = dt_absolute["centroid_y"]-50 #dt_absolute["thorax_y"]
-    dt_absolute["thorax_x_original"] = dt_absolute["thorax_x"]
-    dt_absolute["thorax_y_original"] = dt_absolute["thorax_y"]
+    dt["centroid_x"] = dt["x"] *roi_width
+    dt["tl_x"] = dt["centroid_x"]-ROI_WIDTH//2
+    dt["centroid_y"] = dt["y"] *roi_width
+    dt["tl_y"] = dt["centroid_y"]-ROI_HEIGHT//2
+    dt[f"{anchor_bp}_x_original"] = dt[f"{anchor_bp}_x"]
+    dt[f"{anchor_bp}_y_original"] = dt[f"{anchor_bp}_y"]
     for bp in bodyparts:
         for coord in ["x", "y"]:
-            dt_absolute[bp + "_" + coord] = dt_absolute["tl_" + coord] + dt[bp + "_" + coord]
-    dt_absolute["identity"] = [int(e.split("|")[1]) for e in dt_absolute.index]
-    for coord in ["x", "y"]:
-        dt_absolute[coord] = dt[coord]
-
-    return dt_absolute
+            dt[bp + "_" + coord] = dt["tl_" + coord] + dt[bp + "_" + coord]
+    dt["identity"] = [parse_identity(identity) for identity in dt["id"]]
+    del dt["tl_y"]
+    del dt["tl_x"]
+    return dt
 
 
 
@@ -94,17 +100,21 @@ def find_closest_bps(df, key, i, bodyparts=[]):
     all_bps=all_bps.iloc[[all_bps["distance"].argmin()]]
     return all_bps
 
-def find_closest_bps_parallel(interactions, n_jobs=-2, chunksize=100, **kwargs):
+def find_closest_bps_parallel(interactions, n_jobs=-2, partition_size=100, **kwargs):
     """
     For all instances where two animals are very close, return the bodyparts of each
     that are closest in space
+
+    Arguments:
+
+    * interactions (pd.DataFrame): Every
     """
     
     out=[]
     for i, (key, df) in enumerate(interactions.groupby("interaction")):
-        if i % chunksize == 0:
+        if i % partition_size == 0:
             out.append([])
-        out[i//chunksize].append((df, key, i))
+        out[i//partition_size].append((df, key, i))
     out2 = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(find_closest_bps_all)(
             iterable, **kwargs
