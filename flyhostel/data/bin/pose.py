@@ -33,20 +33,19 @@ def main():
     if args.experiment is not None:
         experiment_name=args.experiment
         tokens = experiment_name.split("_")
-        flyhostel=tokens[0]
-        number_of_animals=tokens[1]
-        date_time = "_".join(tokens[2:4])
-
-        basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], flyhostel, number_of_animals, date_time)
+        basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], tokens[0], tokens[1], "_".join(tokens[2:4]))
         dbfile = os.path.join(basedir, experiment_name + ".db")
     else:
         assert args.dbfile is not None
         dbfile = args.dbfile
-        tokens=dbfile.split(os.path.sep)
-        experiment_name = "_".join(tokens[-4:]).rstrip(".db")
-        number_of_animals=int(tokens[-4:][1].rstrip("X"))
+        experiment_name = os.path.basename(dbfile).rstrip(".db")
+        tokens=experiment_name.split("_")
 
-    print(dbfile)
+    number_of_animals_x=tokens[1]
+    flyhostel=tokens[0]
+    date_time = "_".join(tokens[2:4])
+    basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], flyhostel, number_of_animals_x, date_time)
+
 
     with sqlite3.connect(dbfile) as conn:
         cur=conn.cursor()
@@ -54,6 +53,7 @@ def main():
         concatenation=load_concatenation_table(cur, basedir)
 
     joblib.Parallel(n_jobs=args.n_jobs)(
+    # joblib.Parallel(n_jobs=1)(
         joblib.delayed(
             pipeline
         )(
@@ -61,3 +61,6 @@ def main():
         )
         for identity in range(1, number_of_animals+1)
     )
+
+    # for identity in range(1, number_of_animals+1):
+    #     pipeline(experiment_name, identity, concatenation, args.chunks)

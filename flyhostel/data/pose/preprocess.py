@@ -46,8 +46,7 @@ def main():
         experiment = args.experiment
     else:
         dbfile=args.dbfile
-        experiment = "_".join(os.path.dirname(dbfile).split(os.path.sep)[-3:])
-
+        experiment = os.path.basename(dbfile).rstrip(".db")
 
     chunks=args.chunks
     n_jobs=args.n_jobs
