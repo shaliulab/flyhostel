@@ -83,6 +83,10 @@ def impute_body_part(analysis_file, body_part, reference):
 
 def load_file(file):
 
+    if not os.path.exists(file):
+        print(f"{file} does not exist")
+        return None, None, None, None
+
     try:
         with h5py.File(file, 'r') as filehandle:
             node_names = filehandle["node_names"][:]
@@ -100,12 +104,24 @@ def load_file(file):
 def load_files(files, n_jobs=1):
 
     # files=sorted(files)
+    # files_ = []
+    # for f in files:
+    #     local_identity=int(os.path.basename(os.path.dirname(f)))
+    #     chunk=int(os.path.basename(f).split(".")[0])
+    #     if local_identity == 0:
+    #         print(f"local identity = 0 in chunk {chunk}")
+    #         continue
+    #     files_.append(f)
+    # files=files_
 
+
+    print(f"{len(files)} files will be loaded")
     Output = joblib.Parallel(n_jobs=n_jobs)(
+    # Output = joblib.Parallel(n_jobs=1)(
         joblib.delayed(
             load_file
         )(
-            file       
+           file
         )
         for file in files
     )
@@ -114,15 +130,39 @@ def load_files(files, n_jobs=1):
     point_scores=[]
     previous_node_names=None
 
+    template_dataset = None
+    template_score = None
+
+    dataset_count = 0
     for node_names, dataset, score, file in Output:
+        if dataset is not None:
+            dataset_count += 1
+            if template_dataset is None:
+                template_dataset = dataset.copy()
+                template_dataset[:]=np.nan
+                template_score = score.copy()
+                template_score[:] = np.nan
+            
         datasets.append(dataset)
         point_scores.append(score)
+        if node_names is None:
+            continue
+
         if previous_node_names is not None:
             assert all([node_names[i] == previous_node_names[i] for i in range(len(node_names))])
         previous_node_names=node_names
+    print(f"{dataset_count} datasets have been loaded")
+
+    missing_frames=0
+    for i, _ in enumerate(datasets):
+        if datasets[i] is None:
+            datasets[i] = template_dataset.copy()
+            point_scores[i] = template_score.copy()
+            missing_frames+=max(template_dataset.shape)
+            
 
     nframes = sum([dataset.shape[3] for dataset in datasets])
-    print(f"{nframes} frames loaded")
+    print(f"{nframes} frames loaded. {missing_frames} frames missing")
     return node_names, datasets, point_scores
 
 
@@ -158,10 +198,18 @@ def parse_number_of_animals(cur):
     number_of_animals=int(conf["_number_of_animals"]["value"])
     return number_of_animals
 
-def infer_analysis_path(basedir, local_identity, chunk):
-    return os.path.join(basedir, "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
+def infer_analysis_path(basedir, local_identity, chunk, number_of_animals):
+    if number_of_animals==1:
+        return os.path.join(basedir, "flyhostel", "single_animal", str(0).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
+    else:
+        return os.path.join(basedir, "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
 
 def load_concatenation_table(cur, basedir):
+    cur.execute("SELECT value FROM METADATA where field ='idtrackerai_conf';")
+    conf=cur.fetchone()[0]
+    number_of_animals=int(json.loads(conf)["_number_of_animals"]["value"])
+
+
     cur.execute("PRAGMA table_info('CONCATENATION');")
     header=[row[1] for row in cur.fetchall()]
 
@@ -169,7 +217,7 @@ def load_concatenation_table(cur, basedir):
     records=cur.fetchall()
     concatenation=pd.DataFrame.from_records(records, columns=header)
     concatenation["dfile"] = [
-        infer_analysis_path(basedir, row["local_identity"], row["chunk"])
+        infer_analysis_path(basedir, row["local_identity"], row["chunk"], number_of_animals=number_of_animals)
         for i, row in concatenation.iterrows()
     ]
     return concatenation
@@ -179,8 +227,14 @@ def pipeline(experiment_name, identity, concatenation, chunks=None):
     if chunks is not None:
         concatenation=concatenation.loc[concatenation["chunk"].isin(chunks)]
 
+    if "1X" in experiment_name:
+        concatenation_i=concatenation
+    else:
+        concatenation_i=concatenation.loc[concatenation["identity"]==identity]
 
-    concatenation_i=concatenation.loc[concatenation["identity"]==identity]
+    if chunks is not None:
+        assert concatenation_i.shape[0] == len(chunks)
+
     files=concatenation_i["dfile"]
     node_names, datasets, point_scores = load_files(files)
     dest_file=os.path.join(POSE_DATA, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
