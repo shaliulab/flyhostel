@@ -226,6 +226,42 @@ class PEDetector(ABC):
     
 
 class InteractionDetector(PEDetector, CrossVideo):
+    """
+    Analyse microbehavior produced in the flyhostel
+
+    experiment="FlyHostelX_XX_XX-XX-XX_XX-XX-XX"
+
+    detector = InteractionDetector(experiment, n_jobs=20)
+    # n_jobs simply controls how many processes to use in parallel when loading idtrackerai (centroid) data
+    
+
+    # loads centroid data (idtrackerai) and pose data (SLEAP)
+    detector.load_data(min_time=14*3600, max_time=22*3600, time_system="zt")
+    # populates detector.dt (centroid) and detector.pose (pose)
+
+    # quantifies bouts of proboscis extension
+    detector.detect_proboscis_extension()
+    # output is saved in detector.pe_df
+    
+    # annotate sleep using centroid data
+    detector.dt_sleep = detector.annotate_sleep(detector.dt)
+    # output is saved in detector.dt_sleep (original framerate)
+    # and detector.dt_sleep_2fps
+
+    ## annotate interactions between flies and keep track of which body part was used
+    # connect pose and centroid
+    detector.integrate()
+    # pre-filter frames so only frames where at least two animals are at < 3 mm of each other are kept
+    detector.compute_pairwise_distances(dist_max=3)
+
+    # now on this subset, compute the interfly body pair distance
+    # find the minimum distance between 2 bodyparts of different flies
+    # and require it to be less than 2 mm for 3 seconds
+    detector.annotate_interactions(dist_max=2, min_bout=3)
+
+    # output is saved in
+    detector.interactions_sleep
+    """
 
     def __init__(self, experiment, lq_thresh=0.8, roi_width_mm=roi_width_mm, dist_max_mm=dist_max_mm, n_jobs=-2):
 
