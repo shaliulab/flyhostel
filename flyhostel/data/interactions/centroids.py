@@ -3,8 +3,8 @@ from functools import partial
 from ethoscopy.flyhostel import compute_xy_dist_log10x1000
 import numpy as np
 
-metadata_folder='/home/vibflysleep/FlySleepLab Dropbox/Antonio/FSLLab/Projects/ethoscopy/home/vibflysleep/metadata'
-meta_loc = f'{metadata_folder}/2023_flyhostel.csv'
+metadata_folder='/flyhostel_data/metadata'
+meta_loc = f'{metadata_folder}/flyhostel.csv'
 remote = '/flyhostel_data/videos'
 local = '/flyhostel_data/videos'
 flyhostel_cache='/flyhostel_data/cache'
@@ -13,6 +13,7 @@ time_window_length=10
 def load_centroid_data(experiment, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20):
     meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel")
     meta=meta.loc[meta["id"].str.startswith(experiment[:26])]
+    assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
     meta["experiment"]=experiment
 
     data = etho.load_flyhostel(
@@ -20,7 +21,7 @@ def load_centroid_data(experiment, min_time=-float('inf'), max_time=+float('inf'
         time_system=time_system
     )
 
-    assert data.shape[0] > 0
+    assert data.shape[0] > 0, "No data found!"
     data.sort_values(["id", "t"], inplace=True)
     dt = etho.behavpy(data = data, meta = meta, check = True)
     return dt

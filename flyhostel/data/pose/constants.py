@@ -23,7 +23,8 @@ skeleton=[(0, i) for i in range(1, len(body_parts_chosen)-1)] + [
 
 criteria=["interpolate" for i in range(0, len(body_parts_chosen)-1)] + ["head"]
 
-score_filter=[None for i in range(0, len(body_parts_chosen)-1)] + ["elbow"]
+score_filter=[None for i in range(0, len(body_parts_chosen)-1)] + [None]
+# score_filter=[None for i in range(0, len(body_parts_chosen)-1)] + ["elbow"]
 labels=[bp[:2] for bp in body_parts_chosen[:3]] + [".".join([bp[0]] + list(filter(lambda x: x not in [".", "_"] and x == x.upper(), bp))) for bp in body_parts_chosen[3:-1]] + ["pr"]
 
 assert len(body_parts_chosen) == len(criteria)

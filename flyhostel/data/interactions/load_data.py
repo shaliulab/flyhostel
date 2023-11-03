@@ -1,4 +1,5 @@
 import os
+import glob
 import sqlite3
 import pandas as pd
 import numpy as np
@@ -8,7 +9,10 @@ DATA_PATH=os.environ["MOTIONMAPPER_DATA"]
 def get_sqlite_file(animal):
 
     tokens = animal.split("_")[:4]
-    sqlite_file = f"{os.environ['FLYHOSTEL_VIDEOS']}/{tokens[0]}/{tokens[1]}/{tokens[2]}_{tokens[3]}/{'_'.join(tokens)}.db"
+    sqlite_files = glob.glob(f"{os.environ['FLYHOSTEL_VIDEOS']}/{tokens[0]}/{tokens[1]}/{tokens[2]}_{tokens[3]}/{'_'.join(tokens)}.db")
+    assert len(sqlite_files) == 1
+    sqlite_file=sqlite_files[0]
+
     assert os.path.exists(sqlite_file)
     return sqlite_file
 

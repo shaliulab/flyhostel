@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import sqlite3
 import glob
 import time
@@ -19,6 +20,7 @@ from .distance import (
     compute_distance_matrix,
     compute_distance_matrix_bodyparts
 )
+
 from .bouts import annotate_interaction_bouts
 
 from .bodyparts import make_absolute_pose_coordinates, bodyparts, legs
@@ -40,11 +42,203 @@ roi_width_mm=60
 dist_max_mm=4
 useGPU=True
 
-class InteractionDetector:
+
+
+
+from .load_data import get_sqlite_file
+
+class CrossVideo(ABC):
+    
+    @staticmethod
+    def cross_with_video_data(dt):
+        dt["identity1"] = [int(e.split("|")[1]) for e in dt["id1"]]
+        dt["identity2"] = [int(e.split("|")[1]) for e in dt["id2"]]
+        dt["id1"].iloc[0].split("|")[0]
+        dt["dbfile"]=[get_sqlite_file(animal.split("|")[0] + "*") for animal in dt["id1"]]
+        dt.sort_values("bp_distance_mm", inplace=True)    
+        dbfile=dt.iloc[0]["dbfile"]
+
+        with sqlite3.connect(dbfile) as conn:
+            cursor=conn.cursor()
+            cursor.execute(f"SELECT value FROM METADATA WHERE field = 'chunksize';",)
+            chunksize = int(float(cursor.fetchone()[0]))
+
+        frame_numbers=[int(e) for e in sorted(dt["frame_number"].unique())]    
+        table = get_local_identities(dt.iloc[0]["dbfile"], frame_numbers=frame_numbers)
+        dt["frame_idx"]=dt["frame_number"] % chunksize
+        dt["video_time"]=dt["frame_idx"] / 150
+
+        dt["video1"]=None
+        dt["video2"]=None
+
+        for i, row in dt.iterrows():
+            dt["video1"].loc[i]=get_single_animal_video(row["dbfile"], row["frame_number"], table=table, identity=row["identity1"], chunksize=chunksize)
+            dt["video2"].loc[i]=get_single_animal_video(row["dbfile"], row["frame_number"], table=table, identity=row["identity2"], chunksize=chunksize)
+
+        dt=dt.loc[~pd.isna(dt["video1"])]
+        return dt
+        # dt.sort_values("bp_distance_mm", ascending=False).to_csv(f"2023-10-24_interaction-scenes/{experiment}.csv")
+
+
+import zeitgeber
+class PEDetector(ABC):
+    """
+    Given an estimate of the pose of multiple animals, stored in a pd.DataFrame
+    with columns id, frame_number and bp_x bp_y bp_is_interpolated where bp is any bp
+    detects proboscis extension bouts, defined as episodes where the proboscis acquires a non-zero distance
+    from the head when looking at the top view of the fly
+
+    How to use:
+
+    Run detect_proboscis_extension() to access the pose dataframe and run the whole analysis
+    Present filters 
+    * position of proboscis canot be interpolated (rows where bp_is_interpolated is False are discarded)
+    * distance from proboscis to head in any frame cannot be > 20 pixels. Such frames are discarded prior to the detection of bouts
+    """
+
+    experiment=None
+    pose=None
+    identities=None
+    roi_width=None
+    dt=None
+    pe_df=None
+    video_chunksize=45000
+    video_framerate=150
+    MAX_DISTANCE_HEAD_PROB_PIXELS=20
+
+
+    def compute_prob_head_distance(self, pose):
+
+
+        x = pose["proboscis_x"]-pose["head_x"]
+        y = pose["proboscis_y"]-pose["head_y"]
+        pose["frame_idx"]=pose["frame_number"]%self.video_chunksize
+        pose["chunk"]=pose["frame_number"]//self.video_chunksize
+
+        head_prob_pose = pose[["frame_number", "chunk", "frame_idx", "id", "t", "head_x", "head_y", "proboscis_x", "proboscis_y", "head_likelihood", "proboscis_likelihood", "proboscis_is_interpolated"]]
+
+        dist = np.sqrt((np.array([x,y])**2).sum(axis=0))
+        dist_df=pd.DataFrame({"frame_number": pose["frame_number"], "distance": dist})
+        dist_df=dist_df.merge(head_prob_pose, on="frame_number")
+        dist_df=dist_df.loc[dist_df["distance"] > 1]
+        dist_df["mistrack"]=False
+        dist_df.loc[dist_df["distance"] > self.MAX_DISTANCE_HEAD_PROB_PIXELS, "mistrack"]=True
+        dist_df=dist_df.loc[~dist_df["mistrack"]]
+        dist_df=dist_df.loc[~dist_df["proboscis_is_interpolated"]]
+        dist_df["df"]=np.concatenate([[np.inf], np.diff(dist_df["frame_number"])])
+        return dist_df
+    
+
+    def compute_pe_bouts(self, dist_df):
+        self.stride=np.unique(dist_df["df"], return_counts=True)[0][0]
+        if self.stride != 10:
+            print(f"Stride of dataset {self.experiment} is {self.stride}")
+
+        encoding = zeitgeber.rle.encode([str(e)[0] for e in dist_df["df"]<=self.stride])
+        encoding_df=pd.DataFrame.from_records(encoding, columns=["status", "length"])
+        if encoding_df.shape[0]%2==1:
+            encoding_df=encoding_df.iloc[:-1]
+            
+        encoding_df["bout"]=np.repeat(np.arange(encoding_df.shape[0]//2), 2)
+        encoding_df["row"]=encoding_df["length"].cumsum()
+        encoding_df["frame_number"]=dist_df["frame_number"].iloc[(encoding_df["row"]-1)].values
+
+        encoding_df=encoding_df.groupby("bout").apply(lambda df: [df["frame_number"].iloc[0], df["length"].iloc[1]+1]).reset_index()
+        encoding_df["frame_number"]=[e[0]for e in encoding_df[0]]
+        encoding_df["chunk"]=encoding_df["frame_number"]//self.video_chunksize
+        encoding_df["frame_idx"]=encoding_df["frame_number"]%self.video_chunksize
+        encoding_df["length"]=[e[1]for e in encoding_df[0]]
+        del encoding_df[0]
+        return encoding_df
+
+
+    def analyse_bouts(self, dist_df, encoding_df):
+        intervals=[]
+        dynamics_df=[]
+        for i, row in encoding_df.iterrows():
+            fn_start = row["frame_number"]-self.stride
+            fn_end = row["frame_number"] + (row["length"]+1)*self.stride
+            df_block = dist_df.loc[(dist_df["frame_number"]>=fn_start) & (dist_df["frame_number"]<fn_end)]
+                
+            distance=df_block["distance"]
+            likelihood=df_block["proboscis_likelihood"]
+            n_points=df_block.shape[0]
+            
+            dist_ts = distance.iloc[[0, n_points//2, n_points-1]]
+            lk_ts = likelihood.iloc[[0, n_points//2, n_points-1]]
+            dynamics_df.append(np.concatenate([dist_ts, lk_ts]))
+
+            max_dist = distance.max()
+            mean_lk =  likelihood.mean()
+            min_lk =  likelihood.min()
+            max_lk =  likelihood.max()
+            lk_at_max_dist = likelihood.iloc[distance.argmax()]
+            
+            
+            interval=(fn_start, fn_end, max_dist, mean_lk, min_lk, max_lk, lk_at_max_dist)
+            intervals.append(interval)
+            
+        intervals_df = pd.DataFrame.from_records(intervals, columns=["start", "end", "max_dist", "mean_lk", "min_lk", "max_lk", "lk_at_max_dist"])
+        intervals_df["chunk"]=intervals_df["start"]//self.video_chunksize
+        intervals_df["frame_idx_start"]=intervals_df["start"]%self.video_chunksize
+        intervals_df["frame_idx_end"]=intervals_df["end"]%self.video_chunksize
+        intervals_df["duration"]=(intervals_df["end"]-intervals_df["start"])/self.video_framerate
+        intervals_df=pd.concat([intervals_df, pd.DataFrame(dynamics_df)], axis=1)
+        return intervals_df
+    
+    def detect_proboscis_extension(self):
+        all_dfs=[]
+        for id in self.identities:
+            if self.pose is None:
+                print(f"No pose data is available for experiment {self.experiment}")
+                continue
+            else:
+                pose=self.pose.loc[self.pose["id"]==id]
+                if pose.shape[0] == 0:
+                    print(f"No pose data is available for id {id}")
+                    continue
+
+
+            dist_df = self.compute_prob_head_distance(pose)
+            bouts_df = self.compute_pe_bouts(dist_df)
+            pe_df = self.analyse_bouts(dist_df, bouts_df)
+            pe_df["id"]=id
+            pe_df["experiment"]=self.experiment
+            pe_df["frame_number"]=pe_df["start"]
+
+            # where?
+            dt=self.dt.loc[self.dt["id"] == id]
+            centroid_data=pd.DataFrame({"frame_number": dt["frame_number"].astype(np.int64), "x": self.roi_width*dt["x"], "y": self.roi_width*dt["y"]})
+            pe_df=pd.merge_asof(pe_df, centroid_data, on="frame_number")
+            all_dfs.append(pe_df)
+
+        if len(all_dfs) == 0:
+            return
+
+        pe_df=pd.concat(all_dfs)
+
+        # when? (it's the same for all ids so it can be done outside of the loop once for all)
+        pe_df=pe_df.merge(self.pose[["id", "frame_number", "t"]], on=["id", "frame_number"])
+        self.pe_df=pe_df
+
+        return pe_df
+    
+    
+
+class InteractionDetector(PEDetector, CrossVideo):
 
     def __init__(self, experiment, lq_thresh=0.8, roi_width_mm=roi_width_mm, dist_max_mm=dist_max_mm, n_jobs=-2):
 
-        self.basedir = os.environ["FLYHOSTEL_VIDEOS"] + "/" + dunder_to_slash(experiment)
+        basedir = os.environ["FLYHOSTEL_VIDEOS"] + "/" + dunder_to_slash(experiment)
+        if not os.path.exists(basedir):
+            dirs=glob.glob(basedir + "*")
+            if len(dirs) == 1:
+                basedir = dirs[0]
+            else:
+                raise Exception(f"{basedir} not found")
+        self.basedir=basedir
+
+
         self.experiment = experiment
         self.lq_thresh = lq_thresh
         self.n_jobs=n_jobs
@@ -74,16 +268,17 @@ class InteractionDetector:
         self.distances_sleep=None
         self.interactions_sleep=None
         self.rejections=None
+        self.dt_sleep_2fps=None
         
 
     def load_dbfile(self):
         dbfiles=glob.glob(self.basedir + "/FlyHostel*.db")
-        assert len(dbfiles) == 1, f"{len(dbfiles)} dbfiles found: {' '.join(dbfiles)}"
+        assert len(dbfiles) == 1, f"{len(dbfiles)} dbfiles found in {self.basedir}: {' '.join(dbfiles)}"
         return dbfiles[0]
 
 
     def load_datasetnames(self):
-        pickle_files, experiments = self.load_experiments(self.experiment)
+        pickle_files, experiments = self.load_experiments(self.experiment + "*")
         datasetnames = []
         settings={}
         for i, pickle_file in enumerate(pickle_files):
@@ -110,6 +305,10 @@ class InteractionDetector:
         for animal_id, d in enumerate(self.datasetnames):
             h5_file = '%s/%s_positions.h5' % (os.environ["MOTIONMAPPER_DATA"], d)
 
+            if not os.path.exists(h5_file):
+                print(f"{h5_file} not found")
+                continue
+
             index = pd.read_hdf(h5_file, key="index")
             index["t"] = index["zt"]*3600
 
@@ -128,7 +327,11 @@ class InteractionDetector:
 
             self.pose.append(self._simplify_columns(index, pose, self.identities[animal_id]))
             self.index_pandas.append(index)
-            
+        
+        if len(self.pose) == 0:
+            self.pose=None
+            return
+
         self.pose=pd.concat(self.pose, axis=0)
         self.pose.reset_index(inplace=True)
 
@@ -144,9 +347,9 @@ class InteractionDetector:
     def _simplify_columns(index, pose, id):
         bp="thorax"
         bps=np.unique(pose.columns.get_level_values(1).values)
-        pose=pose.loc[:, pd.IndexSlice[:, bps, ["x","y", "is_interpolated"]]]
-        pose.columns=itertools.chain(*[[bp + "_x", bp + "_y", bp + "_is_interpolated"] for bp in bps])
-        pose=pose[itertools.chain(*[[bp + "_x", bp + "_y", bp + "_is_interpolated"] for bp in bodyparts])]
+        pose=pose.loc[:, pd.IndexSlice[:, bps, ["x","y", "is_interpolated", "likelihood"]]]
+        pose.columns=itertools.chain(*[[bp + "_x", bp + "_y", bp + "_is_interpolated", bp + "_likelihood"] for bp in bps])
+        pose=pose[itertools.chain(*[[bp + "_x", bp + "_y", bp + "_is_interpolated", bp + "_likelihood"] for bp in bodyparts])]
         pose=pose.merge(index[["frame_number", "zt"]].set_index("frame_number"), left_index=True, right_index=True)
         pose["t"]=pose["zt"]*3600
         del pose["zt"]
@@ -199,6 +402,7 @@ class InteractionDetector:
         dt_sleep=dt_sleep[annotation_output_columns].sort_values(["frame_number", "id"])
         dt_to_merge = dt[annotation_input_columns].sort_values(["frame_number", "id"])
         
+        self.dt_sleep_2fps=dt_sleep.copy()
         dt_sleep=pd.merge_asof(
             dt_to_merge,
             dt_sleep,
@@ -492,3 +696,34 @@ class InteractionDetector:
             for d in datasetnames
         ]
         return identities
+    
+
+
+def get_local_identities(dbfile, frame_numbers):
+
+    with sqlite3.connect(dbfile) as conn:
+        cursor = conn.cursor()
+        query = "SELECT frame_number, identity, local_identity FROM identity WHERE frame_number IN ({})".format(
+            ','.join(['?'] * len(frame_numbers))
+        )
+        cursor.execute(query, frame_numbers)
+        
+        table = cursor.fetchall()
+    
+    table=pd.DataFrame.from_records(table, columns=["frame_number", "identity", "local_identity"])
+    return table
+
+def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
+    chunk = frame_number // chunksize
+    table_current_frame = table.loc[(table["frame_number"] == frame_number)]
+    if (table_current_frame["local_identity"] == 0).any():
+        single_animal_video=None    
+    else:
+        local_identity = table_current_frame.loc[table_current_frame["identity"] == identity, "local_identity"]
+        if local_identity.shape[0] == 0:
+            single_animal_video=None
+        else:
+            local_identity=local_identity.item()
+            single_animal_video = os.path.join(os.path.dirname(dbfile), "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
+    
+    return single_animal_video
