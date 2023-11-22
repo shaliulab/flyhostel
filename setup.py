@@ -44,6 +44,7 @@ setup(
             "missing-chunk-detector=flyhostel.utils.missing_chunk_detector:main",
             "compile-pose=flyhostel.data.bin.pose:main",
             "preprocess-pose=flyhostel.data.bin.pose:preprocess",
+            "list-frames-with-no-animals=flyhostel.data.sqlite3.missing_animals:main",
             ]
     },
 )

@@ -10,23 +10,34 @@ import pandas as pd
 import numpy as np
 import codetiming
 import matplotlib.pyplot as plt
-import cupy as cp
+
+try:
+    import cupy as cp
+    useGPU=True
+except:
+    cp=None
+    useGPU=False
+
 from .centroids import (
     load_centroid_data, to_behavpy,
-    sleep_annotation,
+    flyhostel_sleep_annotation,
     time_window_length,
 )
 from .distance import (
     compute_distance_matrix,
     compute_distance_matrix_bodyparts
 )
-
+from .pose import (
+    load_pose_data_processed,
+    load_pose_data_compiled,
+)
 from .bouts import annotate_interaction_bouts
 
 from .bodyparts import make_absolute_pose_coordinates, bodyparts, legs
 from .utils import load_roi_width, load_metadata_prop
 from flyhostel.data.pose.movie import make_pose_movie
 from ethoscopy.analyse import downsample_to_fps
+from ethoscopy.load import update_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +51,6 @@ def dunder_to_slash(experiment):
 # keep only interactions where the distance between animals is max mm_max mm
 roi_width_mm=60
 dist_max_mm=4
-useGPU=True
-
-
 
 
 from .load_data import get_sqlite_file
@@ -209,6 +217,8 @@ class PEDetector(ABC):
             # where?
             dt=self.dt.loc[self.dt["id"] == id]
             centroid_data=pd.DataFrame({"frame_number": dt["frame_number"].astype(np.int64), "x": self.roi_width*dt["x"], "y": self.roi_width*dt["y"]})
+            pe_df["frame_number"]=pe_df["frame_number"].astype(np.int64)
+
             pe_df=pd.merge_asof(pe_df, centroid_data, on="frame_number")
             all_dfs.append(pe_df)
 
@@ -225,15 +235,14 @@ class PEDetector(ABC):
     
     
 
-class InteractionDetector(PEDetector, CrossVideo):
+class FlyHostelLoader(PEDetector, CrossVideo):
     """
     Analyse microbehavior produced in the flyhostel
 
     experiment="FlyHostelX_XX_XX-XX-XX_XX-XX-XX"
 
-    detector = InteractionDetector(experiment, n_jobs=20)
+    detector = FlyHostelLoader(experiment, n_jobs=20)
     # n_jobs simply controls how many processes to use in parallel when loading idtrackerai (centroid) data
-    
 
     # loads centroid data (idtrackerai) and pose data (SLEAP)
     detector.load_data(min_time=14*3600, max_time=22*3600, time_system="zt")
@@ -326,72 +335,31 @@ class InteractionDetector(PEDetector, CrossVideo):
         return datasetnames
         
 
-    def load_data(self, *args, **kwargs):
+    def load_data(self, *args, source="compiled", **kwargs):
         print("Loading centroid data")
         self.load_centroid_data(*args, **kwargs, n_jobs=self.n_jobs)
         print("Loading pose data")
-        self.load_pose_data(*args, **kwargs)
-
+        self.load_pose_data(*args, source=source, **kwargs)
     
-    def load_pose_data(self, min_time=-np.inf, max_time=+np.inf, time_system="zt"):
-        self.index_pandas = []
-        self.h5s_pandas = []
-        self.pose=[]
+    def load_pose_data(self, min_time=-np.inf, max_time=+np.inf, time_system="zt", source="compiled"):
+        if source == "processed":
+            out=load_pose_data_processed(min_time, max_time, time_system, self.datasetnames, self.identities, self.lq_thresh)
+        elif source == "compiled":
+            out=load_pose_data_compiled(min_time, max_time, time_system, self.datasetnames, self.identities, self.lq_thresh)
+        else:
+            raise Exception("source must be processed or compiled")
 
-        for animal_id, d in enumerate(self.datasetnames):
-            h5_file = '%s/%s_positions.h5' % (os.environ["MOTIONMAPPER_DATA"], d)
+        if out is not None:
+            self.pose, self.h5s_pandas, self.index_pandas=out
+            self.pose=pd.concat(self.pose, axis=0)
+            self.pose.reset_index(inplace=True)
 
-            if not os.path.exists(h5_file):
-                print(f"{h5_file} not found")
-                continue
-
-            index = pd.read_hdf(h5_file, key="index")
-            index["t"] = index["zt"]*3600
-
-            keep_rows=np.where((index["t"] >= min_time) & (index["t"] < max_time))[0]
-            first_row=keep_rows[0]
-            last_row=keep_rows[-1]+1
-            
-            index=index.iloc[first_row:last_row]
-            pose=pd.read_hdf(h5_file, key="pose", start=first_row, stop=last_row)
-            pose=self.clean_bad_proboscis([pose], self.lq_thresh)[0]
-            index["animal"]=d
-            index["index"]=index["frame_number"]
-            index.set_index("index", inplace=True)
-            
-            self.h5s_pandas.append(pose)
-
-            self.pose.append(self._simplify_columns(index, pose, self.identities[animal_id]))
-            self.index_pandas.append(index)
-        
-        if len(self.pose) == 0:
-            self.pose=None
-            return
-
-        self.pose=pd.concat(self.pose, axis=0)
-        self.pose.reset_index(inplace=True)
-
-        missing_pose=np.bitwise_or(pd.isna(self.pose["thorax_x"]), pd.isna(self.pose["frame_number"]))
-        self.pose = self.pose.loc[~missing_pose]
-        self.pose["frame_number"]=self.pose["frame_number"].astype(np.int32)
-        self.pose.sort_values(["frame_number"], inplace=True)
-        self.pose.reset_index(inplace=True)
-        self.pose["id"]=pd.Categorical(self.pose["id"])
-        
-
-    @staticmethod
-    def _simplify_columns(index, pose, id):
-        bp="thorax"
-        bps=np.unique(pose.columns.get_level_values(1).values)
-        pose=pose.loc[:, pd.IndexSlice[:, bps, ["x","y", "is_interpolated", "likelihood"]]]
-        pose.columns=itertools.chain(*[[bp + "_x", bp + "_y", bp + "_is_interpolated", bp + "_likelihood"] for bp in bps])
-        pose=pose[itertools.chain(*[[bp + "_x", bp + "_y", bp + "_is_interpolated", bp + "_likelihood"] for bp in bodyparts])]
-        pose=pose.merge(index[["frame_number", "zt"]].set_index("frame_number"), left_index=True, right_index=True)
-        pose["t"]=pose["zt"]*3600
-        del pose["zt"]
-        pose.insert(0, "t", pose.pop("t"))
-        pose.insert(0, "id", id)
-        return pose
+            missing_pose=np.bitwise_or(pd.isna(self.pose["thorax_x"]), pd.isna(self.pose["frame_number"]))
+            self.pose = self.pose.loc[~missing_pose]
+            self.pose["frame_number"]=self.pose["frame_number"].astype(np.int32)
+            self.pose.sort_values(["frame_number"], inplace=True)
+            self.pose.reset_index(inplace=True)
+            self.pose["id"]=pd.Categorical(self.pose["id"])
         
 
     def make_movie(self, ts=None, frame_numbers=None, **kwargs):
@@ -428,7 +396,7 @@ class InteractionDetector(PEDetector, CrossVideo):
         annotation_output_columns=["id", "frame_number", "asleep", "moving", "max_velocity"]
 
         dt_to_annotate = dt[annotation_input_columns]
-        dt_sleep = dt_to_annotate.groupby(dt_to_annotate["id"]).apply(sleep_annotation).reset_index()
+        dt_sleep = dt_to_annotate.groupby(dt_to_annotate["id"]).apply(flyhostel_sleep_annotation).reset_index()
         
         # a row full of nans is produced when no data is available for one fly in one time window
         # they need to be removed so that frame number can be integer
@@ -438,7 +406,6 @@ class InteractionDetector(PEDetector, CrossVideo):
         dt_sleep=dt_sleep[annotation_output_columns].sort_values(["frame_number", "id"])
         dt_to_merge = dt[annotation_input_columns].sort_values(["frame_number", "id"])
         
-        self.dt_sleep_2fps=dt_sleep.copy()
         dt_sleep=pd.merge_asof(
             dt_to_merge,
             dt_sleep,
@@ -447,6 +414,7 @@ class InteractionDetector(PEDetector, CrossVideo):
             direction="backward",
             tolerance=time_window_length*self.framerate
         )
+        self.dt_sleep_2fps=dt_sleep.loc[dt_sleep["frame_number"] % (self.framerate//2) == 0]
         return dt_sleep
 
 
@@ -626,8 +594,13 @@ class InteractionDetector(PEDetector, CrossVideo):
         """
 
         distance_matrix, identities, frame_number = compute_distance_matrix(dt, use_gpu=useGPU)
-        neighbor_matrix = cp.argmin(distance_matrix, axis=1)
-        min_distance_matrix = cp.min(distance_matrix, axis=1)
+        if useGPU:
+            neighbor_matrix = cp.argmin(distance_matrix, axis=1)
+            min_distance_matrix = cp.min(distance_matrix, axis=1)
+        else:
+            neighbor_matrix = np.argmin(distance_matrix, axis=1)
+            min_distance_matrix = np.min(distance_matrix, axis=1)
+
 
         nns = []
         focal_identities=identities
@@ -706,24 +679,6 @@ class InteractionDetector(PEDetector, CrossVideo):
         experiments = [os.path.splitext(os.path.basename(path))[0] for path in pickle_files]
         return pickle_files, experiments
 
-
-    @staticmethod
-    def clean_bad_proboscis(h5s_pandas, threshold):
-        """
-        If the score of the proboscis is too low
-        the position is ignored
-        and instead is set to be on the head
-        is_interpolated in this case becomes True
-        """
-        for i, h5 in enumerate(h5s_pandas):
-            bad_quality_rows=(h5.loc[:, pd.IndexSlice[:, ["proboscis"], "likelihood"]] < threshold).values.flatten()
-            h5.loc[bad_quality_rows, pd.IndexSlice[:, "proboscis", "x"]]=h5.loc[bad_quality_rows, pd.IndexSlice[:, "head", "x"]]
-            h5.loc[bad_quality_rows, pd.IndexSlice[:, "proboscis", "y"]]=h5.loc[bad_quality_rows, pd.IndexSlice[:, "head", "y"]]
-            h5.loc[bad_quality_rows, pd.IndexSlice[:, "proboscis", "likelihood"]]=h5.loc[bad_quality_rows, pd.IndexSlice[:, "head", "likelihood"]]
-            h5.loc[bad_quality_rows, pd.IndexSlice[:, "proboscis", "is_interpolated"]]=True
-            h5s_pandas[i]=h5
-        
-        return h5s_pandas
     
     @staticmethod
     def make_identities(datasetnames):
@@ -733,6 +688,23 @@ class InteractionDetector(PEDetector, CrossVideo):
         ]
         return identities
     
+
+def get_local_identities_from_experiment(experiment, frame_number):
+
+    tokens = experiment.split("_")
+    experiment_path=os.path.sep.join([tokens[0], tokens[1], "_".join(tokens[2:4])])
+    basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], experiment_path)
+    if not os.path.exists(basedir):
+        basedirs=glob.glob(basedir+"*")
+        assert len(basedirs) == 1, f"{basedir} not found"
+        basedir=basedirs[0]
+        experiment = "_".join(basedir.split(os.path.sep))
+
+
+    dbfile = os.path.join(basedir, experiment + ".db")
+    table=get_local_identities(dbfile, [frame_number])
+    return table
+    # return table["identity"].loc[table["local_identity"] == local_identity]
 
 
 def get_local_identities(dbfile, frame_numbers):
@@ -763,3 +735,10 @@ def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
             single_animal_video = os.path.join(os.path.dirname(dbfile), "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
     
     return single_animal_video
+
+
+class InteractionDetector(FlyHostelLoader):
+
+    def __init__(self, *args, **kwargs):
+        print(f"InteractionDetector is deprecated. Please use flyhostel loader")
+        super(InteractionDetector, self).__init__(*args, **kwargs)

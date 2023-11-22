@@ -229,11 +229,16 @@ def pipeline(experiment_name, identity, concatenation, chunks=None):
 
     if "1X" in experiment_name:
         concatenation_i=concatenation
+        chunk, count = np.unique(concatenation["chunk"], return_counts=True)
+        if not all(count==1):
+            bad_chunks = chunk[count!=1]
+            raise Exception(f"More than 1 animal found in a single animal experiment. Chunks {bad_chunks}")
+
     else:
         concatenation_i=concatenation.loc[concatenation["identity"]==identity]
 
     if chunks is not None:
-        assert concatenation_i.shape[0] == len(chunks)
+        assert concatenation_i.shape[0] == len(chunks), f"{concatenation_i.shape[0]} != {len(chunks)}"
 
     files=concatenation_i["dfile"]
     node_names, datasets, point_scores = load_files(files)

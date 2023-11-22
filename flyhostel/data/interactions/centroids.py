@@ -10,11 +10,39 @@ local = '/flyhostel_data/videos'
 flyhostel_cache='/flyhostel_data/cache'
 time_window_length=10
 
-def load_centroid_data(experiment, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20):
-    meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel")
-    meta=meta.loc[meta["id"].str.startswith(experiment[:26])]
-    assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
-    meta["experiment"]=experiment
+def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20):
+    if metadata is None:
+        assert experiment is not None
+        meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel")
+        meta=meta.loc[meta["id"].str.startswith(experiment[:26])]
+        assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
+        meta["experiment"]=experiment
+    else:
+        metadata["date"] = metadata["flyhostel_date"]
+        metadata["machine_id"] = [f"FlyHostel{row['flyhostel_number']}" for _, row in metadata.iterrows()]
+        count = metadata.groupby(["flyhostel_number", "flyhostel_date"]).count().iloc[:,:1].reset_index()
+        count.columns=["flyhostel_number", "flyhostel_date", "number_of_animals"]
+        metadata=metadata.merge(count, on=["flyhostel_number", "flyhostel_date"])
+        metadata["machine_name"] = [f"{row['number_of_animals']}X" for _, row in metadata.iterrows()]
+        metadata.to_csv(meta_loc, index=None)
+        
+        meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel")
+        assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
+       
+
+        # experiments=[]
+        # for row in meta:
+        #     number_of_animals = count.loc[
+        #         (count["flyhostel_number"] == row["flyhostel_number"]) &
+        #         (count["flyhostel_date"] == row["flyhostel_date"]) &
+        #     ].values[0]
+        #     experiment=f"FlyHostel{row['flyhostel_number']}_{number_of_animals}X_{row['flyhostel_date']}"
+        #     experiment=f"FlyHostel{row['flyhostel_number']}/{number_of_animals}X/{row['flyhostel_date']}"
+            
+
+        #     experiments.append()
+        # meta["experiment"]=
+
 
     data = etho.load_flyhostel(
         meta, min_time = min_time, max_time = max_time, reference_hour = np.nan, cache = flyhostel_cache, n_jobs=n_jobs,
@@ -29,8 +57,8 @@ def load_centroid_data(experiment, min_time=-float('inf'), max_time=+float('inf'
 def to_behavpy(*args, **kwargs):
     return etho.behavpy(*args, **kwargs)
 
-sleep_annotation = partial(
-    etho.sleep_annotation,
+flyhostel_sleep_annotation = partial(
+    etho.flyhostel_sleep_annotation,
     time_window_length = time_window_length,
     min_time_immobile = 300,
     velocity_correction_coef=0.0048,

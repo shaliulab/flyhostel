@@ -3,6 +3,7 @@ Interface between flyhostel outputs abd B-SOID
 """
 
 import argparse
+import glob
 import sqlite3
 import os.path
 import joblib
@@ -34,6 +35,15 @@ def main():
         experiment_name=args.experiment
         tokens = experiment_name.split("_")
         basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], tokens[0], tokens[1], "_".join(tokens[2:4]))
+        if not os.path.exists(basedir):
+            basedirs = glob.glob(basedir + "*")
+            if len(basedirs)==1:
+                basedir=basedirs[0]
+                experiment_name="_".join(basedir.split(os.path.sep)[-3:])
+                print(experiment_name)
+                tokens=experiment_name.split("_")
+
+        print(f"Selected basedir {basedir}")
         dbfile = os.path.join(basedir, experiment_name + ".db")
     else:
         assert args.dbfile is not None

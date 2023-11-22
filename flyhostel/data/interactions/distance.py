@@ -1,13 +1,17 @@
 import itertools
 import numpy as np
-import cupy as cp
 import pandas as pd
 import codetiming, time
 import logging
-
 logger = logging.getLogger(__name__)
 
-useGPU=True
+try:
+    import cupy as cp
+    useGPU=True
+except:
+    cp=None
+    useGPU=False
+    
 
 def euclidean_distance(agent1, agent2, impl=np):
     return impl.sqrt(impl.sum(((agent1 - agent2)**2), axis=1))
@@ -60,7 +64,7 @@ def compute_distance_matrix(dt, use_gpu=None):
     identities=x_pivot.index.values.tolist()
     # Stack x and y values and reshape to get the desired shape
     result=(np.stack((x_pivot.values, y_pivot.values), axis=-1) * 100).astype(np.int64)
-    result_gpu = cp.array(result) # shape agents x timestamps x 2
+    result_gpu =impl.array(result) # shape agents x timestamps x 2
     number_of_animals=len(identities)
 
     pairs=[]
@@ -89,8 +93,8 @@ def compute_distance_matrix(dt, use_gpu=None):
             selector=pairs.index(this_pair)
             this_animal_distances.append(distances[selector])
         
-        distance_matrix.append(cp.stack(this_animal_distances))
-    distance_matrix=cp.stack(distance_matrix)
+        distance_matrix.append(impl.stack(this_animal_distances))
+    distance_matrix=impl.stack(distance_matrix)
 
     frame_number=x_pivot.columns.values
 
