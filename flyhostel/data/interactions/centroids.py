@@ -1,6 +1,6 @@
 import ethoscopy as etho
 from functools import partial
-from ethoscopy.flyhostel import compute_xy_dist_log10x1000
+from ethoscopy.flyhostel import compute_xy_dist_log10x1000, compute_t_after_ref, load_hour_start
 import numpy as np
 
 metadata_folder='/flyhostel_data/metadata'
@@ -10,10 +10,10 @@ local = '/flyhostel_data/videos'
 flyhostel_cache='/flyhostel_data/cache'
 time_window_length=10
 
-def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20):
+def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20, verbose=False, **kwargs):
     if metadata is None:
         assert experiment is not None
-        meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel")
+        meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
         meta=meta.loc[meta["id"].str.startswith(experiment[:26])]
         assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
         meta["experiment"]=experiment
@@ -24,35 +24,21 @@ def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), m
         count.columns=["flyhostel_number", "flyhostel_date", "number_of_animals"]
         metadata=metadata.merge(count, on=["flyhostel_number", "flyhostel_date"])
         metadata["machine_name"] = [f"{row['number_of_animals']}X" for _, row in metadata.iterrows()]
+        metadata["input_date"]=metadata["date"]
         metadata.to_csv(meta_loc, index=None)
         
-        meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel")
+        meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
         assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
-       
 
-        # experiments=[]
-        # for row in meta:
-        #     number_of_animals = count.loc[
-        #         (count["flyhostel_number"] == row["flyhostel_number"]) &
-        #         (count["flyhostel_date"] == row["flyhostel_date"]) &
-        #     ].values[0]
-        #     experiment=f"FlyHostel{row['flyhostel_number']}_{number_of_animals}X_{row['flyhostel_date']}"
-        #     experiment=f"FlyHostel{row['flyhostel_number']}/{number_of_animals}X/{row['flyhostel_date']}"
-            
-
-        #     experiments.append()
-        # meta["experiment"]=
-
-
-    data = etho.load_flyhostel(
+    data, meta_info = etho.load_flyhostel(
         meta, min_time = min_time, max_time = max_time, reference_hour = np.nan, cache = flyhostel_cache, n_jobs=n_jobs,
-        time_system=time_system
+        time_system=time_system, **kwargs
     )
 
     assert data.shape[0] > 0, "No data found!"
     data.sort_values(["id", "t"], inplace=True)
     dt = etho.behavpy(data = data, meta = meta, check = True)
-    return dt
+    return dt, meta_info
 
 def to_behavpy(*args, **kwargs):
     return etho.behavpy(*args, **kwargs)

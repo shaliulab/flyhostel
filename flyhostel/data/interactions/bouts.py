@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import zeitgeber
+DEFAULT_STRIDE=1
 
 
 def annotate_interaction_bouts(dt, max_distance_mm, min_bout=3):
@@ -37,6 +39,33 @@ def annotate_interaction_bouts(dt, max_distance_mm, min_bout=3):
         single_pair_bouts=pd.concat(single_pair_bouts)
         all_pairs_bouts.append(single_pair_bouts)
 
-    all_pairs_bouts=pd.concat(all_pairs_bouts, axis=0)
-    all_pairs_bouts.sort_values("distance", inplace=True)
-    return all_pairs_bouts
+    if all_pairs_bouts:
+        all_pairs_bouts=pd.concat(all_pairs_bouts, axis=0)
+        all_pairs_bouts.sort_values("distance", inplace=True)
+        return all_pairs_bouts
+    else:
+        return None
+    
+
+def compute_bouts_(pos_events_df):
+
+    pos_events_df["df"]=np.concatenate([[np.inf], np.diff(pos_events_df["frame_number"])])
+    stride=np.unique(pos_events_df["df"], return_counts=True)[0][0]
+
+
+    encoding = zeitgeber.rle.encode([str(e)[0] for e in pos_events_df["df"]<=stride])
+    encoding_df=pd.DataFrame.from_records(encoding, columns=["status", "length"])
+    if encoding_df.shape[0]%2==1:
+        encoding_df=encoding_df.iloc[:-1]
+        
+    encoding_df["bout"]=np.repeat(np.arange(encoding_df.shape[0]//2), 2)
+    encoding_df["row"]=encoding_df["length"].cumsum()
+    encoding_df["frame_number"]=pos_events_df["frame_number"].iloc[(encoding_df["row"]-1)].values
+
+    encoding_df=encoding_df.groupby("bout").apply(lambda df: [df["frame_number"].iloc[0], df["length"].iloc[1]+1]).reset_index()
+    encoding_df["frame_number"]=[e[0]for e in encoding_df[0]]
+
+    encoding_df["length"]=[e[1]for e in encoding_df[0]]
+    del encoding_df[0]
+
+    return encoding_df, stride

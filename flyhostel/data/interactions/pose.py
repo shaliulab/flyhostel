@@ -1,4 +1,5 @@
 import os
+import time
 import itertools
 import h5py
 import numpy as np
@@ -80,7 +81,7 @@ def load_pose_data_processed(min_time, max_time, time_system, datasetnames, iden
     else:
         return pose_list, h5s_pandas, index_pandas
 
-def load_pose_data_compiled(min_time, max_time, time_system, datasetnames, identities, lq_thresh, stride=10):
+def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=10):
     """
     Load dataset stored in POSE_DATA
     """
@@ -100,8 +101,13 @@ def load_pose_data_compiled(min_time, max_time, time_system, datasetnames, ident
 
         with h5py.File(h5_file) as filehandle:
             chunksize=int(filehandle["tracks"].shape[3] / filehandle["files"].shape[0])
+            before=time.time()
             pose=filehandle["tracks"][0, :, :, ::stride]
+            after=time.time()
+            print(f"Loaded pose coordinates in {after-before} seconds")
             scores=filehandle["point_scores"][0, :, ::stride]
+            after2=time.time()
+            print(f"Loaded scores in {after2-after} seconds")
             bps = [bp.decode() for bp in filehandle["node_names"][:]]
 
             chunks=[int(os.path.basename(path.decode()).split(".")[0]) for path in filehandle["files"]]
@@ -138,11 +144,14 @@ def load_pose_data_compiled(min_time, max_time, time_system, datasetnames, ident
 
         data=[]
         coordinates=["x", "y", "likelihood", "is_interpolated"]
+        before=time.time()
         for i, _ in enumerate(bps):
             data.append(pose[0, i, :])
             data.append(pose[1, i, :])
             data.append(scores[i, :])
             data.append([False for _ in range(pose.shape[2])])
+        after=time.time()
+        print(after-before)
 
         multiindex_columns = pd.MultiIndex.from_product([["SLEAP"], bps, coordinates], names=['scorer', 'bodyparts', 'coordinates'])
         pose_df=pd.DataFrame(columns=multiindex_columns)

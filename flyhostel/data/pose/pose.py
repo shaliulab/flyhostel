@@ -233,12 +233,18 @@ def pipeline(experiment_name, identity, concatenation, chunks=None):
         if not all(count==1):
             bad_chunks = chunk[count!=1]
             raise Exception(f"More than 1 animal found in a single animal experiment. Chunks {bad_chunks}")
+        
+        identity=0
 
     else:
         concatenation_i=concatenation.loc[concatenation["identity"]==identity]
 
     if chunks is not None:
-        assert concatenation_i.shape[0] == len(chunks), f"{concatenation_i.shape[0]} != {len(chunks)}"
+        if concatenation_i.shape[0] < len(chunks):
+            print(f"{concatenation_i.shape[0]} < {len(chunks)}. The concatenation is missing data")
+            raise Exception(f"Chunks missing: {set(chunks).difference(set(concatenation_i['chunk'].tolist()))}")
+
+
 
     files=concatenation_i["dfile"]
     node_names, datasets, point_scores = load_files(files)

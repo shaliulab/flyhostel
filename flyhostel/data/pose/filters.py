@@ -1,10 +1,22 @@
+import logging
+import time
 from functools import partial
 import itertools
+from typing import Union, Dict
+from tqdm.auto import tqdm
+import pandas as pd
 import numpy as np
+import cupy as cp
+
 from flyhostel.data.interactions.bodyparts import bodyparts as BODYPARTS
 
+logger=logging.getLogger(__name__)
 
-def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=40):
+FRAMERATE=150
+CHUNK_SECONDS=15*60
+CHUNK_FRAMES=CHUNK_SECONDS*FRAMERATE
+
+def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=100, min_supporting_points=3, features=["x", "y"], useGPU=-1):
     """
     Arguments:
         pose (pd.DataFrame): contains columns t (seconds), frame_number and bp_x, bp_y
@@ -14,6 +26,9 @@ def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=40):
         min_window_size (int): This number of points around each point is preselected around each point
            to check whether these points are within window_size of the centered point.
            If your framerate is huge, you should increase it
+
+        min_supporting_points (int): If the window has less than this amount of points,
+            the available points are ignored and the body part is treated as not seen
            
     Returns:
         filtered_pose (np.array) bodyparts x 2 x n_points filtered estimates
@@ -30,23 +45,26 @@ def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=40):
     if bodyparts is None:
         bodyparts=BODYPARTS
 
-    bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
-    pose_values=pose[bodyparts_xy].values.reshape((-1, len(bodyparts), 2))
-
+    bodyparts_feats=list(itertools.chain(*[list(itertools.chain(*[[bp + "_" + coord] for coord in features])) for bp in bodyparts]))
+    pose_values=pose[bodyparts_feats].values.reshape((-1, len(bodyparts), len(features)))
 
     max_end=pose.shape[0]
-    for i, t in enumerate(pose["t"]):
+    for i, t in enumerate(tqdm(pose["t"], desc="Frames processed")):
         start=max(0, i - min_window_size//2)
+        end=min(start+min_window_size, max_end)
 
-        end=min(i+min_window_size//2, max_end)
+        # end=min(i+min_window_size//2, max_end)
         context = pose["t"].values[start:end]
         this_values=pose_values[start:end, ...]
+        # if this_values.shape[0]!=min_window_size:
+        #     print(start, end, this_values.shape)
+        
         if start == 0:
             padding_size=min_window_size-context.shape[0]
             padding=[np.nan for _ in range(padding_size)]
 
             this_values = np.concatenate([
-                np.array([np.nan for _ in range(padding_size*2*len(bodyparts))]).reshape((padding_size, len(bodyparts), 2)),
+                np.array([np.nan for _ in range(padding_size*len(features)*len(bodyparts))]).reshape((padding_size, len(bodyparts), len(features))),
                 this_values,
             ], axis=0)
 
@@ -59,7 +77,7 @@ def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=40):
             padding=[np.nan for _ in range(padding_size)]
             this_values = np.concatenate([
                 this_values,
-                np.array([np.nan for _ in range(padding_size*2*len(bodyparts))]).reshape((padding_size, len(bodyparts), 2)),
+                np.array([np.nan for _ in range(padding_size*len(features)*len(bodyparts))]).reshape((padding_size, len(bodyparts), len(features))),
             ], axis=0)
 
             context = np.concatenate([
@@ -78,20 +96,161 @@ def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=40):
             ])
         )
 
-    values_arr=np.stack(values_arr, axis=3)
+
+    # the stack steps take a while when framerate=150 fps
+    # window_size x bodyparts x 2 x frames
+    # before=time.time()
+    # values_arr=np.stack(values_arr, axis=3)
+    # after=time.time()
+    # logger.debug("Took %s seconds to stack values_arr", after-before)
+
+    
+    # 2 x window_size x frames
+    # [0,...] contains the t0 of the window
+    # [1,...] contains the t of each frame in the window
+    before=time.time()
     inputs=np.stack(inputs, axis=2)
+    after=time.time()
+    logger.debug("Took %s seconds to stack inputs", after-before)
+    
 
     in_window=np.abs(np.diff(inputs, axis=0))[0, ...] < window_size/2
 
-    assert in_window.shape[0] == values_arr.shape[0]
-    assert in_window.shape[1] == values_arr.shape[3]
+    assert in_window.shape[0] == values_arr[0].shape[0]
+    assert in_window.shape[1] == len(values_arr)
+    # # for each window, set to nan the values outside of the window_size limit (0.5 seconds)
+    # for i, frame in enumerate(tqdm(window_id)):
+    #     values_arr[frame][window_pos[i], :, :]=np.nan
 
-    window_pos, window_id=np.where(~in_window)
-    # for each window, set to nan the values outside of the window_size limit (0.5 seconds)
-    values_arr[window_pos, :, :, window_id]=np.nan
-    filtered_pose=getattr(np, filter_f)(values_arr, axis=0)
+    # values_arr has shape min_window_size, _, _, n_windows
+    if useGPU >= 0:
+
+        try:
+            block_starts=np.arange(0, len(values_arr), CHUNK_FRAMES)
+            block_ends=block_starts+CHUNK_FRAMES
+            filtered_pose_list=[]
+            for i, block_start in enumerate(tqdm(block_starts, desc="GPU Processing")):
+                block_end=block_ends[i]
+                logger.debug("Uploading to GPU %d", i)
+                values_arr_np=np.stack(values_arr[block_start:block_end], axis=3)
+
+                window_pos, window_id=np.where(~in_window[:, block_start:block_end])
+                values_arr_np[window_pos, :, :, window_id]=np.nan
+                
+                supporting_values=min_window_size-np.isnan(values_arr_np).sum(axis=0)
+        
+                if min_supporting_points > 1:
+                    for x, y, z in zip(*np.where(supporting_values<min_supporting_points)):
+                        values_arr_np[:, x, y, z]=np.nan
+
+
+                values_arr_cp=cp.array(values_arr_np)
+                logger.debug("Applying %s filter to data of length %s using %s  %d", filter_f, len(values_arr), "cupy", i)
+                filtered_pose_cp=getattr(cp, filter_f)(values_arr_cp, axis=0)
+                logger.debug("Downloading from GPU  %d", i)
+                filtered_pose_list.append(filtered_pose_cp.get())
+
+            filtered_pose=np.concatenate(filtered_pose_list, axis=2)
+
+        except:
+            import ipdb; ipdb.set_trace()
+    else:
+        values_arr=np.stack(values_arr, axis=3)
+        logger.debug("Applying %s filter to data of shape %s using %s", filter_f, values_arr.shape, "numpy")
+        filtered_pose=getattr(np, filter_f)(values_arr, axis=0)
+    
     pose_values=np.moveaxis(pose_values, 0, -1)
     return filtered_pose, pose_values
 
 
 filter_pose_median=partial(filter_pose, filter_f="nanmedian")
+
+
+def filter_pose_far_from_median(pose, bodyparts, px_per_cm=175, min_score=0.5, window_size_seconds=0.5, max_jump_mm=1, useGPU=-1):
+    for bp in bodyparts:
+        bp_cols=[bp + "_x", bp + "_y"]
+
+        if isinstance(min_score, float):
+            score=min_score
+        elif isinstance(min_score, dict):
+            score=min_score[bp]
+        else:
+            raise ValueError("min_score must be a float or a dictionary of bodypart - float pairs")
+    
+        bp_cols_ids=[pose.columns.tolist().index(c) for c in bp_cols]
+        lk_cols_ids=[pose.columns.tolist().index(c) for c in [bp + "_likelihood"]]
+        pose.iloc[np.where(pose[bp + "_likelihood"] < score)[0], bp_cols_ids] = np.nan
+        pose.iloc[np.where(pose[bp + "_likelihood"] < score)[0], lk_cols_ids] = np.nan
+
+    median_pose, values = filter_pose_median(pose=pose, bodyparts=bodyparts, window_size=window_size_seconds, useGPU=useGPU)
+
+    logger.debug("Computing distance from median")
+    jump_px=np.sqrt(np.sum((median_pose-values)**2, axis=1))
+    jump_mm=(10*jump_px/px_per_cm)
+
+    logger.debug("Detecting jumps")
+    jump_matrix=(jump_mm>max_jump_mm).T
+
+    mask = np.zeros(pose.shape) == 1
+
+    for bp_i, bp in enumerate(bodyparts):
+        columns=[bp + "_x", bp + "_y"]
+        col_ids=[pose.columns.tolist().index(c) for c in columns]
+        mask[:, col_ids[0]]=jump_matrix[:, bp_i]
+        mask[:, col_ids[1]]=jump_matrix[:, bp_i]
+
+    pose[mask]=np.nan
+
+    for bp in tqdm(bodyparts):
+        pose.loc[
+            np.isnan(pose[[bp + "_x", bp + "_y"]]).any(axis=1),
+            bp + "_is_interpolated"
+        ]=True
+
+    # import ipdb; ipdb.set_trace()
+
+    # logger.debug("Marking jumps")
+    # for i, (row, col) in enumerate(zip(rows, cols)):
+    #     bp=bodyparts[col]
+    #     columns=[bp + "_x", bp + "_y"]
+    #     col_ids=[pose.columns.tolist().index(c) for c in columns]
+    #     pose.iloc[row, col_ids]=np.nan
+    #     pose.loc[
+    #         np.isnan(pose[columns]).any(axis=1),
+    #         bp + "_is_interpolated"
+    #     ]=True
+        
+    return pose
+
+
+
+def arr2df(pose, arr, bodyparts, features=["x", "y"]):
+    data={}
+    for i, bp in enumerate(bodyparts):
+        for j, feature in enumerate(features):
+            data[bp + "_" + feature]=arr[i, j, :]
+    
+    data=pd.DataFrame(data, index=pose.index)
+    new_pose=pose.drop(data.columns.tolist(), axis=1)
+    new_pose=pd.concat([new_pose, data], axis=1)
+
+    return new_pose
+
+
+
+
+def interpolate_pose(pose, bodyparts, seconds: Union[None, Dict, float, int]=0.5, pose_framerate=15):
+    bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
+
+    for c in bodyparts_xy:
+        bp = c.replace("_x", "").replace("_y", "")
+        if isinstance(seconds, float) or isinstance(seconds, int):
+            seconds_bp=seconds
+            interpolation_limit=int(seconds_bp*pose_framerate)
+        elif isinstance(seconds, dict):
+            seconds_bp=seconds[bp]
+            interpolation_limit=int(seconds_bp*pose_framerate)
+        elif seconds is None:
+            interpolation_limit=None
+        pose[c].interpolate(method="linear", limit_direction="both", inplace=True, limit=interpolation_limit)
+    return pose

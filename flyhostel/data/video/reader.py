@@ -2,14 +2,34 @@ import warnings
 import glob
 import os.path
 import sqlite3
+import logging
 
 import cv2
 import pandas as pd
 import numpy as np
+from scipy.signal import butter, lfilter
+from pykalman import KalmanFilter
 
 from imgstore.interface import VideoCapture
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from flyhostel.data.yolov7 import letterbox
+
+logger = logging.getLogger(__name__)
+
+def butter_lowpass_filter(data, cutoff, fs, order=4):
+    nyq = 0.5 * fs  # Nyquist frequency
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    y = lfilter(b, a, data)
+    return y
+
+
+def kalman_filter(data):
+    kf = KalmanFilter(initial_state_mean=0, n_dim_obs=1)
+    kf = kf.em(data, n_iter=10)
+    (filtered_state_means, _) = kf.filter(data)
+    return filtered_state_means
+
 
 class MP4Reader:
 
@@ -74,21 +94,36 @@ class MP4Reader:
 
         self._cap = VideoCapture(self.store_path, self._chunk)
         self._frame_number=self._cap.frame_number
+        self.success=None
+        self.load_data()
+        # self.filter_data()
 
+
+    def filter_data(self):
+        print("Filtering...")
+        self._data["x"]=np.round(kalman_filter(self._data["x"])).astype(np.int64)
+        self._data["y"]=np.round(kalman_filter(self._data["y"])).astype(np.int64)
+        print("Done")
+        # self._data["x"]=np.round(butter_lowpass_filter(self._data["x"], cutoff=1, fs=self.data_framerate, order=4)).astype(np.int64)
+        # self._data["y"]=np.round(butter_lowpass_filter(self._data["y"], cutoff=1, fs=self.data_framerate, order=4)).astype(np.int64)
+        print(self._data.head())
+
+ 
+    def load_data(self):
         self._cur=self.connection.cursor()
         self._cur.execute(self.sqlite_query,(self._chunk,))
-
         self._data = pd.DataFrame(self._cur.fetchall())
         self._last_frame_indices=[]
 
-        self.success=True
-        if not self._data.shape[0] > 0:
+        if self._data.shape[0] == 0:
             self.success=False
             warnings.warn(f"No data found for query {self.sqlite_query}, chunk ({self._chunk})")
         if not self._data.shape[1] == 5:
             self.success=False
             warnings.warn(f"Data does not contain 5 fields ({self._data.shape[1]})")
-        
+        if self._data.shape[0] > 0 and self._data.shape[1] == 5:
+            self.success=True
+
         if self.success:
             self._data.columns = ["frame_number", "x", "y", self.IDENTIFIER_COLUMN, "chunk"]
             self._data.set_index(["frame_number", self.IDENTIFIER_COLUMN], inplace=True)
@@ -97,6 +132,7 @@ class MP4Reader:
             print(f"MP4 reader initialized with step = {self.step}")
         else:
             print("MP4 reader failed initializing due to warnings displayed above")
+    
 
     @property
     def sqlite_query(self):
@@ -157,6 +193,7 @@ class MP4Reader:
 
     @property
     def step(self):
+        # return 150
         return max(int(self.framerate / self.data_framerate), 1)
 
 
@@ -199,7 +236,6 @@ class MP4Reader:
     def crop_image(self, img, centroid):
 
         bbox = self.get_bounding_box(*centroid)
-        # print(bbox)
         x_coord, y_coord, width, height = bbox
 
         x2 = x_coord + width
@@ -261,8 +297,11 @@ class MP4Reader:
             # more than one match
             # TODO Do something about it, at least warn the user
             return None
+        
+        coords = (x_coord, y_coord)
+        logger.debug(f"frame number: {frame_number}, coords: {coords}")
 
-        return (x_coord, y_coord)
+        return coords
 
 
     def read(self, frame_number, identifiers, stacked=False):

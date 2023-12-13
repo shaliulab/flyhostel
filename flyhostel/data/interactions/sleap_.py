@@ -4,8 +4,17 @@ import shutil
 import sqlite3
 import numpy as np
 from flyhostel.data.interactions.load_data import get_sqlite_file
-import sleap
-from sleap.io.dataset import Labels
+try:
+    import sleap
+    from sleap.io.dataset import Labels
+    TRACK=sleap.io.dataset.Track(name="Track-0", spawned_on=0)
+
+except Exception as error:
+    sleap=None
+    Labels=None
+    TRACK=None
+    print(f"SLEAP cannot be loaded. SLEAP integration disabled")
+    print(error)
 
 # from sleap.instance import LabeledFrame
 
@@ -39,7 +48,6 @@ def get_experiment_dir(animal):
     return experiment_dir
 
 
-TRACK=sleap.io.dataset.Track(name="Track-0", spawned_on=0)
 
 def merge_labels(labels1, labels2):
     """
@@ -49,6 +57,8 @@ def merge_labels(labels1, labels2):
 
     Based on https://colab.research.google.com/drive/1OmnmZIM64pWFqoeNkUm2QnpOWmPwoUbN?usp=sharing#scrollTo=52ojKlgcz6ns
     """
+    if sleap is None:
+        return None
     
     nodes1_inds = np.array([labels1.skeleton.node_names.index(node) for node in labels2.skeleton.node_names])
     

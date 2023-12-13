@@ -15,6 +15,8 @@ class MP4VideoMaker(ABC):
     _index_db=None
     framerate=None
     start_next_chunk=False
+    _identifiers=None
+    _stacked=None
 
     @abstractmethod
     def init_video_writer(self, basedir, frame_size, first_chunk=0, chunksize=None):
