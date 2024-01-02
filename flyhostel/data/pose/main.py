@@ -19,35 +19,32 @@ except:
     cp=None
     useGPU=False
 
-from .centroids import (
+from flyhostel.data.interactions.centroids import (
     load_centroid_data, to_behavpy,
     flyhostel_sleep_annotation,
     time_window_length,
-    compute_t_after_ref,
-    load_hour_start
 )
-from .distance import (
+from flyhostel.data.interactions.distance import (
     compute_distance_matrix,
     compute_distance_matrix_bodyparts
 )
-from .pose import (
+from flyhostel.data.pose.h5py import (
     load_pose_data_processed,
     load_pose_data_compiled,
 )
-from .bouts import annotate_interaction_bouts, compute_bouts_, DEFAULT_STRIDE
-
-from .bodyparts import make_absolute_pose_coordinates, legs
-from .bodyparts import bodyparts as BODYPARTS
-from .utils import load_roi_width, load_metadata_prop
+from flyhostel.data.pose.pose import FilterPose
+from flyhostel.data.pose.filters import impute_proboscis_to_head
+from flyhostel.data.interactions.bouts import annotate_interaction_bouts, compute_bouts_, DEFAULT_STRIDE
+from flyhostel.data.bodyparts import make_absolute_pose_coordinates, legs
+from flyhostel.data.bodyparts import bodyparts as BODYPARTS
+from flyhostel.utils import load_roi_width, load_metadata_prop
 from flyhostel.data.pose.movie import make_pose_movie
-from ethoscopy.analyse import downsample_to_fps
-from ethoscopy.load import update_metadata
+from flyhostel.data.pose.gpu_filters import filter_pose_df, PARTITION_SIZE
+
 from imgstore.interface import VideoCapture
 
 bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in BODYPARTS]))
 bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in BODYPARTS]))
-
-POSE_FRAMERATE=150
 
 logger = logging.getLogger(__name__)
 
@@ -64,218 +61,13 @@ MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
 POSE_DATA=os.environ["POSE_DATA"]
 
 
-from .load_data import get_sqlite_file
 from flyhostel.data.pose.filters import filter_pose, filter_pose_far_from_median, interpolate_pose, arr2df
 from flyhostel.data.pose.sleap import draw_video_row
 
-from .mmpy_umap import UMAPLoader
-from .fh_umap import PreprocessUMAP
-from .deg import DEGLoader
-
-def impute_proboscis_to_head(pose):
-    for coord in ["x", "y"]:
-        pose.loc[
-            pd.isna(pose["proboscis_likelihood"]),
-            f"proboscis_{coord}"
-        ] = pose.loc[
-            pd.isna(pose["proboscis_likelihood"]),
-            f"head_{coord}"
-        ]
-    return pose
-
-
-
-class FilterPose(ABC):
-    """
-    Refine pose estimate predictions using filters inspired in https://www.biorxiv.org/content/10.1101/2023.10.30.564733v1.full.pdf
-
-    Pose estimation software that works on a frame-by-frame basis (predicitons are performed independently for each frame)
-    are very efficient and parallelizable, but their output does not benefit from the added information gained by looking at the immediate
-    context of a frame i.e. its neighboring frames
-
-    This module allows us to refine the pose estimation by leveraging the context to more reliably detect spurious detections of movement
-    and to smoothen the trajectory through pose space over time
-
-    Usage:
-
-    foo.filter_and_interpolate_pose(
-        # list of bodyparts to process
-        bodyparts,
-        # dictionary of numpy functions used to smoothen the data, example:
-        # {"nanmedian": {"window_size": 0.2, "min_window_size": 40}, "nanmean": {"window_size": 0.2, "min_window_size":10}}
-        filters,
-        # minimum pose estimate score to consider the prediction as valid
-        min_score=0.5,
-        # size of window to detect jumps
-        window_size_seconds=0.5,
-        # maximum allowed jump between frames
-        max_jump_mm=1,
-        # how much to interpolate the data in case of missing coordinates,
-        # either a float or a bodypart indexed dictionary of floats
-        interpolate_seconds=0.5
-    )
-    """
-
-    root="/flyhostel_data/fiftyone/FlyBehaviors/MOTIONMAPPER_DATA"
-
-    def __init__(self, *args, **kwargs):
-
-        self.pose=None
-        self.pose_raw=None
-        self.pose_jumps=None
-        self.pose_filters=None
-        self.pose_interpolated=None
-        self.experiment=None
-        super(FilterPose, self).__init__(*args, **kwargs)
-
-
-    @staticmethod
-    def filter_and_interpolate_pose_single_animal(pose, bodyparts, filters, min_score=0.5, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, useGPU=-1):
-        """
-        Process the raw pose data of a single animal
-
-        Information in the neighboring frames can be leveraged to improve the estimate of each frame
-        Example -> a body part movement which moves to point B in only one frame, and is in point A one frame before and after
-        is unlikely to really have moved and instead is probably a spurious pose estimate error.
-        This function processes the passed pose data with multiple steps and returns all these steps
-
-        NOTE: This function assumes there are at least two bodyparts called head and proboscis.
-        If the proboscis is missing, it is imputed to be where the head is
-
-        Arguments:
-
-            pose (pd.DataFrame): Raw pose estimate containing, for every bodypart foo, columns foo_x, foo_y, foo_likelihood, foo_is_interpolated as well as columns id, frame_number, t
-            bodyparts (list)
-            filters (dict): Dictionary of filters to apply. The keys must be numpy functions, and the values must be another dictionary with keys window_size, min_window_size, and order
-            min_score (float): Either a float, with the minimum score all body part pose predictions should have, or a dictionary of body part - float pairs
-            window_size_seconds (float): Window size used to compute the median to remove spurious "jumps"
-            max_jump_mm (float): Number of mm away from the window median that a prediction must be for it to be considered a jump
-            interpolate_seconds (float): Body parts missing are imputed forward and backwards (pd.Series.interpolate limit_direction both) up to this many seconds
-
-        Returns: Dictionary with keys:
-            jumps (pd.DataFrame): detections of a body part more than max_jump_mm mm away from the median of a rolling window of window_size_seconds seconds are ignored
-            filters (dict): Contains one entry per filter in filters. Each of them is a dataframe based on the pose of the previous filter (given by its order attribute, lowest first).
-               The filter consists of applying the numpy function to windows of up to min_window_size points but actually only the points within window_size seconds
-               So each new processed point will be the result of applying the numpy function to points within window_size seconds of it
-               The filter with order 0 is run on the pose_jumps dataset
-
-        """
-        logger.debug("Filtering jumps deviating from median")
-        pose=filter_pose_far_from_median(
-            pose, bodyparts, min_score=min_score, window_size_seconds=window_size_seconds, max_jump_mm=max_jump_mm,
-            useGPU=useGPU
-        )
-        logger.debug("Interpolating pose")
-        pose_jumps=interpolate_pose(pose, bodyparts, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
-        logger.debug("Imputing proboscis to head")
-        pose_jumps=impute_proboscis_to_head(pose_jumps)
-
-
-        pose_filters={}
-        filters_sorted=sorted([(filters[f]["order"], f) for f in filters], key=lambda x: x[0])
-        filters_sorted=[e[1] for e in filters_sorted]
-
-
-        for filt in filters_sorted:
-            filter_f=filt
-            window_size=filters[filt]["window_size"]
-            min_window_size=filters[filt]["min_window_size"]
-            
-            logger.debug("Applying %s filter to pose", filt)
-            pose_filtered, _ = filter_pose(
-                filter_f=filter_f, pose=pose_jumps, bodyparts=bodyparts,
-                window_size=window_size, min_window_size=min_window_size,
-                useGPU=useGPU
-            )
-            assert filter_f not in pose_filters
-            logger.debug("Imputing proboscis to head")
-            pose_filters[filter_f]=impute_proboscis_to_head(arr2df(pose, pose_filtered, bodyparts))
-        return {"jumps": pose_jumps, "filters": pose_filters}
-
-
-    def filter_and_interpolate_pose(self, *args, **kwargs):
-        """
-        Call filter_and_interpolate_pose_single_animal once for every animal in the experiment
-        """
-        if self.pose_raw is None:
-            self.pose_raw=self.pose.copy()
-        
-        pose_datasets=self.pose_raw.groupby("id")
-
-        self.pose_jumps=[]
-        self.pose_filters={}
-
-        for id, pose in pose_datasets:
-            print(pose["id"].iloc[0])
-            pose = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, **kwargs)
-            self.pose_jumps.append(pose["jumps"])
-            for filt_f in pose["filters"]:
-                if filt_f not in self.pose_filters:
-                    self.pose_filters[filt_f]=[]
-                self.pose_filters[filt_f].append(pose["filters"][filt_f])
-        
-        self.pose_jumps=pd.concat(self.pose_jumps, axis=0)
-        for filt_f in self.pose_filters:
-            self.pose_filters[filt_f]=pd.concat(self.pose_filters[filt_f], axis=0)
-
-
-    @staticmethod
-    def full_interpolation(pose, bodyparts):
-        out=[]
-        for id, pose_dataset in pose.groupby("id"):
-            out.append(interpolate_pose(pose_dataset.copy(), bodyparts, seconds=None))
-        pose=pd.concat(out, axis=0)
-        return pose
-
-
-class CrossVideo(ABC):
-    """
-    Link or cross pose data with flyhostel database to incorporate path to .mp4 videos used to generate the pose 
-    TODO Rewrite so it works on a single id at a time (so that it does not assume we have an interactions data frame)
-    """
-
-
-
-    @staticmethod
-    def get_dbfile(dt):
-        animal=dt["id1"].iloc[0]
-        dbfile=get_sqlite_file(animal.split("|")[0] + "*")
-        return dbfile
-    
-    @staticmethod
-    def get_chunksize(dbfile):
-        with sqlite3.connect(dbfile) as conn:
-            cursor=conn.cursor()
-            cursor.execute(f"SELECT value FROM METADATA WHERE field = 'chunksize';",)
-            chunksize = int(float(cursor.fetchone()[0]))
-        return chunksize
-    
-    def cross_with_video_data(self, dt):
-        dt["identity1"] = [int(e.split("|")[1]) for e in dt["id1"]]
-        dt["identity2"] = [int(e.split("|")[1]) for e in dt["id2"]]
-        dt["id1"].iloc[0].split("|")[0]
-        dt["dbfile"]=[get_sqlite_file(animal.split("|")[0] + "*") for animal in dt["id1"]]
-        dt.sort_values("bp_distance_mm", inplace=True)
-        dbfile=dt.iloc[0]["dbfile"]
-
-        chunksize=self.get_chunksize(dbfile)
-
-        frame_numbers=[int(e) for e in sorted(dt["frame_number"].unique())]    
-        table = get_local_identities(dt.iloc[0]["dbfile"], frame_numbers=frame_numbers)
-        dt["frame_idx"]=dt["frame_number"] % chunksize
-        dt["video_time"]=dt["frame_idx"] / 150
-
-        dt["video1"]=None
-        dt["video2"]=None
-
-        for i, row in dt.iterrows():
-            dt["video1"].loc[i]=get_single_animal_video(row["dbfile"], row["frame_number"], table=table, identity=row["identity1"], chunksize=chunksize)
-            dt["video2"].loc[i]=get_single_animal_video(row["dbfile"], row["frame_number"], table=table, identity=row["identity2"], chunksize=chunksize)
-
-        dt=dt.loc[~pd.isna(dt["video1"])]
-        return dt
-        # dt.sort_values("bp_distance_mm", ascending=False).to_csv(f"2023-10-24_interaction-scenes/{experiment}.csv")
-
+from flyhostel.data.interactions.mmpy_umap import UMAPLoader
+from flyhostel.data.pose.fh_umap import PreprocessUMAP
+from flyhostel.data.deg import DEGLoader
+from flyhostel.data.pose.video_crosser import CrossVideo
 
 class PEDetector(ABC):
     """
@@ -526,6 +318,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         self.pose_speed_max=None
         self.pose_annotated=None
         self.pose_speed_boxcar=None
+        self.pose_boxcar_2=None
 
         
         for index in self.index_pandas:
@@ -593,11 +386,14 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
 
         folder=f"{dest_folder}/{key}"
         os.makedirs(folder, exist_ok=True)
-        f=h5py.File(f"{folder}/{key}.h5", "w")
+        filename=f"{folder}/{key}.h5"
+        print(f"Saving to --> {filename}")
+        f=h5py.File(filename, "w")
         f.create_dataset("tracks", data=reshaped_array)
         f.create_dataset("node_names", data=node_names)
         f.create_dataset("files", data=files)
         f.close()
+        return
 
 
     def load_dbfile(self):
@@ -626,45 +422,80 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         self.load_data(min_time=min_time, max_time=max_time, stride=stride, cache=cache)
         assert self.dt is not None
         assert self.pose is not None
+    
         if cache is not None:
             path = f"{cache}/cached_flyhostel_processed_datasets_{self.experiment}_{min_time}_{max_time}_{stride}.pkl"
             if os.path.exists(path):
                 print(f"Loading ---> {path}")
                 with open(path, "rb") as filehandle:
-                    self.pose_jumps, self.pose_filters, self.pose_speed, self.pose_speed_boxcar, self.pose_boxcar_2=pickle.load(filehandle)
-                    self.pose_annotated=self.annotate_pose(self.pose_speed_boxcar, self.deg)
+                    self.pose_filters, self.pose_speed_boxcar, self.pose_filters["nanmean"]=pickle.load(filehandle)
+                    self.pose_annotated=self.annotate_pose(self.pose_boxcar, self.deg)
+                    self.pose_speed_annotated=self.annotate_pose(self.pose_speed_boxcar, self.deg)
+
                 return
-            
-        self.filter_and_interpolate_pose(*args, **kwargs)
 
-
-        self.compute_speed(self.pose_filters["nanmean"])
-        self.pose_speed_boxcar=self.boxcar_filter(self.pose_speed, ["speed"], bodyparts=BODYPARTS)
-        skip_frames=50
-        bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in BODYPARTS]))
-        self.pose_speed_boxcar=self.pose_speed_boxcar.loc[self.pose_speed_boxcar["frame_number"]%skip_frames==0, ["id", "frame_number", "t"] + bodyparts_speed]
-        self.pose_annotated=self.annotate_pose(self.pose_speed_boxcar, self.deg)
-
-        self.pose_boxcar_2=impute_proboscis_to_head(self.boxcar_filter(self.pose_boxcar, ["x", "y"], bodyparts=BODYPARTS))
-        
+        self.process_data(*args, **kwargs)
 
         if cache is not None:
             print(f"Caching --> {path}")
             with open(path, "wb") as filehandle:
-                pickle.dump((self.pose_jumps, self.pose_filters, self.pose_speed, self.pose_speed_boxcar, self.pose_boxcar_2), filehandle)
+                pickle.dump((self.pose_filters, self.pose_speed_boxcar, self.pose_boxcar), filehandle)
+
+
+    def process_data(self, *args, useGPU=-1, **kwargs):
+        self.filter_and_interpolate_pose(*args, useGPU=useGPU, **kwargs)
+        if useGPU >= 0:
+            pose_boxcar_2=filter_pose_df(
+                self.pose_boxcar, f=cp.mean,
+                columns=bodyparts_xy,
+                window_size=self.window_size,
+                partition_size=PARTITION_SIZE,
+                pad=True,
+                # download from the GPU back into a pd.DataFrame
+                download=True,
+            )
+
+        else:
+            pose_boxcar_2=self.boxcar_filter(self.pose_boxcar, ["x", "y"], bodyparts=BODYPARTS)
+
+        
+        self.pose_boxcar_2=impute_proboscis_to_head(pose_boxcar_2)
+
+        self.compute_speed(self.pose_boxcar)
+        if useGPU >= 0:
+            self.pose_speed_boxcar=filter_pose_df(
+                self.pose_speed, f=cp.mean, columns=bodyparts_speed, window_size=self.window_size,
+                partition_size=PARTITION_SIZE, pad=True, download=True
+            )
+        else:
+            self.pose_speed_boxcar=self.boxcar_filter(self.pose_speed, ["speed"], bodyparts=BODYPARTS)
+        # skip_frames=50
+        # bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in BODYPARTS]))
+        # self.pose_speed_boxcar=self.pose_speed_boxcar.loc[self.pose_speed_boxcar["frame_number"]%skip_frames==0, ["id", "frame_number", "t"] + bodyparts_speed]
 
 
     def boxcar_filter(self, pose, features, bodyparts=BODYPARTS):
 
-            filtered_pose_arr, _ = filter_pose(
-                "nanmean", pose, bodyparts,
-                window_size=self.window_size,
-                min_window_size=self.min_window_size,
-                min_supporting_points=self.min_supporting_points,
-                features=features
-            )
-            filtered_pose=arr2df(pose, filtered_pose_arr, bodyparts, features=features)
-            return filtered_pose
+        filtered_pose_arr, _ = filter_pose(
+            "nanmean", pose, bodyparts,
+            window_size=self.window_size,
+            min_window_size=self.min_window_size,
+            min_supporting_points=self.min_supporting_points,
+            features=features
+        )
+        filtered_pose=arr2df(pose, filtered_pose_arr, bodyparts, features=features)
+        return filtered_pose
+
+
+    def load_store_index(self):
+        if self.store_index is None:
+            self.store=VideoCapture(self.store_path, 1)
+            if self.chunks is not None:
+                self.store_index=pd.concat([pd.DataFrame(self.store._index.get_chunk_metadata(chunk)) for chunk in self.chunks], axis=0)
+            else:
+                self.store_index=pd.DataFrame(self.store._index.get_all_metadata())
+            self.store_index["frame_time"]/=1000
+            self.store.release()
 
 
     def load_data(self, *args, min_time=-float('inf'), max_time=+float('inf'), stride=1, n_jobs=1, cache=None, **kwargs):
@@ -678,14 +509,9 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
                     self.load_deg_data(*args, identity=None, ground_truth=True, verbose=False, **kwargs)
 
                 return
+            
+        self.load_store_index()
 
-        self.store=VideoCapture(self.store_path, 1)
-        if self.chunks is not None:
-            self.store_index=pd.concat([pd.DataFrame(self.store._index.get_chunk_metadata(chunk)) for chunk in self.chunks], axis=0)
-        else:
-            self.store_index=pd.DataFrame(self.store._index.get_all_metadata())
-        self.store_index["frame_time"]/=1000
-        self.store.release()
 
         print("Loading centroid data")
         self.load_centroid_data(*args, **kwargs, n_jobs=n_jobs, stride=stride, verbose=False)
@@ -709,6 +535,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
             self.load_deg_data_prediction(*args, **kwargs)
 
         if self.deg is not None:
+            self.load_store_index()
             self.deg=self.annotate_time_in_dataset(self.deg, self.store_index, "frame_time", self.meta_info["t_after_ref"])
             self.deg=self.deg.loc[
                 (self.deg["t"] >= min_time) & (self.deg["t"] < max_time)
@@ -754,8 +581,6 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         if t_after_ref is not None and t_column == "frame_time":
             dataset["t"]=dataset[t_column]+t_after_ref
         return dataset
-
-
     
     def load_pose_data(self, min_time=-np.inf, max_time=+np.inf, time_system="zt"):
         if self.pose_source == "processed":
@@ -767,11 +592,12 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
 
         if out is not None:
             self.pose, self.h5s_pandas, self.index_pandas=out
+            # one for each animal in the experiment
             self.pose=pd.concat(self.pose, axis=0)
             self.pose.reset_index(inplace=True)
+            corrupt_pose=np.bitwise_or(pd.isna(self.pose["thorax_x"]), pd.isna(self.pose["frame_number"]))
 
-            missing_pose=np.bitwise_or(pd.isna(self.pose["thorax_x"]), pd.isna(self.pose["frame_number"]))
-            self.pose = self.pose.loc[~missing_pose]
+            self.pose.loc[corrupt_pose, bodyparts_xy + [bp + "_likelihood" for bp in BODYPARTS]]=np.nan
             self.pose["frame_number"]=self.pose["frame_number"].astype(np.int32)
             self.pose.sort_values(["frame_number"], inplace=True)
             self.pose.reset_index(inplace=True)
@@ -779,6 +605,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
             self.pose["identity"]=[int(e.split("|")[1]) for e in self.pose["id"]]
 
             if self.dt is not None and len(self.pose) > 0:
+                self.load_store_index()    
                 self.pose=self.annotate_time_in_dataset(self.pose, self.store_index, "frame_time", self.meta_info["t_after_ref"])
                 self.pose=self.pose.loc[
                     (self.pose["t"] >= min_time) & (self.pose["t"] < max_time)
@@ -1155,20 +982,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
             draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos")
 
 
-def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
-    chunk = frame_number // chunksize
-    table_current_frame = table.loc[(table["frame_number"] == frame_number)]
-    if (table_current_frame["local_identity"] == 0).any():
-        single_animal_video=None    
-    else:
-        local_identity = table_current_frame.loc[table_current_frame["identity"] == identity, "local_identity"]
-        if local_identity.shape[0] == 0:
-            single_animal_video=None
-        else:
-            local_identity=local_identity.item()
-            single_animal_video = os.path.join(os.path.dirname(dbfile), "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
-    
-    return single_animal_video
+
 
 
 class InteractionDetector(FlyHostelLoader):

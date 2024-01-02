@@ -1,7 +1,12 @@
-import ethoscopy as etho
+import logging
 from functools import partial
-from ethoscopy.flyhostel import compute_xy_dist_log10x1000, compute_t_after_ref, load_hour_start
 import numpy as np
+
+import ethoscopy as etho
+from ethoscopy.flyhostel import compute_xy_dist_log10x1000
+
+logger=logging.getLogger(__name__)
+
 
 metadata_folder='/flyhostel_data/metadata'
 meta_loc = f'{metadata_folder}/flyhostel.csv'

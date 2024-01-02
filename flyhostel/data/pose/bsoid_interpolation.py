@@ -109,7 +109,7 @@ def bsoid_interpolation(experiment, chunks, n_jobs):
     pattern=os.path.join(os.environ["POSE_DATA"],  animals[0], "*h5")
 
     number_of_animals=int(experiment.split("_")[1].rstrip("X"))
-    assert len(animals) == number_of_animals
+    assert len(animals) == number_of_animals, f"{len(animals)} != {number_of_animals}"
 
     with h5py.File(glob.glob(pattern)[0], "r") as file:
         node_names=[e.decode() for e in file["node_names"][:]]

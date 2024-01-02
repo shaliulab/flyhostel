@@ -2,7 +2,7 @@ import os
 import sqlite3
 import pandas as pd
 import numpy as np
-from .utils import get_sqlite_file
+from flyhostel.utils import get_sqlite_file
 
 DATA_PATH=os.environ["MOTIONMAPPER_DATA"]
 

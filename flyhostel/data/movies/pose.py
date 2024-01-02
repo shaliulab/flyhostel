@@ -5,6 +5,10 @@ import numpy as np
 import pandas as pd
 
 def draw_pose_on_axis(pose_data, fns, h5inds, params, pad=80):
+    """
+    Arguments
+    
+    """
     chunksize=45000
 
     skeleton = params["skeleton"]
@@ -84,10 +88,4 @@ def draw_pose_on_axis(pose_data, fns, h5inds, params, pad=80):
             x = np.round(pose_data[h5ind].loc[frame_number, pd.IndexSlice[:, bp, "x"]].values.flatten()).astype(np.int64) + centroid[0] - 50
             y = np.round(pose_data[h5ind].loc[frame_number, pd.IndexSlice[:, bp, "y"]].values.flatten()).astype(np.int64) + centroid[1] - 50
     
-            # ax.text(
-            #     x,
-            #     y,
-            #     text,
-            #     color='k'
-            # 
     return fig

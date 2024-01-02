@@ -1,8 +1,10 @@
 import queue
 import os.path
-
+import logging
 import numpy as np
 from tqdm.auto import tqdm
+
+logger=logging.getLogger(__name__)
 
 try:
     from sleap.io.dataset import Labels
@@ -41,7 +43,7 @@ try:
 
         labeled_frames=[]
 
-        for frame_number in frame_numbers:
+        for frame_number in tqdm(frame_numbers):
             frame_idx=frame_number%chunksize
 
             instance_series=pose.loc[(pose["identity"]==identity) & (pose["frame_number"]==frame_number)]
@@ -95,6 +97,9 @@ try:
         assert len(set(chunks)) == 1, f"Please pass frames from within the same chunk"
 
         video=Video.from_filename(index.loc[index["frame_number"]==frame_numbers[0], "video"].item())
+
+
+        logger.debug("Making labeled frames")
 
         labeled_frames=make_labeled_frames(
             pose, identity,
@@ -160,4 +165,5 @@ try:
 
 except Exception as error:
     print("SLEAP cannot be loaded. SLEAP integration disabled")
+    draw_video_row=None
     print(error)

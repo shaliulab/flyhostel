@@ -4,7 +4,7 @@ import numpy as np
 import zeitgeber.rle
 
 
-from flyhostel.data.interactions.utils import load_metadata_prop
+from flyhostel.utils import load_metadata_prop
 
 def centroid_interaction_detector(animal0, animal1, dt0, dt1, dt_index, distance_threshold=0.15):
     """

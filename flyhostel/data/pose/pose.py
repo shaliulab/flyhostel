@@ -1,255 +1,183 @@
-import os.path
 import logging
-import json
-import re
-import time
-import numpy as np
-import joblib
+from abc import ABC
+logger = logging.getLogger(__name__)
+
 import pandas as pd
-import h5py
-
-MINS=.5
-POSE_DATA=os.environ["POSE_DATA"]
-
-def find_files(directory, pattern):
-    hits=[]
-    regex = re.compile(pattern)
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if regex.match(file):
-                hits.append(os.path.join(root, file))
-
-    return hits
-
-def file_is_older_than(path, mins):
-    timestamp=os.path.getmtime(path)
-    now = time.time()
-    age = now-timestamp
-
-    return age, age > (mins*60)
 
 
-def make_link(analysis_file, directory, dry_run=False):
-
-    age, older = file_is_older_than(analysis_file, MINS)
-
-    if not older:
-        print(f"Skipping {analysis_file}, age {age} < {MINS} mins")
-        return
-
-    assert os.path.isdir(directory)
-    # videos/FlyHostel2/1X/2023-05-23_14-00-00/flyhostel/single_animal/000/000260.mp4.predictions.h5
-    tokens = analysis_file.split(os.path.sep)
-    flyhostel_id, number_of_animals, date_time, _, _, local_identity, filename = tokens[-7:]
-    new_link = os.path.join(directory, f"{flyhostel_id}_{number_of_animals}_{date_time}_{local_identity}", filename)
-    print(f"Generating link {analysis_file} -> {new_link}")
-
-    if not dry_run:
-        os.makedirs(os.path.dirname(new_link), exist_ok=True)
-        if os.path.exists(new_link):
-            os.remove(new_link)
-
-        status=0
-        # status=impute_body_part(analysis_file, "proboscis", "head")
-
-        if status is None:
-            return
-        
-        os.symlink(analysis_file, new_link)
-
-def impute_body_part(analysis_file, body_part, reference):
-
-    with h5py.File(analysis_file, "a") as filehandle:
-
-        if "imputation" in filehandle.keys():
-            return np.array([])
-
-        try:
-            node_names=[element.decode() for element in filehandle["node_names"][:]]
-        except:
-            return None
-        bp_index=node_names.index(body_part)
-        ref_index=node_names.index(reference)
-        missing = np.isnan(filehandle["tracks"][:, :, bp_index])[0, 0]
-
-        ref_not_missing = np.bitwise_not(np.isnan(filehandle["tracks"][:, :, ref_index])[0, 0])
-        indexer = np.bitwise_and(missing, ref_not_missing)
-        filehandle["tracks"][:, :, bp_index, indexer] = filehandle["tracks"][:, :, ref_index, indexer]
-        imputation=filehandle.create_dataset("imputation", (indexer.shape[0],), dtype='bool')
-        imputation[:]=indexer
-
-    return missing
+from imgstore.interface import VideoCapture
+from flyhostel.data.bodyparts import make_absolute_pose_coordinates, legs
+from flyhostel.data.pose.filters import (
+    interpolate_pose,
+    filter_pose_far_from_median,
+    impute_proboscis_to_head,
+    filter_pose,
+    arr2df,
+)
+from .gpu_filters import filter_and_interpolate_pose_single_animal_gpu_
+POSE_FRAMERATE=150
 
 
-def load_file(file):
+class FilterPose(ABC):
+    """
+    Refine pose estimate predictions using filters inspired in https://www.biorxiv.org/content/10.1101/2023.10.30.564733v1.full.pdf
 
-    if not os.path.exists(file):
-        print(f"{file} does not exist")
-        return None, None, None, None
+    Pose estimation software that works on a frame-by-frame basis (predicitons are performed independently for each frame)
+    are very efficient and parallelizable, but their output does not benefit from the added information gained by looking at the immediate
+    context of a frame i.e. its neighboring frames
 
-    try:
-        with h5py.File(file, 'r') as filehandle:
-            node_names = filehandle["node_names"][:]
-            node_names=[e.decode() for e in node_names]
-            tracks = filehandle["tracks"][:]
-            score = filehandle["point_scores"][:]
+    This module allows us to refine the pose estimation by leveraging the context to more reliably detect spurious detections of movement
+    and to smoothen the trajectory through pose space over time
 
-    except Exception as error:
-        logging.warning("Cannot open file %s", file)
-        raise error
+    Usage:
 
-    
-    return node_names, tracks, score, file
-
-def load_files(files, n_jobs=1):
-
-    # files=sorted(files)
-    # files_ = []
-    # for f in files:
-    #     local_identity=int(os.path.basename(os.path.dirname(f)))
-    #     chunk=int(os.path.basename(f).split(".")[0])
-    #     if local_identity == 0:
-    #         print(f"local identity = 0 in chunk {chunk}")
-    #         continue
-    #     files_.append(f)
-    # files=files_
-
-
-    print(f"{len(files)} files will be loaded")
-    Output = joblib.Parallel(n_jobs=n_jobs)(
-    # Output = joblib.Parallel(n_jobs=1)(
-        joblib.delayed(
-            load_file
-        )(
-           file
-        )
-        for file in files
+    foo.filter_and_interpolate_pose(
+        # list of bodyparts to process
+        bodyparts,
+        # dictionary of numpy functions used to smoothen the data, example:
+        # {"nanmedian": {"window_size": 0.2, "min_window_size": 40}, "nanmean": {"window_size": 0.2, "min_window_size":10}}
+        filters,
+        # minimum pose estimate score to consider the prediction as valid
+        min_score=0.5,
+        # size of window to detect jumps
+        window_size_seconds=0.5,
+        # maximum allowed jump between frames
+        max_jump_mm=1,
+        # how much to interpolate the data in case of missing coordinates,
+        # either a float or a bodypart indexed dictionary of floats
+        interpolate_seconds=0.5
     )
+    """
 
-    datasets=[]
-    point_scores=[]
-    previous_node_names=None
+    root="/flyhostel_data/fiftyone/FlyBehaviors/MOTIONMAPPER_DATA"
 
-    template_dataset = None
-    template_score = None
+    def __init__(self, *args, **kwargs):
 
-    dataset_count = 0
-    for node_names, dataset, score, file in Output:
-        if dataset is not None:
-            dataset_count += 1
-            if template_dataset is None:
-                template_dataset = dataset.copy()
-                template_dataset[:]=np.nan
-                template_score = score.copy()
-                template_score[:] = np.nan
+        self.pose=None
+        self.pose_raw=None
+        self.pose_jumps=None
+        self.pose_filters=None
+        self.pose_interpolated=None
+        self.experiment=None
+        super(FilterPose, self).__init__(*args, **kwargs)
+
+
+    def filter_and_interpolate_pose_single_animal(self, *args, useGPU=-1, **kwargs):
+        if useGPU >= 0:
+            return self.filter_and_interpolate_pose_single_animal_gpu(*args, **kwargs)
+        else:
+            return self.filter_and_interpolate_pose_single_animal_cpu(*args, **kwargs)
+
+
+    @staticmethod
+    def filter_and_interpolate_pose_single_animal_gpu(*args, **kwargs):
+        return filter_and_interpolate_pose_single_animal_gpu_(*args, **kwargs)
+
+
+
+    @staticmethod
+    def filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, min_score=0.5, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5):
+        """
+        Process the raw pose data of a single animal
+
+        Information in the neighboring frames can be leveraged to improve the estimate of each frame
+        Example -> a body part movement which moves to point B in only one frame, and is in point A one frame before and after
+        is unlikely to really have moved and instead is probably a spurious pose estimate error.
+        This function processes the passed pose data with multiple steps and returns all these steps
+
+        NOTE: This function assumes there are at least two bodyparts called head and proboscis.
+        If the proboscis is missing, it is imputed to be where the head is
+
+        Arguments:
+
+            pose (pd.DataFrame): Raw pose estimate containing, for every bodypart foo, columns foo_x, foo_y, foo_likelihood, foo_is_interpolated as well as columns id, frame_number, t
+            bodyparts (list)
+            filters (dict): Dictionary of filters to apply. The keys must be numpy functions, and the values must be another dictionary with keys window_size, min_window_size, and order
+            min_score (float): Either a float, with the minimum score all body part pose predictions should have, or a dictionary of body part - float pairs
+            window_size_seconds (float): Window size used to compute the median to remove spurious "jumps"
+            max_jump_mm (float): Number of mm away from the window median that a prediction must be for it to be considered a jump
+            interpolate_seconds (float): Body parts missing are imputed forward and backwards (pd.Series.interpolate limit_direction both) up to this many seconds
+
+        Returns: Dictionary with keys:
+            jumps (pd.DataFrame): detections of a body part more than max_jump_mm mm away from the median of a rolling window of window_size_seconds seconds are ignored
+            filters (dict): Contains one entry per filter in filters. Each of them is a dataframe based on the pose of the previous filter (given by its order attribute, lowest first).
+               The filter consists of applying the numpy function to windows of up to min_window_size points but actually only the points within window_size seconds
+               So each new processed point will be the result of applying the numpy function to points within window_size seconds of it
+               The filter with order 0 is run on the pose_jumps dataset
+
+        """
+        useGPU=-1
+        logger.debug("Filtering jumps deviating from median")
+        pose=filter_pose_far_from_median(
+            pose, bodyparts, min_score=min_score, window_size_seconds=window_size_seconds, max_jump_mm=max_jump_mm,
+            useGPU=useGPU
+        )
+        logger.debug("Interpolating pose")
+        pose_jumps=interpolate_pose(pose, bodyparts, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
+        logger.debug("Imputing proboscis to head")
+        pose_jumps=impute_proboscis_to_head(pose_jumps)
+
+
+        pose_filters={}
+        filters_sorted=sorted([(filters[f]["order"], f) for f in filters], key=lambda x: x[0])
+        filters_sorted=[e[1] for e in filters_sorted]
+        pose_filtered=pose_jumps
+
+        for filt in filters_sorted:
+            filter_f=filt
+            window_size=filters[filt]["window_size"]
+            min_window_size=filters[filt]["min_window_size"]
             
-        datasets.append(dataset)
-        point_scores.append(score)
-        if node_names is None:
-            continue
-
-        if previous_node_names is not None:
-            assert all([node_names[i] == previous_node_names[i] for i in range(len(node_names))])
-        previous_node_names=node_names
-    print(f"{dataset_count} datasets have been loaded")
-
-    missing_frames=0
-    for i, _ in enumerate(datasets):
-        if datasets[i] is None:
-            datasets[i] = template_dataset.copy()
-            point_scores[i] = template_score.copy()
-            missing_frames+=max(template_dataset.shape)
+            logger.debug("Applying %s filter to pose", filt)
+            pose_filtered_arr, _ = filter_pose(
+                filter_f=filter_f, pose=pose_filtered, bodyparts=bodyparts,
+                window_size=window_size, min_window_size=min_window_size,
+                useGPU=useGPU
+            )
+            assert filter_f not in pose_filters
+            logger.debug("Imputing proboscis to head")
+            pose_filtered=impute_proboscis_to_head(arr2df(pose, pose_filtered_arr, bodyparts))
+            del pose_filtered_arr
+            pose_filters[filter_f]=pose_filtered
             
-
-    nframes = sum([dataset.shape[3] for dataset in datasets])
-    print(f"{nframes} frames loaded. {missing_frames} frames missing")
-    return node_names, datasets, point_scores
+        return {"jumps": pose_jumps, "filters": pose_filters}
 
 
-def generate_single_file(node_names, datasets, point_scores, files, dest_file):
-    # need to populate node_names and tracks
-    # tracks has shape 1 x 2 x node_names x timepoints (frames in video)
-    # node_names is a dataset with a character array. each name is byte encoded
-    node_names_bytes = np.array([name.encode() for name in node_names])
-    files_bytes = np.array([f.encode() for f in files])
-    
-    dataset = np.concatenate(datasets, axis=3)
-    point_scores = np.concatenate(point_scores, axis=2)
-
-    with h5py.File(dest_file, 'w') as file:
-        node_names_d=file.create_dataset("node_names", (len(node_names), ), dtype='|S12')
-        node_names_d[:]=node_names_bytes
-        files_bytes_d=file.create_dataset("files", (len(files), ), dtype='|S300')
-        files_bytes_d[:]=files_bytes
+    def filter_and_interpolate_pose(self, *args, **kwargs):
+        """
+        Call filter_and_interpolate_pose_single_animal once for every animal in the experiment
+        """
+        if self.pose_raw is None:
+            self.pose_raw=self.pose.copy()
         
-        tracks_d=file.create_dataset("tracks", dataset.shape)
-        tracks_d[:]=dataset
+        pose_datasets=self.pose_raw.groupby("id")
 
-        point_scores_d=file.create_dataset("point_scores", point_scores.shape)
-        point_scores_d[:]=point_scores
+        self.pose_jumps=[]
+        self.pose_filters={}
 
-    return dest_file
-
-def parse_number_of_animals(cur):
-
-    cur.execute("SELECT value FROM METADATA  WHERE field  = 'idtrackerai_conf';")
-    conf=cur.fetchall()[0][0]
-    conf=json.loads(conf.strip())
-    number_of_animals=int(conf["_number_of_animals"]["value"])
-    return number_of_animals
-
-def infer_analysis_path(basedir, local_identity, chunk, number_of_animals):
-    if number_of_animals==1:
-        return os.path.join(basedir, "flyhostel", "single_animal", str(0).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
-    else:
-        return os.path.join(basedir, "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
-
-def load_concatenation_table(cur, basedir):
-    cur.execute("SELECT value FROM METADATA where field ='idtrackerai_conf';")
-    conf=cur.fetchone()[0]
-    number_of_animals=int(json.loads(conf)["_number_of_animals"]["value"])
-
-
-    cur.execute("PRAGMA table_info('CONCATENATION');")
-    header=[row[1] for row in cur.fetchall()]
-
-    cur.execute("SELECT * FROM CONCATENATION;")
-    records=cur.fetchall()
-    concatenation=pd.DataFrame.from_records(records, columns=header)
-    concatenation["dfile"] = [
-        infer_analysis_path(basedir, row["local_identity"], row["chunk"], number_of_animals=number_of_animals)
-        for i, row in concatenation.iterrows()
-    ]
-    return concatenation
-
-
-def pipeline(experiment_name, identity, concatenation, chunks=None):
-    if chunks is not None:
-        concatenation=concatenation.loc[concatenation["chunk"].isin(chunks)]
-
-    if "1X" in experiment_name:
-        concatenation_i=concatenation
-        chunk, count = np.unique(concatenation["chunk"], return_counts=True)
-        if not all(count==1):
-            bad_chunks = chunk[count!=1]
-            raise Exception(f"More than 1 animal found in a single animal experiment. Chunks {bad_chunks}")
+        for id, pose in pose_datasets:
+            print(pose["id"].iloc[0])
+            pose = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, **kwargs)
+            self.pose_jumps.append(pose["jumps"])
+            for filt_f in pose["filters"]:
+                if filt_f not in self.pose_filters:
+                    self.pose_filters[filt_f]=[]
+                self.pose_filters[filt_f].append(pose["filters"][filt_f])
         
-        identity=0
-
-    else:
-        concatenation_i=concatenation.loc[concatenation["identity"]==identity]
-
-    if chunks is not None:
-        if concatenation_i.shape[0] < len(chunks):
-            print(f"{concatenation_i.shape[0]} < {len(chunks)}. The concatenation is missing data")
-            raise Exception(f"Chunks missing: {set(chunks).difference(set(concatenation_i['chunk'].tolist()))}")
+        if self.pose_jumps[0] is not None:
+            self.pose_jumps=pd.concat(self.pose_jumps, axis=0)
+        
+        for filt_f in self.pose_filters:
+            if self.pose_filters[filt_f] is not None:
+                logger.debug("Generating %s dataset", filt_f)
+                self.pose_filters[filt_f]=pd.concat(self.pose_filters[filt_f], axis=0)
 
 
-
-    files=concatenation_i["dfile"]
-    node_names, datasets, point_scores = load_files(files)
-    dest_file=os.path.join(POSE_DATA, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
-    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-    generate_single_file(node_names, datasets, point_scores, files, dest_file=dest_file)
-    assert os.path.exists(dest_file)
+    @staticmethod
+    def full_interpolation(pose, bodyparts):
+        out=[]
+        for id, pose_dataset in pose.groupby("id"):
+            out.append(interpolate_pose(pose_dataset.copy(), bodyparts, seconds=None))
+        pose=pd.concat(out, axis=0)
+        return pose
 

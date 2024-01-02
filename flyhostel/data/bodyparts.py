@@ -7,9 +7,13 @@ import itertools
 import numpy as np
 import pandas as pd
 import joblib
-from .utils import parse_identity
 ROI_WIDTH=ROI_HEIGHT=100
 anchor_bp="thorax"
+
+
+def parse_identity(id):
+    return int(id.split("|")[1])
+
 
 def make_absolute_pose_coordinates(dt, bodyparts, roi_width):
     """

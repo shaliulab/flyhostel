@@ -5,7 +5,7 @@ import os.path
 import numpy as np
 import pandas as pd
 
-from .utils import get_local_identities_from_experiment, get_sqlite_file
+from flyhostel.utils import get_local_identities_from_experiment, get_sqlite_file, get_chunksize
 logger = logging.getLogger(__name__)
 
 DEG_DATA="/Users/FlySleepLab Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/DEG/FlyHostel_deepethogram/DATA"
@@ -28,10 +28,7 @@ class DEGLoader(ABC):
         self.datasetnames=None
         super(DEGLoader, self).__init__(*args, **kwargs)
 
-    @abstractmethod
-    def get_chunksize(self, dbfile):
-        raise NotImplementedError
-    
+
     @staticmethod
     def parse_chunk(data_entry):
         ret, tokens = parse_entry(data_entry)
@@ -121,7 +118,7 @@ class DEGLoader(ABC):
         id = self.experiment[:26] + "|" + str(identity).zfill(2)
         animal = self.experiment + "__" + str(identity).zfill(2)
         dbfile=get_sqlite_file(animal)
-        chunksize=self.get_chunksize(dbfile)
+        chunksize=get_chunksize(dbfile)
         counter=0
 
         for data_entry in os.listdir(DEG_DATA):
@@ -186,7 +183,11 @@ def read_label_file(data_entry, labels_file, verbose=False):
     for frame, behav_id in zip(frames, behav_ids):
         behav_sequence.append((frame, behaviors[behav_id]))
     labels=pd.DataFrame.from_records(behav_sequence)
-    labels.columns=["frame_idx", "behavior"]
+    try:
+        labels.columns=["frame_idx", "behavior"]
+    except ValueError:
+        logger.warning("%s cannot be loaded. Is it empty? The number of rows is %s", labels_file, labels.shape[0])
+        return None
     return labels
 
 

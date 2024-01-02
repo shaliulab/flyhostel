@@ -1,12 +1,14 @@
+import logging
 import os
 import time
 import itertools
 import h5py
 import numpy as np
 import pandas as pd
-from imgstore.interface import VideoCapture
-from .bodyparts import make_absolute_pose_coordinates, legs
-from .bodyparts import bodyparts as BODYPARTS
+
+from flyhostel.data.bodyparts import bodyparts as BODYPARTS
+
+logger = logging.getLogger(__name__)
 
 def clean_bad_proboscis(h5s_pandas, threshold):
     """
@@ -85,6 +87,7 @@ def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=10):
     """
     Load dataset stored in POSE_DATA
     """
+    before_out=time.time()
 
     pose_list=[]
     h5s_pandas=[]
@@ -104,10 +107,10 @@ def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=10):
             before=time.time()
             pose=filehandle["tracks"][0, :, :, ::stride]
             after=time.time()
-            print(f"Loaded pose coordinates in {after-before} seconds")
+            logger.debug(f"Load pose coordinates in {round(after-before, 1)} seconds")
             scores=filehandle["point_scores"][0, :, ::stride]
             after2=time.time()
-            print(f"Loaded scores in {after2-after} seconds")
+            logger.debug(f"Load scores in {round(after2-after, 1)} seconds")
             bps = [bp.decode() for bp in filehandle["node_names"][:]]
 
             chunks=[int(os.path.basename(path.decode()).split(".")[0]) for path in filehandle["files"]]
@@ -142,30 +145,54 @@ def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=10):
         index["files"]=files
         index.set_index("index", inplace=True)
 
-        data=[]
+        data={}
         coordinates=["x", "y", "likelihood", "is_interpolated"]
         before=time.time()
-        for i, _ in enumerate(bps):
-            data.append(pose[0, i, :])
-            data.append(pose[1, i, :])
-            data.append(scores[i, :])
-            data.append([False for _ in range(pose.shape[2])])
-        after=time.time()
-        print(after-before)
 
-        multiindex_columns = pd.MultiIndex.from_product([["SLEAP"], bps, coordinates], names=['scorer', 'bodyparts', 'coordinates'])
-        pose_df=pd.DataFrame(columns=multiindex_columns)
-        
-        for i, _ in enumerate(data):
-            pose_df.iloc[:,i]=data[i]
-        
-        h5s_pandas.append(pose_df)
+        # Whether is interpolated or not is independent of the value
+        # It will be set to True by downstream programs
+        is_interpolated = [False for _ in range(pose.shape[2])]
+        for i, bp in enumerate(bps):
+            data[bp + "_x"]=pose[0, i, :]
+            data[bp + "_y"]=pose[1, i, :]
+            data[bp + "_likelihood"]=scores[i, :]
+            data[bp + "_is_interpolated"]=is_interpolated
+        after = time.time()
+
+        del pose
+        del scores
+        del is_interpolated
+
+        before=time.time()
+        pose_df = pd.DataFrame(data)
+        after=time.time()
+        logger.debug("Initialize pd.DataFrame in %s seconds", round(after-before, 1))
+        # STOP adding the pose_df with fancy multiindex to h5s_pandas to save memory
+        # columns=pose_df.columns
+        # multiindex_columns = pd.MultiIndex.from_product([["SLEAP"], bps, coordinates], names=['scorer', 'bodyparts', 'coordinates'])
+        # pose_df.columns=multiindex_columns
+        # h5s_pandas.append(pose_df.copy())
+        # pose_df.columns=columns
         pose_df["frame_number"]=frame_numbers
         pose_df.set_index("frame_number", inplace=True)
-        pose_df2=simplify_columns(index, pose_df, identities[animal_id])
-        pose_list.append(pose_df2)
+
+        before=time.time()
+        pose_df=pose_df.merge(
+            index[["frame_number", "zt"]].set_index("frame_number"),
+            left_index=True, right_index=True
+        )
+        after=time.time()
+        logger.debug("Annotate pose dataset time in %s seconds", round(after-before, 1))
+        pose_df["t"]=pose_df["zt"]*3600
+        del pose_df["zt"]
+        pose_df.insert(0, "t", pose_df.pop("t"))
+        pose_df.insert(0, "id", identities[animal_id])
+        pose_list.append(pose_df)
         index_pandas.append(index)
     
+    after_out=time.time()
+    # logger.debug("Load pose data in % seconds", round(after_out-before_out, 1))
+
     if len(pose_list) == 0:
         return None
     else:

@@ -6,15 +6,19 @@ from typing import Union, Dict
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
-import cupy as cp
-
-from flyhostel.data.interactions.bodyparts import bodyparts as BODYPARTS
+from flyhostel.data.bodyparts import bodyparts as BODYPARTS
 
 logger=logging.getLogger(__name__)
 
 FRAMERATE=150
-CHUNK_SECONDS=15*60
+CHUNK_SECONDS=30*60
 CHUNK_FRAMES=CHUNK_SECONDS*FRAMERATE
+
+
+try:
+    import cupy as cp
+except:
+    logger.warning("cupy not installed")
 
 def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=100, min_supporting_points=3, features=["x", "y"], useGPU=-1):
     """
@@ -152,12 +156,14 @@ def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=100,
 
             filtered_pose=np.concatenate(filtered_pose_list, axis=2)
 
-        except:
+        except Exception as error:
+            print(error)
             import ipdb; ipdb.set_trace()
     else:
         values_arr=np.stack(values_arr, axis=3)
         logger.debug("Applying %s filter to data of shape %s using %s", filter_f, values_arr.shape, "numpy")
         filtered_pose=getattr(np, filter_f)(values_arr, axis=0)
+        logger.debug("Done")
     
     pose_values=np.moveaxis(pose_values, 0, -1)
     return filtered_pose, pose_values
@@ -205,21 +211,7 @@ def filter_pose_far_from_median(pose, bodyparts, px_per_cm=175, min_score=0.5, w
         pose.loc[
             np.isnan(pose[[bp + "_x", bp + "_y"]]).any(axis=1),
             bp + "_is_interpolated"
-        ]=True
-
-    # import ipdb; ipdb.set_trace()
-
-    # logger.debug("Marking jumps")
-    # for i, (row, col) in enumerate(zip(rows, cols)):
-    #     bp=bodyparts[col]
-    #     columns=[bp + "_x", bp + "_y"]
-    #     col_ids=[pose.columns.tolist().index(c) for c in columns]
-    #     pose.iloc[row, col_ids]=np.nan
-    #     pose.loc[
-    #         np.isnan(pose[columns]).any(axis=1),
-    #         bp + "_is_interpolated"
-    #     ]=True
-        
+        ]=True        
     return pose
 
 
@@ -237,12 +229,15 @@ def arr2df(pose, arr, bodyparts, features=["x", "y"]):
     return new_pose
 
 
+def interpolate_pose(pose, bodyparts=None, seconds: Union[None, Dict, float, int]=0.5, pose_framerate=15):
+    if bodyparts is None:
+        columns=pose.columns
+    else:
+        bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
+        columns=bodyparts_xy
 
 
-def interpolate_pose(pose, bodyparts, seconds: Union[None, Dict, float, int]=0.5, pose_framerate=15):
-    bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
-
-    for c in bodyparts_xy:
+    for c in columns:
         bp = c.replace("_x", "").replace("_y", "")
         if isinstance(seconds, float) or isinstance(seconds, int):
             seconds_bp=seconds
@@ -253,4 +248,11 @@ def interpolate_pose(pose, bodyparts, seconds: Union[None, Dict, float, int]=0.5
         elif seconds is None:
             interpolation_limit=None
         pose[c].interpolate(method="linear", limit_direction="both", inplace=True, limit=interpolation_limit)
+    return pose
+
+def impute_proboscis_to_head(pose, selection=None):
+    if selection is None:
+        selection=pose["proboscis_likelihood"].isna()
+    for coord in ["x", "y"]:
+        pose.loc[selection, f"proboscis_{coord}"]=pose.loc[selection, f"head_{coord}"]
     return pose
