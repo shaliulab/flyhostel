@@ -229,16 +229,13 @@ def arr2df(pose, arr, bodyparts, features=["x", "y"]):
     return new_pose
 
 
-def interpolate_pose(pose, bodyparts=None, seconds: Union[None, Dict, float, int]=0.5, pose_framerate=15):
-    if bodyparts is None:
+def interpolate_pose(pose, columns=None, seconds: Union[None, Dict, float, int]=0.5, pose_framerate=15):
+    if columns is None:
         columns=pose.columns
-    else:
-        bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
-        columns=bodyparts_xy
-
 
     for c in columns:
-        bp = c.replace("_x", "").replace("_y", "")
+        bp = "_".join(c.split("_")[:-1])
+
         if isinstance(seconds, float) or isinstance(seconds, int):
             seconds_bp=seconds
             interpolation_limit=int(seconds_bp*pose_framerate)

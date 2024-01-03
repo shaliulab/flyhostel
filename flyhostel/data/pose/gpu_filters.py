@@ -152,7 +152,7 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
 
 
     logger.debug("Interpolating pose")
-    pose_cudf=interpolate_pose(pose_cudf, bodyparts, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
+    pose_cudf=interpolate_pose(pose_cudf, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
     # NOTE be aware this interpolation is not necessarily complete
     # only up to a given amount of seconds are interpolated!
     logger.debug("Imputing proboscis to head")

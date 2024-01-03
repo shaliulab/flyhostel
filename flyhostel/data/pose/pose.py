@@ -1,4 +1,6 @@
 import logging
+import itertools
+
 from abc import ABC
 logger = logging.getLogger(__name__)
 
@@ -113,7 +115,10 @@ class FilterPose(ABC):
             useGPU=useGPU
         )
         logger.debug("Interpolating pose")
-        pose_jumps=interpolate_pose(pose, bodyparts, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
+
+        bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
+        
+        pose_jumps=interpolate_pose(pose, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
         logger.debug("Imputing proboscis to head")
         pose_jumps=impute_proboscis_to_head(pose_jumps)
 
@@ -174,10 +179,10 @@ class FilterPose(ABC):
 
 
     @staticmethod
-    def full_interpolation(pose, bodyparts):
+    def full_interpolation(pose, columns):
         out=[]
         for id, pose_dataset in pose.groupby("id"):
-            out.append(interpolate_pose(pose_dataset.copy(), bodyparts, seconds=None))
+            out.append(interpolate_pose(pose_dataset.copy(), columns, seconds=None))
         pose=pd.concat(out, axis=0)
         return pose
 
