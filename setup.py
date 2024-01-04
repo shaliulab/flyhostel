@@ -28,13 +28,15 @@ setup(
         "matplotlib",
         "pyaml",
         "imgstore-shaliulab>=0.4.0",
+        "pandas<=1.3.5",
         "confapp-shaliulab",
         "scikit-learn",
         "recordtype",
         "tqdm",
         "h5py",
+        "hdf5storage",
         "yolov7tools==1.1",
-        # "bsoid",
+        "vidio",
     ],
     entry_points={
         "console_scripts": [
@@ -43,6 +45,8 @@ setup(
             "fh-validate=flyhostel.data.bin.dashboard:main",
             "missing-chunk-detector=flyhostel.utils.missing_chunk_detector:main",
             "compile-pose=flyhostel.data.bin.pose:main",
+            "make-umap=flyhostel.data.bin.make_umap:main",
+            "filter-pose=flyhostel.data.bin.filter_pose:main",
             "preprocess-pose=flyhostel.data.bin.pose:preprocess",
             "list-frames-with-no-animals=flyhostel.data.sqlite3.missing_animals:main",
             ]
