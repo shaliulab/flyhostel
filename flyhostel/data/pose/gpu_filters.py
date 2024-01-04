@@ -26,8 +26,10 @@ from .filters import (
 
 
 # upload to GPU batches of 1 hour long data
-POSE_FRAMERATE=150
-PARTITION_SIZE=POSE_FRAMERATE*3600
+
+from flyhostel.data.pose.constants import MAX_JUMP_MM, JUMP_WINDOW_SIZE_SECONDS, PARTITION_SIZE, min_score, PX_PER_CM
+from flyhostel.data.pose.constants import framerate as FRAMERATE
+
 
 def filter_pose_df(data, *args, columns=None, download=False, **kwargs):
     original_columns=data.columns
@@ -95,7 +97,7 @@ def split_xy(arr):
     ], axis=2)
 
 
-def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=175, min_score=0.5, window_size_seconds=0.5, max_jump_mm=1, framerate=150):
+def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, min_score=min_score, window_size_seconds=JUMP_WINDOW_SIZE_SECONDS, max_jump_mm=MAX_JUMP_MM, framerate=FRAMERATE):
     
     window_size=int(window_size_seconds*framerate)
     min_periods=3
@@ -153,7 +155,7 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
 
 
     logger.debug("Interpolating pose")
-    pose_cudf=interpolate_pose(pose_cudf, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
+    pose_cudf=interpolate_pose(pose_cudf, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=FRAMERATE)
     # NOTE be aware this interpolation is not necessarily complete
     # only up to a given amount of seconds are interpolated!
     logger.debug("Imputing proboscis to head")
@@ -163,12 +165,12 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
     )
 
     before=time.time()   
-    pose_cudf=filter_pose_df(pose_cudf, f=cp.median, window_size=int(0.2*POSE_FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
+    pose_cudf=filter_pose_df(pose_cudf, f=cp.median, window_size=int(0.2*FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
     after=time.time()
     logger.debug("Apply median filter on pose in %s seconds (GPU)", round(after-before, 1))
 
     before=time.time()
-    pose_cudf=filter_pose_df(pose_cudf, f=cp.mean, window_size=int(0.2*POSE_FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
+    pose_cudf=filter_pose_df(pose_cudf, f=cp.mean, window_size=int(0.2*FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
     after=time.time()
     logger.debug("Apply mean filter on pose in %s seconds (GPU)", round(after-before, 1))
 

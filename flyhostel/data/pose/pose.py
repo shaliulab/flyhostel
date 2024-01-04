@@ -9,9 +9,6 @@ logger = logging.getLogger(__name__)
 import numpy as np
 import pandas as pd
 
-
-from imgstore.interface import VideoCapture
-from flyhostel.data.bodyparts import make_absolute_pose_coordinates, legs
 from flyhostel.data.pose.filters import (
     interpolate_pose,
     filter_pose_far_from_median,
@@ -19,8 +16,10 @@ from flyhostel.data.pose.filters import (
     filter_pose,
     arr2df,
 )
+from flyhostel.data.pose.constants import framerate as POSE_FRAMERATE
+from flyhostel.utils import restore_cache, save_cache
 from .gpu_filters import filter_and_interpolate_pose_single_animal_gpu_
-POSE_FRAMERATE=150
+
 
 
 class FilterPose(ABC):
@@ -54,8 +53,6 @@ class FilterPose(ABC):
     )
     """
 
-    root="/flyhostel_data/fiftyone/FlyBehaviors/MOTIONMAPPER_DATA"
-
     def __init__(self, *args, **kwargs):
 
         self.pose=None
@@ -67,14 +64,14 @@ class FilterPose(ABC):
         super(FilterPose, self).__init__(*args, **kwargs)
 
 
-    def filter_and_interpolate_pose_single_animal(self, pose, bodyparts, filters, identifier, *args,  min_score=0.5, useGPU=-1, cache=None, **kwargs):
+    def filter_and_interpolate_pose_single_animal(self, pose, min_time, max_time, stride, bodyparts, filters, identifier, *args,  min_score=0.5, useGPU=-1, cache=None, **kwargs):
         if cache is not None:
-            cache_file=os.path.join(cache, identifier + "_pose.pkl")
-        if os.path.exists(cache_file):
-            logger.debug("Loading --> %s", cache_file)
-            with open(cache_file, "rb") as handle:
-                out=pickle.load(handle)
-            return out
+            cache_file=f"{cache}/{identifier}_{min_time}_{max_time}_{stride}_pose_filtered.pkl"
+            ret, out=restore_cache(cache_file)
+            if ret:
+                return out
+            else:
+                logger.debug("Cannot find %s", cache_file)
         
         logger.debug("Removing low quality points")
         logger.debug(min_score)
@@ -86,9 +83,7 @@ class FilterPose(ABC):
             out=self.filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, *args, **kwargs)
 
         if cache is not None:
-            logger.debug("Caching --> %s", cache_file)
-            with open(cache_file, "wb") as handle:
-                pickle.dump(out, handle)
+            save_cache(cache_file, out)
 
         return out
 

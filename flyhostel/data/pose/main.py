@@ -6,6 +6,9 @@ import pickle
 import os.path
 import itertools
 import logging
+
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 import numpy as np
 import codetiming
@@ -18,9 +21,10 @@ try:
 except:
     cp=None
     useGPU=False
+    logger.debug("Cannot load cupy")
 
 from flyhostel.data.interactions.centroids import (
-    load_centroid_data, to_behavpy,
+    load_centroid_data,
     flyhostel_sleep_annotation,
     time_window_length,
 )
@@ -29,24 +33,23 @@ from flyhostel.data.interactions.distance import (
     compute_distance_matrix_bodyparts
 )
 from flyhostel.data.pose.h5py import (
-    load_pose_data_processed,
     load_pose_data_compiled,
 )
 from flyhostel.data.pose.pose import FilterPose
-from flyhostel.data.pose.filters import impute_proboscis_to_head
 from flyhostel.data.interactions.bouts import annotate_interaction_bouts, compute_bouts_, DEFAULT_STRIDE
 from flyhostel.data.bodyparts import make_absolute_pose_coordinates, legs
 from flyhostel.data.bodyparts import bodyparts as BODYPARTS
-from flyhostel.utils import load_roi_width, load_metadata_prop
+from flyhostel.utils import load_roi_width, load_metadata_prop, restore_cache, save_cache
 from flyhostel.data.pose.movie import make_pose_movie
 from flyhostel.data.pose.gpu_filters import filter_pose_df, PARTITION_SIZE
-
+from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
+from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from imgstore.interface import VideoCapture
 
 bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in BODYPARTS]))
 bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in BODYPARTS]))
 
-logger = logging.getLogger(__name__)
 
 def dunder_to_slash(experiment):
     tokens = experiment.split("_")
@@ -84,8 +87,8 @@ class PEDetector(ABC):
     * distance from proboscis to head in any frame cannot be > 20 pixels. Such frames are discarded prior to the detection of bouts
     """
 
-    video_chunksize=45000
-    video_framerate=150
+    video_chunksize=CHUNKSIZE
+    video_framerate=FRAMERATE
     MAX_DISTANCE_HEAD_PROB_PIXELS=20
 
     def __init__(self, *args, **kwargs):
@@ -335,9 +338,15 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
     def pose_boxcar(self):
         return self.pose_filters["nanmean"]
 
+    
+    @pose_boxcar.setter
+    def pose_boxcar(self, value):
+        self.pose_filters["nanmean"]=value
+
     @property
     def pose_median(self):
         return self.pose_filters["nanmedian"]
+
 
     def list_ids(self):
         return np.unique(self.pose["id"])
@@ -346,7 +355,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         f"""
         Export the pose to an .h5 dataset compatible with motionmapper, bsoid, etc
         If the pose dataset is not specified, it will use pose_interpolated by default
-        If the dest_folder is not specified, it will use {self.root} by default
+        If the dest_folder is not specified, it will use {MOTIONMAPPER_DATA} by default
         """
 
         bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
@@ -382,7 +391,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         key=f"{self.experiment}__{str(identity).zfill(2)}"
 
         if dest_folder is None:
-            dest_folder=self.root
+            dest_folder=MOTIONMAPPER_DATA
 
         folder=f"{dest_folder}/{key}"
         os.makedirs(folder, exist_ok=True)
@@ -420,13 +429,13 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         return datasetnames
     
 
-    def load_and_process_data(self, *args, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None, **kwargs):
+    def load_and_process_data(self, *args, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, cache=None, bodyparts=BODYPARTS, **kwargs):
         self.load_data(min_time=min_time, max_time=max_time, stride=stride, cache=cache)
         assert self.dt is not None
         assert self.pose is not None
 
         # processing happens with stride = 1 and original framerate (150)
-        self.process_data(*args, cache=cache, **kwargs)
+        self.process_data(*args, min_time=min_time, max_time=max_time, stride=stride, bodyparts=bodyparts, cache=cache, **kwargs)
         self.apply_stride_all(stride=stride)
     
     def apply_stride_all(self, stride=1):
@@ -445,38 +454,13 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         return out
 
 
-    def process_data(self, *args, useGPU=-1, framerate=150, **kwargs):
-        self.filter_and_interpolate_pose(*args, useGPU=useGPU, framerate=framerate, **kwargs)
-        window_size=int(self.window_size_seconds*framerate)
-
-        # if useGPU >= 0:
-        #     pose_boxcar_2=filter_pose_df(
-        #         self.pose_boxcar, f=cp.mean,
-        #         columns=bodyparts_xy,
-        #         window_size=window_size,
-        #         partition_size=PARTITION_SIZE,
-        #         pad=True,
-        #         # download from the GPU back into a pd.DataFrame
-        #         download=True,
-        #     )
-
-        # else:
-        #     pose_boxcar_2=self.boxcar_filter(self.pose_boxcar, ["x", "y"], bodyparts=BODYPARTS)
-
-        
-        # self.pose_boxcar_2=impute_proboscis_to_head(pose_boxcar_2)
-        self.compute_speed(self.pose_boxcar)
-        if useGPU >= 0:
-            self.pose_speed_boxcar=filter_pose_df(
-                self.pose_speed, f=cp.mean, columns=bodyparts_speed,
-                window_size=window_size,
-                partition_size=PARTITION_SIZE,
-                pad=True,
-                download=True
-            )
-          
-        else:
-            self.pose_speed_boxcar=self.boxcar_filter(self.pose_speed, ["speed"], bodyparts=BODYPARTS, framerate=framerate)
+    def process_data(self, min_time, max_time, stride, *args, useGPU=-1, framerate=FRAMERATE, cache=None, **kwargs):
+        self.filter_and_interpolate_pose(*args, min_time=min_time, max_time=max_time, stride=stride, useGPU=useGPU, framerate=framerate, cache=cache, **kwargs)
+        logger.debug("Computing speed features on dataset of shape %s", self.pose_boxcar.shape)
+        self.compute_speed(
+            self.pose_boxcar, min_time=min_time, max_time=max_time,
+            stride=stride,
+            framerate=framerate, cache=cache, useGPU=useGPU)
 
 
     def boxcar_filter(self, pose, features, bodyparts=BODYPARTS, framerate=150):
@@ -503,38 +487,28 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
             self.store.release()
 
 
-    def load_data(self, *args, min_time=-float('inf'), max_time=+float('inf'), stride=1, n_jobs=1, cache=None, **kwargs):
-
-        if cache is not None:
-            path = f"{cache}/cached_flyhostel_raw_datasets_{self.experiment}_{min_time}_{max_time}_{stride}.pkl"
-            if os.path.exists(path):
-                print(f"Loading ---> {path}")
-                with open(path, "rb") as filehandle:
-                    self.store_index, self.dt, self.meta_info, self.pose, self.h5s_pandas, self.index_pandas, _=pickle.load(filehandle)
-                    self.load_deg_data(*args, identity=None, ground_truth=True, verbose=False, **kwargs)
-
-                return
-            
+    def load_data(self, *args, min_time=-float('inf'), max_time=+float('inf'), stride=1, n_jobs=1, cache=None, **kwargs):           
         self.load_store_index()
 
-
         print("Loading centroid data")
-        self.load_centroid_data(*args, **kwargs, n_jobs=n_jobs, stride=stride, verbose=False)
+        self.load_centroid_data(*args, min_time=min_time, max_time=max_time, n_jobs=n_jobs, stride=stride, verbose=False, cache=cache, reference_hour=np.nan, **kwargs)
         print("Loading pose data")
         # we always load all pose data, no matter the stride
-        self.load_pose_data(*args, verbose=False, **kwargs)
+        self.load_pose_data(*args, min_time=min_time, max_time=max_time, verbose=False, cache=cache, **kwargs)
         print("Loading DEG data")
-        self.load_deg_data(*args, identity=None, ground_truth=True, verbose=False, **kwargs)
+        self.load_deg_data(*args, identity=None, ground_truth=True, stride=stride, verbose=False, cache=cache, **kwargs)
 
+
+
+    def load_deg_data(self, *args, min_time=-np.inf, max_time=+np.inf, stride=1, time_system="zt", ground_truth=True,  cache=None, **kwargs):
         
         if cache is not None:
-            print(f"Caching --> {path}")
-            with open(path, "wb") as filehandle:
-                pickle.dump((self.store_index, self.dt, self.meta_info, self.pose, self.h5s_pandas, self.index_pandas, self.deg), filehandle)
-        
+            path = os.path.join(cache, f"{self.experiment}_{min_time}_{max_time}_{stride}_deg_data.pkl")
+            ret, self.deg=restore_cache(path)
+            if ret:
+                return
 
-    def load_deg_data(self, *args, min_time=-np.inf, max_time=+np.inf, time_system="zt", ground_truth=True,  **kwargs):
-        self.deg=None
+
         if ground_truth:
             self.load_deg_data_gt(*args, **kwargs)
         else:
@@ -549,6 +523,8 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
             self.deg["behavior"].loc[pd.isna(self.deg["behavior"])]="unknown"
             self.deg=self.annotate_two_or_more_behavs_at_same_time(self.deg)
 
+        if cache and self.deg is not None:
+            save_cache(path, self.deg)
 
 
     @staticmethod
@@ -588,7 +564,19 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
             dataset["t"]=dataset[t_column]+t_after_ref
         return dataset
     
-    def load_pose_data(self, min_time=-np.inf, max_time=+np.inf, time_system="zt", stride=1, verbose=False):
+    def load_pose_data(self, min_time=-float("inf"), max_time=float("inf"), time_system="zt", stride=1, cache=None, verbose=False):
+        
+        if min_time>=max_time:
+            logger.warning("Passed time interval (%s - %s) is meaningless")
+
+        self.load_store_index()
+        if cache is not None:
+            path = f"{cache}/{self.experiment}_{stride}_pose_data.pkl"
+            ret, self.pose=restore_cache(path)
+            if ret:
+                self.filter_pose_by_time(min_time, max_time)
+                return None
+            
         if self.pose_source == "processed":
             raise NotImplementedError()
             # out=load_pose_data_processed(min_time, max_time, time_system, self.datasetnames, self.identities, self.lq_thresh)
@@ -614,20 +602,26 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
             self.pose["id"]=pd.Categorical(self.pose["id"])
             self.pose["identity"]=[int(e.split("|")[1]) for e in self.pose["id"]]
 
-            if self.dt is not None and len(self.pose) > 0:
-                self.load_store_index()    
-                self.pose=self.annotate_time_in_dataset(self.pose, self.store_index, "frame_time", self.meta_info["t_after_ref"])
-                self.pose=self.pose.loc[
-                    (self.pose["t"] >= min_time) & (self.pose["t"] < max_time)
-                ]
+        if cache is not None:
+            save_cache(path, self.pose)
+            
+        self.filter_pose_by_time(min_time, max_time)
+        return None
 
-        
+
+    def filter_pose_by_time(self, min_time, max_time):
+        if self.dt is not None and len(self.pose) > 0:
+            self.pose=self.annotate_time_in_dataset(self.pose, self.store_index, "frame_time", self.meta_info["t_after_ref"])
+            self.pose=self.pose.loc[
+                (self.pose["t"] >= min_time) & (self.pose["t"] < max_time)
+            ]
+
 
     def make_movie(self, ts=None, frame_numbers=None, **kwargs):
         return make_pose_movie(self.basedir, self.dt_with_pose, ts=ts, frame_numbres=frame_numbers, **kwargs)
 
 
-    def integrate(self, dt, pose):
+    def integrate(self, dt, pose, bodyparts=BODYPARTS, check_columns=None):
         # NOTE
         # If self.dt is small (few rows) then the code downstream starts to break
 
@@ -638,7 +632,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         self.dt_sleep = self.annotate_sleep(dt)
         print("Merging centroid and pose data")
         
-        self.pose_and_centroid = self.merge_datasets(dt.drop("t", axis=1), pose, check_columns=["x"])
+        self.pose_and_centroid = self.merge_datasets(dt.drop("t", axis=1), pose, check_columns=check_columns)
 
         # NOTE
         # Figure out why the pose is missing the first few seconds
@@ -719,7 +713,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
                     msg=logger.info
                 else:
                     msg=logger.warning
-                msg(f"{n_discard} rows have pose data but no centroid data")
+                msg("%s rows have pose data but no centroid data", n_discard)
             
                 merged=merged.loc[~discard_rows.values]
         
@@ -894,8 +888,15 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         self.annotate_interactions(n_jobs=self.n_jobs)
 
 
-    def load_centroid_data(self, *args, reference_hour=None, **kwargs):
-        dt, meta_info=load_centroid_data(*args, experiment=self.experiment, **kwargs)
+    def load_centroid_data(self, min_time, max_time, *args, stride=1, reference_hour=None, cache=None, **kwargs):
+        if cache is not None:
+            path = f"{cache}/{self.experiment}_{min_time}_{max_time}_{stride}_centroid_data.pkl"
+            ret, out=restore_cache(path)
+            if ret:
+                self.dt, self.meta_info=out
+                return
+
+        dt, meta_info=load_centroid_data(*args, experiment=self.experiment, reference_hour=reference_hour, **kwargs)
         dt.reset_index(inplace=True)
 
         missing_frame_number=pd.isna(dt["frame_number"])
@@ -909,6 +910,10 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         dt["id"]=pd.Categorical(dt["id"])
         self.dt=dt
         self.meta_info=meta_info[0]
+
+        if cache is not None:
+            save_cache(path, (self.dt, self.meta_info))
+            return
 
     def qc_plot1(self):
         bodyparts=self.h5s_pandas[0].columns.unique("bodyparts")
@@ -971,11 +976,33 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
             pose[column]=distance[i,:]
         return pose
 
-    def compute_speed(self, pose):
-        self.pose_speed=self.compute_pose_distance(pose)
-        # pose_filtered, _ = filter_pose("nanmax", self.pose_speed, BODYPARTS, window_size=1)
-        # self.pose_speed_max = arr2df(self.pose_speed, pose_filtered, BODYPARTS)
+    def compute_speed(self, pose, min_time, max_time, stride=1, framerate=FRAMERATE, cache=None, useGPU=-1):
 
+        window_size=int(self.window_size_seconds*framerate)
+
+        if cache is not None:
+            path = f"{cache}/{self.experiment}_{min_time}_{max_time}_{stride}_pose_speed.pkl"
+            ret, out = restore_cache(path)
+            if ret:
+                (self.pose_speed, self.pose_speed_boxcar)=out
+                return
+
+        self.pose_speed=self.compute_pose_distance(pose)
+
+        if useGPU >= 0:
+            self.pose_speed_boxcar=filter_pose_df(
+                self.pose_speed, f=cp.mean, columns=bodyparts_speed,
+                window_size=window_size,
+                partition_size=PARTITION_SIZE,
+                pad=True,
+                download=True
+            )
+          
+        else:
+            self.pose_speed_boxcar=self.boxcar_filter(self.pose_speed, ["speed"], bodyparts=BODYPARTS, framerate=framerate)
+
+        if cache is not None:
+            save_cache(path, ((self.pose_speed, self.pose_speed_boxcar)))
 
     @staticmethod
     def annotate_pose(pose, behaviors):

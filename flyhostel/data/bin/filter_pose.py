@@ -3,28 +3,18 @@ import itertools
 
 import pandas as pd
 from flyhostel.data.pose.main import FlyHostelLoader
-from flyhostel.data.bodyparts import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import (
+    min_score,
+    JUMP_WINDOW_SIZE_SECONDS,
+    MAX_JUMP_MM,
+    interpolate_seconds,
+    framerate,
+    bodyparts_speed,
+    MIN_TIME,
+    MAX_TIME,
+)
 
-
-# for documentation purpose
-filters={"nanmedian": {"window_size": 0.2, "min_window_size": 40, "order": 0}, "nanmean": {"window_size": 0.2, "min_window_size":10, "order": 1}}
-
-interpolate_seconds={bp: 30 for bp in BODYPARTS}
-interpolate_seconds["proboscis"]=0.5
-
-min_score={bp: 0.5 for bp in BODYPARTS}
-min_score["proboscis"]=0.8
-
-bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in BODYPARTS]))
-bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in BODYPARTS]))
-
-ZT_START=14
-ZT_END=15
-min_time=ZT_START*3600
-max_time=ZT_END*3600
-MAX_JUMP_MM=1
-JUMP_WINDOW_SIZE_SECONDS=0.5
-FRAMERATE=150
 
 def filter_experiment(experiment, min_time, max_time, stride):
 
@@ -39,7 +29,7 @@ def filter_experiment(experiment, min_time, max_time, stride):
         window_size_seconds=JUMP_WINDOW_SIZE_SECONDS,
         max_jump_mm=MAX_JUMP_MM,
         interpolate_seconds=interpolate_seconds,
-        framerate=FRAMERATE,
+        framerate=framerate,
         useGPU=0
     )
 
@@ -57,6 +47,8 @@ def get_parser():
     ap=argparse.ArgumentParser()
     ap.add_argument("--experiment", type=str, required=True)
     ap.add_argument("--stride", type=int, default=1)
+    ap.add_argument("--min-time", type=int, default=MIN_TIME)
+    ap.add_argument("--max-time", type=int, default=MAX_TIME)
     return ap
 
 def main():
@@ -64,4 +56,4 @@ def main():
     ap=get_parser()
     args=ap.parse_args()
 
-    filter_experiment(experiment=args.experiment, min_time=max_time, max_time=max_time, stride=args.stride)
+    filter_experiment(experiment=args.experiment, min_time=args.min_time, max_time=args.max_time, stride=args.stride)

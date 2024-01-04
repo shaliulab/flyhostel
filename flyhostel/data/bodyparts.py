@@ -139,11 +139,4 @@ def filter_parts(out, parts):
     return out
 
 
-bodyparts = [
-    'thorax', 'abdomen', 'foreLeft_Leg', 'foreRightLeg', 'head', 'leftWing',
-    'midLeftLeg', 'midRightLeg', 'proboscis', 'rearLeftLeg',
-    'rearRightLeg', 'rightWing'
-]
-legs = [bp for bp in bodyparts if "leg" in bp.lower()]
-wings = [bp for bp in bodyparts if "wing" in bp.lower()]
-core = ["thorax", "abdomen", "head", "proboscis"]
+from flyhostel.data.pose.constants import bodyparts, legs, labels

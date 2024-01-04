@@ -1,8 +1,8 @@
 import logging
 from functools import partial
-import numpy as np
 
-import ethoscopy as etho
+from ethoscopy import link_meta_index, load_flyhostel, behavpy, flyhostel_sleep_annotation
+from ethoscopy import flyhostel_sleep_annotation as flyhostel_sleep_annotation_primitive
 from ethoscopy.flyhostel import compute_xy_dist_log10x1000
 
 logger=logging.getLogger(__name__)
@@ -18,7 +18,7 @@ time_window_length=10
 def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20, verbose=False, **kwargs):
     if metadata is None:
         assert experiment is not None
-        meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
+        meta = link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
         meta=meta.loc[meta["id"].str.startswith(experiment[:26])]
         assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
         meta["experiment"]=experiment
@@ -32,24 +32,24 @@ def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), m
         metadata["input_date"]=metadata["date"]
         metadata.to_csv(meta_loc, index=None)
         
-        meta = etho.link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
+        meta = link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
         assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
 
-    data, meta_info = etho.load_flyhostel(
-        meta, min_time = min_time, max_time = max_time, reference_hour = np.nan, cache = flyhostel_cache, n_jobs=n_jobs,
+    data, meta_info = load_flyhostel(
+        meta, min_time = min_time, max_time = max_time, cache = flyhostel_cache, n_jobs=n_jobs,
         time_system=time_system, **kwargs
     )
 
     assert data.shape[0] > 0, "No data found!"
     data.sort_values(["id", "t"], inplace=True)
-    dt = etho.behavpy(data = data, meta = meta, check = True)
+    dt = behavpy(data = data, meta = meta, check = True)
     return dt, meta_info
 
 def to_behavpy(*args, **kwargs):
-    return etho.behavpy(*args, **kwargs)
+    return behavpy(*args, **kwargs)
 
 flyhostel_sleep_annotation = partial(
-    etho.flyhostel_sleep_annotation,
+    flyhostel_sleep_annotation_primitive,
     time_window_length = time_window_length,
     min_time_immobile = 300,
     velocity_correction_coef=0.0048,
