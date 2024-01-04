@@ -27,23 +27,23 @@ from .filters import (
 
 # upload to GPU batches of 1 hour long data
 POSE_FRAMERATE=150
-PARTITION_SIZE=POSE_FRAMERATE*3600 
+PARTITION_SIZE=POSE_FRAMERATE*3600
 
 def filter_pose_df(data, *args, columns=None, download=False, **kwargs):
     original_columns=data.columns
     if isinstance(data, pd.DataFrame):
         assert columns is not None
         cudf_df=cudf.DataFrame(cp.array(data[columns].values), columns=columns)
-        other_columns=data.drop(columns, axis=1)
+        other_columns=data.drop(columns, axis=1).reset_index(drop=True)
     else:
         cudf_df=data
 
-    if columns is None:
-        cudf_df[:]=cp.from_dlpack(cudf_df.interpolate(method="linear", axis=0, limit_direction="both").fillna(method="bfill", axis=0).to_dlpack())
+    # cudf_df.interpolate(method="linear", axis=0, limit_direction="both", inplace=True)
+    # cudf_df=cudf_df.fillna(method="bfill", axis=0)
+    arr=cp.from_dlpack(cudf_df.interpolate(method="linear", axis=0, limit_direction="both").fillna(method="bfill", axis=0).to_dlpack())
+    cudf_df[cudf_df.columns]=filter_pose_partitioned(arr, *args, **kwargs)
         
-    else:
-        cudf_df[columns]=cp.from_dlpack(cudf_df[columns].interpolate(method="linear", axis=0, limit_direction="both").fillna(method="bfill", axis=0).to_dlpack())
-    
+
     if download:
         data=cudf_df.to_pandas()
         data=pd.concat([data, other_columns], axis=1)[original_columns]
@@ -125,7 +125,7 @@ def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=175, min_score=0.
     return pose
 
 
-def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min_score=0.5, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, download=True):
+def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min_score=0.5, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, download=True, framerate=150):
 
     bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
     pose=pose.sort_values("t")
@@ -138,7 +138,7 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
     # pose_cudf.values
     # throws an error 
     pose_cudf=cudf.DataFrame(cp.array(pose[bodyparts_xy].values), columns=bodyparts_xy)
-    other_columns=pose.drop(bodyparts_xy, axis=1)
+    other_columns=pose.drop(bodyparts_xy, axis=1).reset_index(drop=True)
 
     after=time.time()
     logger.debug("Upload data to GPU in %s seconds", round(after-before, 1))
@@ -148,6 +148,7 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
         pose_cudf, bodyparts, min_score=min_score,
         window_size_seconds=window_size_seconds,
         max_jump_mm=max_jump_mm,
+        framerate=framerate
     )
 
 
@@ -162,12 +163,12 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
     )
 
     before=time.time()   
-    pose_cudf=filter_pose_df(pose_cudf, columns=bodyparts_xy, f=cp.median, window_size=int(0.2*POSE_FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
+    pose_cudf=filter_pose_df(pose_cudf, f=cp.median, window_size=int(0.2*POSE_FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
     after=time.time()
     logger.debug("Apply median filter on pose in %s seconds (GPU)", round(after-before, 1))
 
     before=time.time()
-    pose_cudf=filter_pose_df(pose_cudf, columns=bodyparts_xy, f=cp.mean, window_size=int(0.2*POSE_FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
+    pose_cudf=filter_pose_df(pose_cudf, f=cp.mean, window_size=int(0.2*POSE_FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
     after=time.time()
     logger.debug("Apply mean filter on pose in %s seconds (GPU)", round(after-before, 1))
 
@@ -177,7 +178,7 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
             bp_feat=bp+"_"+feat
             pose_cudf.loc[missing_data_mask[bp_feat], bp_feat]=np.nan
         # missing_data_mask[bp_x] is the same as missing_data_mask[bp_y]
-        other_columns.loc[missing_data_mask[bp_feat], bp + "_is_interpolated"]=True
+        other_columns.loc[missing_data_mask[bp_feat].values, bp + "_is_interpolated"]=True
     logger.debug("Imputing proboscis to head")
     pose_cudf=impute_proboscis_to_head(pose_cudf, selection=other_columns["proboscis_is_interpolated"])
     assert np.bitwise_and(
@@ -185,8 +186,6 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
         ~pose_cudf["head_x"].isna()
     ).sum() == 0
     
-
-
     out=pose_cudf
     if download:
         before=time.time()

@@ -7,7 +7,7 @@ import glob
 import sqlite3
 import os.path
 import joblib
-from flyhostel.data.pose import pipeline, load_concatenation_table, parse_number_of_animals
+from flyhostel.data.pose.export import pipeline, load_concatenation_table, parse_number_of_animals
 from flyhostel.data.pose.preprocess import main as preprocess
 
 def main():

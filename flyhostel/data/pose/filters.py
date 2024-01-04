@@ -172,21 +172,8 @@ def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=100,
 filter_pose_median=partial(filter_pose, filter_f="nanmedian")
 
 
-def filter_pose_far_from_median(pose, bodyparts, px_per_cm=175, min_score=0.5, window_size_seconds=0.5, max_jump_mm=1, useGPU=-1):
-    for bp in bodyparts:
-        bp_cols=[bp + "_x", bp + "_y"]
+def filter_pose_far_from_median(pose, bodyparts, px_per_cm=175, window_size_seconds=0.5, max_jump_mm=1, useGPU=-1):
 
-        if isinstance(min_score, float):
-            score=min_score
-        elif isinstance(min_score, dict):
-            score=min_score[bp]
-        else:
-            raise ValueError("min_score must be a float or a dictionary of bodypart - float pairs")
-    
-        bp_cols_ids=[pose.columns.tolist().index(c) for c in bp_cols]
-        lk_cols_ids=[pose.columns.tolist().index(c) for c in [bp + "_likelihood"]]
-        pose.iloc[np.where(pose[bp + "_likelihood"] < score)[0], bp_cols_ids] = np.nan
-        pose.iloc[np.where(pose[bp + "_likelihood"] < score)[0], lk_cols_ids] = np.nan
 
     median_pose, values = filter_pose_median(pose=pose, bodyparts=bodyparts, window_size=window_size_seconds, useGPU=useGPU)
 

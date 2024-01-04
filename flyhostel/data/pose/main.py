@@ -239,7 +239,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
 
     ## annotate interactions between flies and keep track of which body part was used
     # connect pose and centroid
-    loader.integrate()
+    loader.integrate(self.dt, self.pose_boxcar)
     # pre-filter frames so only frames where at least two animals are at < 3 mm of each other are kept
     loader.compute_pairwise_distances(dist_max=3)
 
@@ -327,7 +327,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
 
 
         self.meta_info=None
-        self.window_size=0.5
+        self.window_size_seconds=0.5
         self.min_window_size=40
         self.min_supporting_points=3
     
@@ -415,6 +415,8 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         elif source == "compiled":
             animals=os.listdir(POSE_DATA)
             datasetnames=list(filter(lambda animals: animals.startswith(self.experiment), animals))
+
+        assert datasetnames, f"No datasets starting with {self.experiment} found in {POSE_DATA}"
         return datasetnames
     
 
@@ -422,63 +424,66 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         self.load_data(min_time=min_time, max_time=max_time, stride=stride, cache=cache)
         assert self.dt is not None
         assert self.pose is not None
+
+        # processing happens with stride = 1 and original framerate (150)
+        self.process_data(*args, cache=cache, **kwargs)
+        self.apply_stride_all(stride=stride)
     
-        if cache is not None:
-            path = f"{cache}/cached_flyhostel_processed_datasets_{self.experiment}_{min_time}_{max_time}_{stride}.pkl"
-            if os.path.exists(path):
-                print(f"Loading ---> {path}")
-                with open(path, "rb") as filehandle:
-                    self.pose_filters, self.pose_speed_boxcar, self.pose_filters["nanmean"]=pickle.load(filehandle)
-                    self.pose_annotated=self.annotate_pose(self.pose_boxcar, self.deg)
-                    self.pose_speed_annotated=self.annotate_pose(self.pose_speed_boxcar, self.deg)
-
-                return
-
-        self.process_data(*args, **kwargs)
-
-        if cache is not None:
-            print(f"Caching --> {path}")
-            with open(path, "wb") as filehandle:
-                pickle.dump((self.pose_filters, self.pose_speed_boxcar, self.pose_boxcar), filehandle)
+    def apply_stride_all(self, stride=1):
+        
+        for df_name in ["pose", "pose_boxcar", "pose_speed", "pose_speed_boxcar"]:
+            df=getattr(self, df_name)
+            setattr(self, df_name, self.apply_stride(df, stride=stride))
 
 
-    def process_data(self, *args, useGPU=-1, **kwargs):
-        self.filter_and_interpolate_pose(*args, useGPU=useGPU, **kwargs)
-        if useGPU >= 0:
-            pose_boxcar_2=filter_pose_df(
-                self.pose_boxcar, f=cp.mean,
-                columns=bodyparts_xy,
-                window_size=self.window_size,
-                partition_size=PARTITION_SIZE,
-                pad=True,
-                # download from the GPU back into a pd.DataFrame
-                download=True,
-            )
+    @staticmethod
+    def apply_stride(df, stride):
+        out=[]
+        for id, df_single_animal in df.groupby("id"):
+            out.append(df_single_animal.loc[df_single_animal["frame_number"] % stride == 0])
+        out=pd.concat(out, axis=0)
+        return out
 
-        else:
-            pose_boxcar_2=self.boxcar_filter(self.pose_boxcar, ["x", "y"], bodyparts=BODYPARTS)
+
+    def process_data(self, *args, useGPU=-1, framerate=150, **kwargs):
+        self.filter_and_interpolate_pose(*args, useGPU=useGPU, framerate=framerate, **kwargs)
+        window_size=int(self.window_size_seconds*framerate)
+
+        # if useGPU >= 0:
+        #     pose_boxcar_2=filter_pose_df(
+        #         self.pose_boxcar, f=cp.mean,
+        #         columns=bodyparts_xy,
+        #         window_size=window_size,
+        #         partition_size=PARTITION_SIZE,
+        #         pad=True,
+        #         # download from the GPU back into a pd.DataFrame
+        #         download=True,
+        #     )
+
+        # else:
+        #     pose_boxcar_2=self.boxcar_filter(self.pose_boxcar, ["x", "y"], bodyparts=BODYPARTS)
 
         
-        self.pose_boxcar_2=impute_proboscis_to_head(pose_boxcar_2)
-
+        # self.pose_boxcar_2=impute_proboscis_to_head(pose_boxcar_2)
         self.compute_speed(self.pose_boxcar)
         if useGPU >= 0:
             self.pose_speed_boxcar=filter_pose_df(
-                self.pose_speed, f=cp.mean, columns=bodyparts_speed, window_size=self.window_size,
-                partition_size=PARTITION_SIZE, pad=True, download=True
+                self.pose_speed, f=cp.mean, columns=bodyparts_speed,
+                window_size=window_size,
+                partition_size=PARTITION_SIZE,
+                pad=True,
+                download=True
             )
+          
         else:
-            self.pose_speed_boxcar=self.boxcar_filter(self.pose_speed, ["speed"], bodyparts=BODYPARTS)
-        # skip_frames=50
-        # bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in BODYPARTS]))
-        # self.pose_speed_boxcar=self.pose_speed_boxcar.loc[self.pose_speed_boxcar["frame_number"]%skip_frames==0, ["id", "frame_number", "t"] + bodyparts_speed]
+            self.pose_speed_boxcar=self.boxcar_filter(self.pose_speed, ["speed"], bodyparts=BODYPARTS, framerate=framerate)
 
 
-    def boxcar_filter(self, pose, features, bodyparts=BODYPARTS):
+    def boxcar_filter(self, pose, features, bodyparts=BODYPARTS, framerate=150):
 
         filtered_pose_arr, _ = filter_pose(
             "nanmean", pose, bodyparts,
-            window_size=self.window_size,
+            window_size=int(self.window_size_seconds*framerate),
             min_window_size=self.min_window_size,
             min_supporting_points=self.min_supporting_points,
             features=features
@@ -516,7 +521,8 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         print("Loading centroid data")
         self.load_centroid_data(*args, **kwargs, n_jobs=n_jobs, stride=stride, verbose=False)
         print("Loading pose data")
-        self.load_pose_data(*args, **kwargs)
+        # we always load all pose data, no matter the stride
+        self.load_pose_data(*args, verbose=False, **kwargs)
         print("Loading DEG data")
         self.load_deg_data(*args, identity=None, ground_truth=True, verbose=False, **kwargs)
 
@@ -582,24 +588,28 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
             dataset["t"]=dataset[t_column]+t_after_ref
         return dataset
     
-    def load_pose_data(self, min_time=-np.inf, max_time=+np.inf, time_system="zt"):
+    def load_pose_data(self, min_time=-np.inf, max_time=+np.inf, time_system="zt", stride=1, verbose=False):
         if self.pose_source == "processed":
-            out=load_pose_data_processed(min_time, max_time, time_system, self.datasetnames, self.identities, self.lq_thresh)
+            raise NotImplementedError()
+            # out=load_pose_data_processed(min_time, max_time, time_system, self.datasetnames, self.identities, self.lq_thresh)
         elif self.pose_source == "compiled":
-            out=load_pose_data_compiled(self.datasetnames, self.identities, self.lq_thresh, stride=DEFAULT_STRIDE)
+            out=load_pose_data_compiled(self.datasetnames, self.identities, self.lq_thresh, stride=stride)
         else:
             raise Exception("source must be processed or compiled")
 
         if out is not None:
-            self.pose, self.h5s_pandas, self.index_pandas=out
+            pose, self.h5s_pandas, self.index_pandas=out
+            pose2=[]
+            for d in pose:
+                pose2.append(d.reset_index())
+            del pose
             # one for each animal in the experiment
-            self.pose=pd.concat(self.pose, axis=0)
-            self.pose.reset_index(inplace=True)
+            self.pose=pd.concat(pose2, axis=0)
             corrupt_pose=np.bitwise_or(pd.isna(self.pose["thorax_x"]), pd.isna(self.pose["frame_number"]))
 
             self.pose.loc[corrupt_pose, bodyparts_xy + [bp + "_likelihood" for bp in BODYPARTS]]=np.nan
             self.pose["frame_number"]=self.pose["frame_number"].astype(np.int32)
-            self.pose.sort_values(["frame_number"], inplace=True)
+            self.pose.sort_values(["id", "frame_number"], inplace=True)
             self.pose.reset_index(inplace=True)
             self.pose["id"]=pd.Categorical(self.pose["id"])
             self.pose["identity"]=[int(e.split("|")[1]) for e in self.pose["id"]]
@@ -610,24 +620,25 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
                 self.pose=self.pose.loc[
                     (self.pose["t"] >= min_time) & (self.pose["t"] < max_time)
                 ]
+
         
 
     def make_movie(self, ts=None, frame_numbers=None, **kwargs):
         return make_pose_movie(self.basedir, self.dt_with_pose, ts=ts, frame_numbres=frame_numbers, **kwargs)
 
 
-    def integrate(self):
+    def integrate(self, dt, pose):
         # NOTE
         # If self.dt is small (few rows) then the code downstream starts to break
 
-        assert self.dt is not None, f"Please load centroid data"
-        assert self.pose is not None, f"Please load pose data"
+        assert dt is not None, f"Please load centroid data"
+        assert pose is not None, f"Please load pose data"
         
         print("Annotating sleep")
-        self.dt_sleep = self.annotate_sleep(self.dt)
+        self.dt_sleep = self.annotate_sleep(dt)
         print("Merging centroid and pose data")
         
-        self.pose_and_centroid = self.merge_datasets(self.dt.drop("t", axis=1), self.pose, check_columns=["x"])
+        self.pose_and_centroid = self.merge_datasets(dt.drop("t", axis=1), pose, check_columns=["x"])
 
         # NOTE
         # Figure out why the pose is missing the first few seconds
@@ -740,7 +751,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         if dist_max is None:
             dist_max=self.dist_max_mm
 
-        assert self.dt_with_pose is not None, f"After .load_data() you still need to run .integrate()"
+        assert self.dt_with_pose is not None, f"After .load_data() you still need to run .integrate(self.dt, self.pose_boxcar)"
 
         with codetiming.Timer():
             print("Computing distance between animals")
@@ -878,7 +889,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, DEGLoader, PreprocessUMAP, FilterP
         return dt_annotated
 
     def main(self):
-        self.integrate()
+        self.integrate(self.dt, self.pose_boxcar)
         self.make_movie(ts=np.arange(60000, 60300, 1))
         self.annotate_interactions(n_jobs=self.n_jobs)
 

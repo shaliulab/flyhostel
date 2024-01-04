@@ -1,9 +1,12 @@
+import pickle
 import logging
+import os.path
 import itertools
 
 from abc import ABC
 logger = logging.getLogger(__name__)
 
+import numpy as np
 import pandas as pd
 
 
@@ -64,11 +67,30 @@ class FilterPose(ABC):
         super(FilterPose, self).__init__(*args, **kwargs)
 
 
-    def filter_and_interpolate_pose_single_animal(self, *args, useGPU=-1, **kwargs):
+    def filter_and_interpolate_pose_single_animal(self, pose, bodyparts, filters, identifier, *args,  min_score=0.5, useGPU=-1, cache=None, **kwargs):
+        if cache is not None:
+            cache_file=os.path.join(cache, identifier + "_pose.pkl")
+        if os.path.exists(cache_file):
+            logger.debug("Loading --> %s", cache_file)
+            with open(cache_file, "rb") as handle:
+                out=pickle.load(handle)
+            return out
+        
+        logger.debug("Removing low quality points")
+        logger.debug(min_score)
+        pose=self.ignore_low_q_points(pose, bodyparts, min_score=min_score)
+            
         if useGPU >= 0:
-            return self.filter_and_interpolate_pose_single_animal_gpu(*args, **kwargs)
+            out=self.filter_and_interpolate_pose_single_animal_gpu(pose, bodyparts, filters, *args, **kwargs)
         else:
-            return self.filter_and_interpolate_pose_single_animal_cpu(*args, **kwargs)
+            out=self.filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, *args, **kwargs)
+
+        if cache is not None:
+            logger.debug("Caching --> %s", cache_file)
+            with open(cache_file, "wb") as handle:
+                pickle.dump(out, handle)
+
+        return out
 
 
     @staticmethod
@@ -76,9 +98,35 @@ class FilterPose(ABC):
         return filter_and_interpolate_pose_single_animal_gpu_(*args, **kwargs)
 
 
+    @staticmethod
+    def ignore_low_q_points(pose, bodyparts, min_score):
+        """
+        Points not passing the min_score criteria are ignored (set to nan in pose)
+        pose (pd.DataFrame): Raw pose estimate containing, for every bodypart foo, columns foo_x, foo_y, foo_likelihood, foo_is_interpolated as well as columns id, frame_number, t
+        bodyparts (list)
+        min_score (float): Either a float, with the minimum score all body part pose predictions should have, or a dictionary of body part - float pairs
+        """
+
+        for bp in bodyparts:
+            bp_cols=[bp + "_x", bp + "_y"]
+
+            if isinstance(min_score, float):
+                score=min_score
+            elif isinstance(min_score, dict):
+                score=min_score[bp]
+            else:
+                raise ValueError("min_score must be a float or a dictionary of bodypart - float pairs")
+        
+            bp_cols_ids=[pose.columns.tolist().index(c) for c in bp_cols]
+            lk_cols_ids=[pose.columns.tolist().index(c) for c in [bp + "_likelihood"]]
+            pose.iloc[pose[bp + "_likelihood"] < score, bp_cols_ids] = np.nan
+            pose.iloc[pose[bp + "_likelihood"] < score, lk_cols_ids] = np.nan
+    
+        return pose
+    
 
     @staticmethod
-    def filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, min_score=0.5, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5):
+    def filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, framerate=150):
         """
         Process the raw pose data of a single animal
 
@@ -95,7 +143,6 @@ class FilterPose(ABC):
             pose (pd.DataFrame): Raw pose estimate containing, for every bodypart foo, columns foo_x, foo_y, foo_likelihood, foo_is_interpolated as well as columns id, frame_number, t
             bodyparts (list)
             filters (dict): Dictionary of filters to apply. The keys must be numpy functions, and the values must be another dictionary with keys window_size, min_window_size, and order
-            min_score (float): Either a float, with the minimum score all body part pose predictions should have, or a dictionary of body part - float pairs
             window_size_seconds (float): Window size used to compute the median to remove spurious "jumps"
             max_jump_mm (float): Number of mm away from the window median that a prediction must be for it to be considered a jump
             interpolate_seconds (float): Body parts missing are imputed forward and backwards (pd.Series.interpolate limit_direction both) up to this many seconds
@@ -111,7 +158,7 @@ class FilterPose(ABC):
         useGPU=-1
         logger.debug("Filtering jumps deviating from median")
         pose=filter_pose_far_from_median(
-            pose, bodyparts, min_score=min_score, window_size_seconds=window_size_seconds, max_jump_mm=max_jump_mm,
+            pose, bodyparts, window_size_seconds=window_size_seconds, max_jump_mm=max_jump_mm,
             useGPU=useGPU
         )
         logger.debug("Interpolating pose")
@@ -161,8 +208,9 @@ class FilterPose(ABC):
         self.pose_filters={}
 
         for id, pose in pose_datasets:
-            print(pose["id"].iloc[0])
-            pose = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, **kwargs)
+            identity=pose["identity"].iloc[0].item()
+            identifier=self.experiment + "__" + str(identity).zfill(2)
+            pose = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, identifier=identifier, **kwargs)
             self.pose_jumps.append(pose["jumps"])
             for filt_f in pose["filters"]:
                 if filt_f not in self.pose_filters:

@@ -83,7 +83,7 @@ def load_pose_data_processed(min_time, max_time, time_system, datasetnames, iden
     else:
         return pose_list, h5s_pandas, index_pandas
 
-def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=10):
+def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=1):
     """
     Load dataset stored in POSE_DATA
     """
@@ -102,6 +102,8 @@ def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=10):
             print(f"{h5_file} not found")
             continue
 
+
+        logger.debug("Opening %s", h5_file)
         with h5py.File(h5_file) as filehandle:
             chunksize=int(filehandle["tracks"].shape[3] / filehandle["files"].shape[0])
             before=time.time()
