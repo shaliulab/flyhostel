@@ -17,6 +17,9 @@ from flyhostel.data.pose.filters import (
     arr2df,
 )
 from flyhostel.data.pose.constants import framerate as POSE_FRAMERATE
+from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
+from flyhostel.data.pose.constants import bodyparts as BODYPARTS
+
 from flyhostel.utils import restore_cache, save_cache
 from .gpu_filters import filter_and_interpolate_pose_single_animal_gpu_
 
@@ -64,9 +67,15 @@ class FilterPose(ABC):
         super(FilterPose, self).__init__(*args, **kwargs)
 
 
-    def filter_and_interpolate_pose_single_animal(self, pose, min_time, max_time, stride, bodyparts, filters, identifier, *args,  min_score=0.5, useGPU=-1, cache=None, **kwargs):
+    def filter_and_interpolate_pose_single_animal(self, pose, min_time, max_time, stride, identifier, *args, bodyparts=BODYPARTS, filters=None, min_score=0.5, useGPU=-1, cache=None, **kwargs):
         if cache is not None:
             cache_file=f"{cache}/{identifier}_{min_time}_{max_time}_{stride}_pose_filtered.pkl"
+            if not os.path.exists(cache_file):
+                cache_file=f"{cache}/{identifier}_-inf_+inf_{stride}_pose_filtered.pkl"
+                if os.path.exists(cache_file):
+                    ret, out=restore_cache(cache_file)
+                    return out
+
             ret, out=restore_cache(cache_file)
             if ret:
                 return out
@@ -121,7 +130,7 @@ class FilterPose(ABC):
     
 
     @staticmethod
-    def filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, framerate=150):
+    def filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, framerate=POSE_FRAMERATE):
         """
         Process the raw pose data of a single animal
 
@@ -190,7 +199,7 @@ class FilterPose(ABC):
         return {"jumps": pose_jumps, "filters": pose_filters}
 
 
-    def filter_and_interpolate_pose(self, *args, **kwargs):
+    def filter_and_interpolate_pose(self, *args, min_time=MIN_TIME, max_time=MAX_TIME, **kwargs):
         """
         Call filter_and_interpolate_pose_single_animal once for every animal in the experiment
         """
@@ -203,9 +212,18 @@ class FilterPose(ABC):
         self.pose_filters={}
 
         for id, pose in pose_datasets:
+
+            # NOTE
+            # this check makes sense because id is categorical
+            # and if the user is loading a single fly
+            # then the pose of all other flies will be empty
+            # (but its id still will be in the categories)
+            if pose.shape[0]==0:
+                continue
             identity=pose["identity"].iloc[0].item()
             identifier=self.experiment + "__" + str(identity).zfill(2)
-            pose = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, identifier=identifier, **kwargs)
+            pose = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, min_time=min_time, max_time=max_time, identifier=identifier, **kwargs)
+
             self.pose_jumps.append(pose["jumps"])
             for filt_f in pose["filters"]:
                 if filt_f not in self.pose_filters:
@@ -214,18 +232,23 @@ class FilterPose(ABC):
         
         if self.pose_jumps[0] is not None:
             self.pose_jumps=pd.concat(self.pose_jumps, axis=0)
+            self.pose_jumps=self.filter_pose_by_time(min_time=min_time, max_time=max_time, pose=self.pose_jumps)
+
         
         for filt_f in self.pose_filters:
             if self.pose_filters[filt_f] is not None:
-                logger.debug("Generating %s dataset", filt_f)
+                logger.debug("Concatenating %s dataset", filt_f)
                 self.pose_filters[filt_f]=pd.concat(self.pose_filters[filt_f], axis=0)
-
+                self.pose_filters[filt_f]=self.filter_pose_by_time(min_time=min_time, max_time=max_time, pose=self.pose_filters[filt_f])
+                logger.debug("Done")
 
     @staticmethod
     def full_interpolation(pose, columns):
+        logger.debug("Running interpolation on dataset of shape %s on columns %s", pose.shape, columns)
         out=[]
         for id, pose_dataset in pose.groupby("id"):
             out.append(interpolate_pose(pose_dataset.copy(), columns, seconds=None))
         pose=pd.concat(out, axis=0)
+        logger.debug("Done")
         return pose
 

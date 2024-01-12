@@ -9,7 +9,6 @@ import pandas as pd
 import h5py
 
 MINS=.5
-POSE_DATA=os.environ["POSE_DATA"]
 
 def find_files(directory, pattern):
     hits=[]
@@ -223,7 +222,7 @@ def load_concatenation_table(cur, basedir):
     return concatenation
 
 
-def pipeline(experiment_name, identity, concatenation, chunks=None):
+def pipeline(experiment_name, identity, concatenation, chunks=None, output="."):
     if chunks is not None:
         concatenation=concatenation.loc[concatenation["chunk"].isin(chunks)]
 
@@ -248,8 +247,9 @@ def pipeline(experiment_name, identity, concatenation, chunks=None):
 
     files=concatenation_i["dfile"]
     node_names, datasets, point_scores = load_files(files)
-    dest_file=os.path.join(POSE_DATA, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
+    dest_file=os.path.join(output, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+
     generate_single_file(node_names, datasets, point_scores, files, dest_file=dest_file)
     assert os.path.exists(dest_file)
 

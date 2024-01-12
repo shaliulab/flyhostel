@@ -7,10 +7,10 @@ from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
 from flyhostel.data.bodyparts import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 logger=logging.getLogger(__name__)
 
-FRAMERATE=150
 CHUNK_SECONDS=30*60
 CHUNK_FRAMES=CHUNK_SECONDS*FRAMERATE
 
@@ -157,8 +157,8 @@ def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=100,
             filtered_pose=np.concatenate(filtered_pose_list, axis=2)
 
         except Exception as error:
-            print(error)
-            import ipdb; ipdb.set_trace()
+            raise error
+            
     else:
         values_arr=np.stack(values_arr, axis=3)
         logger.debug("Applying %s filter to data of shape %s using %s", filter_f, values_arr.shape, "numpy")

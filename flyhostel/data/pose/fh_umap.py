@@ -1,36 +1,11 @@
+import logging
 import numpy as np
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 id_cols=["id", "frame_number", "t", "frame_idx", "chunk"]
 label_cols=["behavior"]
-
-
-def compute_distance_features(pose, part1, part2):
-    distance=np.sqrt(
-        (pose[f"{part1}_x"]-pose[f"{part2}_x"])**2 + (pose[f"{part1}_y"]-pose[f"{part2}_y"])**2
-    )
-    return distance
-
-
-class PreprocessUMAP:
-    
-    @staticmethod
-    def obtain_umap_input(pose_dt0, pose_dt1, dt0_features=["head_proboscis_distance"]):
-        
-        pose=pose_dt1.copy()
-        parts=[("head", "proboscis"),]
-
-        distance_features={
-            f"{part1}_{part2}_distance": compute_distance_features(pose_dt0, part1, part2)
-            for part1, part2 in parts
-        }
-
-        distance_features=pd.DataFrame(distance_features)
-        distance_features["t"]=pose_dt0["t"]
-        distance_features["id"]=pose_dt0["id"]
-        distance_features["frame_number"]=pose_dt0["frame_number"]
-        pose=pose.merge(distance_features, on=["id", "frame_number", "t"], how="left")
-        return pose
 
 
 def add_n_steps_in_the_past(ml_datasets, feature_cols, n_steps=1):

@@ -53,9 +53,6 @@ assert len(body_parts_chosen) == len(score_filter)
 assert len(body_parts_chosen) == len(labels)
 assert len(body_parts_chosen) == len(criteria) == len(score_filter) == len(labels)
 
-
-
-
 # Pose filtering
 interpolate_seconds={bp: 30 for bp in bodyparts}
 interpolate_seconds["proboscis"]=0.5
@@ -72,3 +69,4 @@ MAX_JUMP_MM=1
 JUMP_WINDOW_SIZE_SECONDS=0.5
 PARTITION_SIZE=framerate*3600
 PX_PER_CM=175
+APPLY_MEDIAN_FILTER=False

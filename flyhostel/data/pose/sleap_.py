@@ -1,9 +1,13 @@
+import logging
 import warnings
 import os
 import shutil
 import sqlite3
 import numpy as np
 from flyhostel.data.interactions.load_data import get_sqlite_file
+
+logger=logging.getLogger(__name__)
+
 try:
     import sleap
     from sleap.io.dataset import Labels
@@ -13,8 +17,8 @@ except Exception as error:
     sleap=None
     Labels=None
     TRACK=None
-    print(f"SLEAP cannot be loaded. SLEAP integration disabled")
-    print(error)
+    logger.error(f"SLEAP cannot be loaded. SLEAP integration disabled")
+    logger.error(error)
 
 # from sleap.instance import LabeledFrame
 

@@ -5,6 +5,7 @@ import numpy as np
 from tqdm.auto import tqdm
 
 logger=logging.getLogger(__name__)
+from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 
 try:
     from sleap.io.dataset import Labels
@@ -39,11 +40,16 @@ try:
         return data
 
 
-    def make_labeled_frames(pose, identity, frame_numbers, chunksize, video):
+    def make_labeled_frames(pose, identity, frame_numbers, chunksize, video, pb=True):
 
         labeled_frames=[]
 
-        for frame_number in tqdm(frame_numbers):
+        if pb:
+            iterable=tqdm(frame_numbers)
+        else:
+            iterable=frame_numbers
+
+        for frame_number in iterable:
             frame_idx=frame_number%chunksize
 
             instance_series=pose.loc[(pose["identity"]==identity) & (pose["frame_number"]==frame_number)]
@@ -58,13 +64,14 @@ try:
         return labeled_frames
 
 
-    def draw_frame(pose, index, identity, frame_number, chunksize=45000):
+    def draw_frame(pose, index, identity, frame_number, chunksize=CHUNKSIZE, pb=True):
         frame_idx=frame_number % chunksize
 
         video=Video.from_filename(index.loc[index["frame_number"]==frame_number]["video"].item())
         labeled_frames=make_labeled_frames(
             pose, identity,
-            frame_numbers=[frame_number], chunksize=chunksize, video=video
+            frame_numbers=[frame_number], chunksize=chunksize, video=video,
+            pb=pb
         )
         labels=Labels(labeled_frames=labeled_frames, videos=[video], skeletons=[skeleton])
 
@@ -84,7 +91,7 @@ try:
         return imgs[0]
 
 
-    def draw_video(pose, index, identity, frame_numbers, chunksize=45000, fps=15, output_filename=None):
+    def draw_video(pose, index, identity, frame_numbers, chunksize=45000, fps=15, output_filename=None, gui_progress=False):
         """
         pose (pd.DataFrame): coordinates of body parts relative to the top left corner of a square around the fly.
             Needs to contain columns bp_x and bp_y for each bodypart, id (str), identity (int), frame_number.
@@ -103,7 +110,8 @@ try:
 
         labeled_frames=make_labeled_frames(
             pose, identity,
-            frame_numbers=frame_numbers, chunksize=chunksize, video=video
+            frame_numbers=frame_numbers, chunksize=chunksize, video=video,
+            pb=gui_progress
         )
         labels=Labels(labeled_frames=labeled_frames, videos=[video], skeletons=[skeleton])
 
@@ -126,7 +134,7 @@ try:
             color_manager=None,
             palette="standard",
             distinctly_color="instances",
-            gui_progress=False
+            gui_progress=gui_progress
         )
 
 
@@ -164,6 +172,6 @@ try:
                 print(error)
 
 except Exception as error:
-    print("SLEAP cannot be loaded. SLEAP integration disabled")
+    logger.error("SLEAP cannot be loaded. SLEAP integration disabled")
+    logger.error(error)
     draw_video_row=None
-    print(error)

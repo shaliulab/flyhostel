@@ -5,159 +5,164 @@ import pickle
 import itertools
 import re
 import joblib
+import logging
 
+logger=logging.getLogger(__name__)
+PATTERNS={}
 try:
     import dropy
-except ModuleNotFoundError:
-    raise Exception("Dropbox interfacing requires dropy is installed")
+    from dropy.web_utils import sync as sync_
+    from dropy.web_utils import list_folder
 
-from dropy.web_utils import sync as sync_
-from dropy.web_utils import list_folder
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+    def match_files_to_patterns(folder, files, patterns):
+        keep_files = []
+        for file in files:
+            for pattern in patterns:
+                try:
+                    if re.match(pattern, file):
+                        filename = file.replace(folder, "")
+                        logger.debug(f"{file} -> {filename}")
+                        keep_files.append(
+                            filename
+                        )
+                        break
+                except:
+                    continue
 
-def match_files_to_patterns(folder, files, patterns):
-    keep_files = []
-    for file in files:
-        for pattern in patterns:
-            try:
-                if re.match(pattern, file):
-                    filename = file.replace(folder, "")
-                    logger.debug(f"{file} -> {filename}")
-                    keep_files.append(
-                        filename
-                    )
-                    break
-            except:
-                continue
-
-    return keep_files
+        return keep_files
 
 
-def sanitize_path(path):
-    while "//" in path:
-        path = path.replace("//", "/")
-    return path
+    def sanitize_path(path):
+        while "//" in path:
+            path = path.replace("//", "/")
+        return path
 
 
-def sync(src, dst, *args, **kwargs):
-    src = sanitize_path(src)
-    dst = sanitize_path(dst)
-    logger.info(f"{src} -> {dst}")
-    print(f"{src} -> {dst}")
-    return sync_(src, dst, *args, **kwargs)
+    def sync(src, dst, *args, **kwargs):
+        src = sanitize_path(src)
+        dst = sanitize_path(dst)
+        logger.info(f"{src} -> {dst}")
+        print(f"{src} -> {dst}")
+        return sync_(src, dst, *args, **kwargs)
 
 
-def generate_idtrackerai_patterns(folder, session, version):
+    def generate_idtrackerai_patterns(folder, session, version):
 
-    if version == 1:
-        pass
-    elif version == 2:
-        folder = os.path.join(folder, "idtrackerai")
-
-
-    files = [
-        os.path.join(folder, f"session_{session}_error.txt"),
-        os.path.join(folder, os.path.dirname(folder.rstrip(os.path.sep)) + ".conf"),
-        os.path.join(folder, "lowres.conf"),
-        os.path.join(folder, f"session_{session}/video_object.npy"),
-        os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_no_gaps.npy"),
-        os.path.join(folder, f"session_{session}/preprocessing/blobs_collection.npy"),
-        os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_raw.npy"),
-        #os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_feed_integration.npy"),
-        os.path.join(folder, f"session_{session}/preprocessing/fragments.npy"),
-        os.path.join(folder, f"session_{session}/preprocessing/fragments_raw.npy"),
-        #os.path.join(folder, f"session_{session}/preprocessing/fragments_feed_integration.npy"),
-        os.path.join(folder, f"session_{session}/trajectories/trajectories.npy"),
-        os.path.join(folder, f"session_{session}/trajectories/trajectories_wo_gaps.npy"),
-    ]
-
-    files = list(map(sanitize_path, files))
-    return files
+        if version == 1:
+            pass
+        elif version == 2:
+            folder = os.path.join(folder, "idtrackerai")
 
 
-def generate_imgstore_patterns(folder, session, version=None):
+        files = [
+            os.path.join(folder, f"session_{session}_error.txt"),
+            os.path.join(folder, os.path.dirname(folder.rstrip(os.path.sep)) + ".conf"),
+            os.path.join(folder, "lowres.conf"),
+            os.path.join(folder, f"session_{session}/video_object.npy"),
+            os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_no_gaps.npy"),
+            os.path.join(folder, f"session_{session}/preprocessing/blobs_collection.npy"),
+            os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_raw.npy"),
+            #os.path.join(folder, f"session_{session}/preprocessing/blobs_collection_feed_integration.npy"),
+            os.path.join(folder, f"session_{session}/preprocessing/fragments.npy"),
+            os.path.join(folder, f"session_{session}/preprocessing/fragments_raw.npy"),
+            #os.path.join(folder, f"session_{session}/preprocessing/fragments_feed_integration.npy"),
+            os.path.join(folder, f"session_{session}/trajectories/trajectories.npy"),
+            os.path.join(folder, f"session_{session}/trajectories/trajectories_wo_gaps.npy"),
+        ]
 
-    files = [
-        os.path.join(folder, "metadata.yaml"),
-        os.path.join(folder, f"{session}.extra.json"),
-        os.path.join(folder, f"{session}.npz"),
-        os.path.join(folder, f"{session}.png"),
-        os.path.join(folder, f"{session}.avi"),
-        os.path.join(folder, f"{session}.mp4"),
-        os.path.join(folder, "a2A3840-45umPRO.pfs"),
-    ]
-
-    files = list(map(sanitize_path, files))
-    return files
-
-PATTERNS = {
-    "idtrackerai": generate_idtrackerai_patterns,
-    "imgstore": generate_imgstore_patterns,
-}
-
-
-def list_files_one_session(file_type, folder, session, version=2):
-    session_padded = str(session).zfill(6)
-    files = PATTERNS[file_type](folder, session_padded, version=version)
-    return files
+        files = list(map(sanitize_path, files))
+        return files
 
 
-def list_files_from_dropbox(*args, **kwargs):
-    res = list_folder(*args, **kwargs)
-    files = res["paths"]
-    return files
+    def generate_imgstore_patterns(folder, session, version=None):
 
-def download_results(file_type, rootdir, folder, version=2, ncores=-2, sessions=None):
-    """
-    Downloads the idtrackerai results stored in Dropbox
-    """
+        files = [
+            os.path.join(folder, "metadata.yaml"),
+            os.path.join(folder, f"{session}.extra.json"),
+            os.path.join(folder, f"{session}.npz"),
+            os.path.join(folder, f"{session}.png"),
+            os.path.join(folder, f"{session}.avi"),
+            os.path.join(folder, f"{session}.mp4"),
+            os.path.join(folder, "a2A3840-45umPRO.pfs"),
+        ]
 
-    assert rootdir.startswith("/")
-    assert folder.startswith("/")
+        files = list(map(sanitize_path, files))
+        return files
 
-    folder_display = folder.replace("/./", "/")
-    subfolder = folder.split("/./")
-    if len(subfolder) == 1:
-        subfolder = ""
-    else:
-        subfolder = subfolder[1]
+    PATTERNS = {
+        "idtrackerai": generate_idtrackerai_patterns,
+        "imgstore": generate_imgstore_patterns,
+    }
 
-    assert "/./" not in folder_display
-    patterns = PATTERNS[file_type](folder_display, "[0-9]{6}", version=version)
 
-    if sessions is None:
-        files = list_files_from_dropbox(folder_display, recursive=True)
-    else:
-        files = list(itertools.chain(*[list_files_one_session(file_type, folder_display, session, version=version) for session in sessions]))
+    def list_files_one_session(file_type, folder, session, version=2):
+        session_padded = str(session).zfill(6)
+        files = PATTERNS[file_type](folder, session_padded, version=version)
+        return files
 
-    keep_files = match_files_to_patterns(folder_display, files, patterns)
 
-    if len(keep_files) == 0:
-        logger.warning(f"No files matching patterns in {folder_display}")
-        return
-    logger.debug(f"Files to be downloaded: {keep_files}")
+    def list_files_from_dropbox(*args, **kwargs):
+        res = list_folder(*args, **kwargs)
+        files = res["paths"]
+        return files
 
-    sync_args = [
-        (f"Dropbox:{folder_display}/{file}", os.path.join(rootdir, subfolder, file.lstrip("/")))
-        for file in keep_files
-    ]
+    def download_results(file_type, rootdir, folder, version=2, ncores=-2, sessions=None):
+        """
+        Downloads the idtrackerai results stored in Dropbox
+        """
 
-    with open("sync_args.pickle", "wb") as filehandle:
-        pickle.dump(sync_args, filehandle)
+        assert rootdir.startswith("/")
+        assert folder.startswith("/")
 
-    if ncores == 1:
-        for arg in sync_args:
-            sync(*arg)
-    else:
-        joblib.Parallel(n_jobs=ncores)(
-            joblib.delayed(sync)(
-                *arg
+        folder_display = folder.replace("/./", "/")
+        subfolder = folder.split("/./")
+        if len(subfolder) == 1:
+            subfolder = ""
+        else:
+            subfolder = subfolder[1]
+
+        assert "/./" not in folder_display
+        patterns = PATTERNS[file_type](folder_display, "[0-9]{6}", version=version)
+
+        if sessions is None:
+            files = list_files_from_dropbox(folder_display, recursive=True)
+        else:
+            files = list(itertools.chain(*[list_files_one_session(file_type, folder_display, session, version=version) for session in sessions]))
+
+        keep_files = match_files_to_patterns(folder_display, files, patterns)
+
+        if len(keep_files) == 0:
+            logger.warning(f"No files matching patterns in {folder_display}")
+            return
+        logger.debug(f"Files to be downloaded: {keep_files}")
+
+        sync_args = [
+            (f"Dropbox:{folder_display}/{file}", os.path.join(rootdir, subfolder, file.lstrip("/")))
+            for file in keep_files
+        ]
+
+        with open("sync_args.pickle", "wb") as filehandle:
+            pickle.dump(sync_args, filehandle)
+
+        if ncores == 1:
+            for arg in sync_args:
+                sync(*arg)
+        else:
+            joblib.Parallel(n_jobs=ncores)(
+                joblib.delayed(sync)(
+                    *arg
+                )
+                    for arg in sync_args
             )
-                for arg in sync_args
-        )
 
+
+
+
+except ModuleNotFoundError:
+    logger.error("Dropbox interfacing requires dropy is installed")
 
 def get_parser(ap=None):
     if ap is None:

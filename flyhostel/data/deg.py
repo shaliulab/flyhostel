@@ -14,7 +14,7 @@ def parse_entry(data_entry, verbose=True):
     tokens = data_entry.split("_")
     if len(tokens) != 6:
         if verbose:
-            print(f"Invalid entry: {data_entry}")
+            logger.error(f"Invalid entry: {data_entry}")
         return False, None
     
     return True, tokens
@@ -123,6 +123,9 @@ class DEGLoader(ABC):
 
         for data_entry in os.listdir(DEG_DATA):
 
+            if data_entry=="split.yaml":
+                continue
+
             ret, labels_file = self.filter_by_id(data_entry, identity, chunksize=chunksize, verbose=verbose)
             local_identity=self.parse_local_identity(data_entry)
             chunk=self.parse_chunk(data_entry)
@@ -136,6 +139,10 @@ class DEGLoader(ABC):
                 continue
             
             labels=read_label_file(data_entry, labels_file, verbose=verbose)
+            if labels is None:
+                print(f"{labels_file} cannot be read")
+                continue
+
             labels["chunk"]=chunk
             labels["local_identity"]=local_identity
             # labels["frame_idx"]=np.arange(0, labels.shape[0])
@@ -148,11 +155,11 @@ class DEGLoader(ABC):
 
 
         if len(all_labels) == 0:
-            print(f"No labels found for {self.experiment}__{str(identity).zfill(2)}")
+            logger.info(f"No labels found for {self.experiment}__{str(identity).zfill(2)}")
             return None
 
         else:
-            print(f"id {id}: Number of label.csv found {counter}")
+            logger.info(f"id {id}: Number of label.csv found {counter}")
             labels=pd.concat(all_labels, axis=0)
             if self.deg is None:
                 self.deg = labels

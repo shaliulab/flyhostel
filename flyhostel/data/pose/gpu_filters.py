@@ -27,7 +27,7 @@ from .filters import (
 
 # upload to GPU batches of 1 hour long data
 
-from flyhostel.data.pose.constants import MAX_JUMP_MM, JUMP_WINDOW_SIZE_SECONDS, PARTITION_SIZE, min_score, PX_PER_CM
+from flyhostel.data.pose.constants import MAX_JUMP_MM, JUMP_WINDOW_SIZE_SECONDS, PARTITION_SIZE, min_score, PX_PER_CM, APPLY_MEDIAN_FILTER
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 
@@ -66,7 +66,7 @@ def filter_pose_partitioned(data, f, window_size, partition_size, pad=False):
     n_rows = data.shape[0]
     results = []
 
-    for start in tqdm(range(0, n_rows, partition_size)):
+    for start in tqdm(range(0, n_rows, partition_size), desc="Filtering pose"):
         end = start + partition_size + window_size - 1
         end = min(end, n_rows)  # Ensure we don't go beyond the array
         partition = data[start:end]
@@ -164,10 +164,11 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
         selection=pose["proboscis_x"].isna()
     )
 
-    before=time.time()   
-    pose_cudf=filter_pose_df(pose_cudf, f=cp.median, window_size=int(0.2*FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
-    after=time.time()
-    logger.debug("Apply median filter on pose in %s seconds (GPU)", round(after-before, 1))
+    if APPLY_MEDIAN_FILTER:
+        before=time.time()   
+        pose_cudf=filter_pose_df(pose_cudf, f=cp.median, window_size=int(0.2*FRAMERATE), partition_size=PARTITION_SIZE, pad=True)
+        after=time.time()
+        logger.debug("Apply median filter on pose in %s seconds (GPU)", round(after-before, 1))
 
     before=time.time()
     pose_cudf=filter_pose_df(pose_cudf, f=cp.mean, window_size=int(0.2*FRAMERATE), partition_size=PARTITION_SIZE, pad=True)

@@ -10,6 +10,9 @@ import joblib
 from flyhostel.data.pose.export import pipeline, load_concatenation_table, parse_number_of_animals
 from flyhostel.data.pose.preprocess import main as preprocess
 
+POSE_DATA=os.environ["POSE_DATA"]
+
+
 def main():
     """
     Concatenate the .h5 files produced in the analysis Nextflow process
@@ -28,6 +31,7 @@ def main():
     group.add_argument("--dbfile", type=str, help="Path to .db file")
     ap.add_argument("--chunks", type=int, nargs="+", required=False, default=None)
     ap.add_argument("--n-jobs", type=int, default=1)
+    ap.add_argument("--output", default=POSE_DATA, type=str)
     args=ap.parse_args()
 
 
@@ -67,7 +71,7 @@ def main():
         joblib.delayed(
             pipeline
         )(
-            experiment_name, identity, concatenation, args.chunks
+            experiment_name, identity, concatenation, args.chunks, output=args.output
         )
         for identity in range(1, number_of_animals+1)
     )

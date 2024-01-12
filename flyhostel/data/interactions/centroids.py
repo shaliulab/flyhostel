@@ -1,6 +1,7 @@
 import logging
 from functools import partial
 
+import numpy as np
 from ethoscopy import link_meta_index, load_flyhostel, behavpy, flyhostel_sleep_annotation
 from ethoscopy import flyhostel_sleep_annotation as flyhostel_sleep_annotation_primitive
 from ethoscopy.flyhostel import compute_xy_dist_log10x1000
@@ -15,7 +16,7 @@ local = '/flyhostel_data/videos'
 flyhostel_cache='/flyhostel_data/cache'
 time_window_length=10
 
-def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20, verbose=False, **kwargs):
+def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20, verbose=False, reference_hour=np.nan, **kwargs):
     if metadata is None:
         assert experiment is not None
         meta = link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
@@ -37,7 +38,7 @@ def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), m
 
     data, meta_info = load_flyhostel(
         meta, min_time = min_time, max_time = max_time, cache = flyhostel_cache, n_jobs=n_jobs,
-        time_system=time_system, **kwargs
+        time_system=time_system, reference_hour=reference_hour, **kwargs
     )
 
     assert data.shape[0] > 0, "No data found!"

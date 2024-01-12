@@ -244,3 +244,22 @@ def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
         single_animal_video = os.path.join(os.path.dirname(dbfile), "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
     
     return single_animal_video
+
+
+
+def restore_cache(path):
+    if os.path.exists(path):
+        logger.debug(f"Loading ---> {path}")
+        with open(path, "rb") as handle:
+            out=pickle.load(handle)
+
+        return True, out
+    else:
+        return False, None
+
+def save_cache(path, data):
+    logger.debug(f"Caching ---> {path}")
+    with open(path, "wb") as handle:
+        pickle.dump(data, handle, protocol=4)
+
+

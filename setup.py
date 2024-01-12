@@ -45,9 +45,12 @@ setup(
             "fh-validate=flyhostel.data.bin.dashboard:main",
             "missing-chunk-detector=flyhostel.utils.missing_chunk_detector:main",
             "compile-pose=flyhostel.data.bin.pose:main",
-            "make-umap=flyhostel.data.bin.make_umap:main",
+            "train-umap=flyhostel.data.bin.umap:main",
+            "project-pose=flyhostel.data.bin.behavior:main",
+            "predict-behavior=flyhostel.data.bin.ethogram:main",
             "filter-pose=flyhostel.data.bin.filter_pose:main",
             "preprocess-pose=flyhostel.data.bin.pose:preprocess",
+            "annotate-video=flyhostel.data.bin.movie:main",
             "list-frames-with-no-animals=flyhostel.data.sqlite3.missing_animals:main",
             ]
     },
