@@ -10,8 +10,10 @@ import pandas as pd
 import plotly.express as px
 from sklearn.model_selection import train_test_split
 from umap import UMAP
+
 from flyhostel.data.pose.ethogram import annotate_bout_duration, annotate_bouts
 from flyhostel.data.pose.main import FlyHostelLoader
+from motionmapperpy import setRunParameters
 
 
 
@@ -23,88 +25,148 @@ MODELS_FOLDER=os.path.join(MOTIONMAPPER_DATA, "models")
 logger=logging.getLogger(__name__)
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-STRIDE=5
+STRIDE=setRunParameters().wavelet_downsample
 
-def remove_bout_ends_from_dataset(dataset, n, fps):
+def remove_bout_ends_from_dataset(dataset, n_points, fps):
     """
-    Remove beginning and end of each bout, to avoid confusion between human label and wavelet defined behavior
+    Set beginning and end of each bout to background, to avoid confusion between human label and wavelet defined behavior
+
+    If the labeling strategy has more temporal resolution than the algorithm used to infer them
+    there can be some artifacts where the signal inferred from a previous or future bout (very close temporally) spills over into the present bout
+    This means the ground truth and inference are less likely to agree at transitions, and such frames should be labeled as such
+    by setting the behavior to background (aka transition)
+     
 
     Arguments:
 
         dataset (pd.DataFrame): contains a column called behavior and is sorted chronologically.
-            All rows are equidistant in time. A single animal is present
-        n (int): How many points to remove at beginning or end of each bout
-        fps (int): Number of points in this dataset that are contained within one second of recording
+            All rows are equidistant in time. A single animal is present.
+        n_points (int): How many points to remove at beginning AND end of each bout.
+        fps (int): Number of points in this dataset that are contained within one second of recording.
 
     Returns:
         dataset (pd.DataFrame): rows at beginning or end of bouts are removed
     """
     dataset=annotate_bouts(dataset, variable="behavior")
     dataset=annotate_bout_duration(dataset, fps=fps)
-    dataset = dataset.loc[(dataset["bout_in"] > n) & (dataset["bout_out"] > n)]
+    short_behaviors=["pe_inactive"]
+    dataset.loc[((dataset["bout_in"] <= n_points) & (dataset["bout_out"] <= n_points)) | np.bitwise_not(dataset["behavior"].isin(short_behaviors)), "behavior"]="background"
     del dataset["bout_in"]
     del dataset["bout_out"]
     return dataset
 
 
+NUMBER_OF_SAMPLES={"walk": 30_000, "inactive": 10_000, "groom": 30_000}
+
+def sample_informative_behaviors(pose_annotated_with_wavelets):
+
+    # generate a dataset of wavelets and the ground truth for all behaviors
+    ##########################################################################
+    pe_inactive=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="pe_inactive"]
+    behaviors=np.unique(pose_annotated_with_wavelets["behavior"]).tolist()
+    for behav in ["unknown", "pe_inactive"]:
+        if behav in behaviors:
+            behaviors.pop(behaviors.index(behav))
+
+
+    dfs=[pe_inactive]
+    for behav in behaviors:
+        d=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]==behav].sample(frac=1).reset_index(drop=True)
+        samples_available=d.shape[0]
+        if behav=="pe_inactive":
+            n_max=samples_available
+        else:
+            max_seconds=60
+            n_max=6*max_seconds
+        number_of_samples=NUMBER_OF_SAMPLES.get(behav, n_max)
+        dfs.append(
+            d.iloc[:number_of_samples]
+        )
+
+    labeled_dataset = pd.concat(dfs, axis=0)
+    return labeled_dataset
+
+
 def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLDER):
     logger.info("Output will be saved in %s", output)
-
-    loaders={}
+    timestamp=datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     assert os.path.exists(input)
     with open(input, "r", encoding="utf-8") as handle:
         lines=handle.readlines()
         experiments=[line.strip("\n") for line in lines]
 
+    datasets=[]
+    unknown_datasets=[]
+
+
     for experiment in experiments:
         loader = FlyHostelLoader(experiment, chunks=range(0, 400))
+        load=False
+        for datasetname in loader.datasetnames:
+            if not os.path.exists(loader.get_matfile(datasetname)):
+                logger.warning("Skipping %s", datasetname)
+                continue
+            else:
+                load=True
+
+        if not load:
+            logger.error("Skipping %s", experiment)
+            continue
+
+
         loader.load_and_process_data(
             stride=STRIDE,
             cache="/flyhostel_data/cache",
             filters=None,
             useGPU=0
         )
-        loaders[experiment]=loader
-
-    datasets=[]
-    unknown_datasets=[]
-
-    for experiment in experiments:
-        out=loaders[experiment].load_dataset()
+      
+        out=loader.load_dataset()
         if out is None:
             continue
         labeled_dataset, unknown_dataset, (frequencies, freq_names)=out
         assert freq_names is not None
 
-        labeled_dataset=remove_bout_ends_from_dataset(labeled_dataset, 1, fps=6)
         datasets.append(labeled_dataset)
         unknown_datasets.append(unknown_dataset)
+    
+    del loader
 
-    del loaders
-    labeled_dataset=pd.concat(datasets, axis=0)
-    labeled_dataset=labeled_dataset.iloc[::5]
-    train_idx, test_idx=train_test_split(np.arange(labeled_dataset.shape[0]), train_size=0.7)
+    all_labeled_datasets=pd.concat(datasets, axis=0).sort_values(["id", "frame_number"]).reset_index(drop=True)
+    
+    # labeled_datasets=sample_informative_behaviors(all_labeled_datasets)
+    labeled_datasets=all_labeled_datasets
+    labeled_datasets=labeled_datasets.iloc[::5]
+    
+    labeled_datasets=annotate_bouts(labeled_datasets, variable="behavior")
+    bouts=labeled_datasets["bout_count"].unique()
 
-    split={"train": train_idx.tolist(), "test": test_idx.tolist()}
+    train_bout, test_bout=train_test_split(bouts, train_size=0.7)
+    train_idx=sorted(np.where(labeled_datasets["bout_count"].isin(train_bout))[0].tolist())
+    test_idx=sorted(np.where(labeled_datasets["bout_count"].isin(test_bout))[0].tolist())
+    
+    split={"train": train_idx, "test": test_idx}
     with open(os.path.join(output, f"{timestamp}_split.json"), "w", encoding="utf-8") as handle:
         json.dump(split, handle)
 
 
-    training_set=labeled_dataset.iloc[train_idx]
-    test_set=labeled_dataset.iloc[test_idx]
+    training_set=labeled_datasets.iloc[train_idx].sort_values(["id", "frame_number"])
+    test_set=labeled_datasets.iloc[test_idx].sort_values(["id", "frame_number"])
+
+
+    training_set_clipped=remove_bout_ends_from_dataset(training_set, n_points=3, fps=6)
 
 
     # train the UMAP model
     # and use it to project the training and the test set
     model=UMAP()
-    umap_set=training_set[freq_names].values
+    umap_set=training_set_clipped[freq_names].values
     logger.debug("Fitting UMAP with data of shape %s", umap_set.shape)
     before=time.time()
     model.fit(umap_set)
     after=time.time()
     logger.debug("Done fitting UMAP in %s seconds", round(after-before, 1))
-    timestamp=datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     model_path=os.path.join(output, f"{timestamp}_UMAP.pkl")
     
     with open(model_path, "wb") as handle:
@@ -124,13 +186,21 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
 
     labeled_dataset=pd.concat([training_set, test_set], axis=0).sort_values(["id", "frame_number"])
     labeled_dataset.reset_index().to_feather(os.path.join(output, f"{timestamp}_dataset.feather"))
+    all_labeled_datasets.reset_index().to_feather(os.path.join(output, f"{timestamp}_all_dataset.feather"))
 
-
+    color_mapping = {
+        "pe_inactive": "yellow",
+        "feed": "orange",
+        "groom": "green",
+        "inactive": "blue",
+        "walk": "red",
+    }
 
     logger.debug("Generating visualization")
     fig=px.scatter(
         training_set.loc[training_set["behavior"].isin(["pe_inactive", "feed", "groom", "inactive", "walk"])], x="C_1", y="C_2", color="behavior",
         hover_data=["id", "chunk", "frame_idx", "frame_number", "behavior"],
+        color_discrete_map=color_mapping,
     )
 
     px_path=os.path.join(output, f"{timestamp}_UMAP_by_behavior.html")

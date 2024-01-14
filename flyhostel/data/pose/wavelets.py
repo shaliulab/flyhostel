@@ -8,7 +8,6 @@ from tqdm.auto import tqdm
 
 from flyhostel.data.pose.constants import chunksize
 
-NUMBER_OF_SAMPLES={"walk": 30_000, "inactive": 10_000, "groom": 30_000}
 
 LTA_DATA=os.environ["LTA_DATA"]
 
@@ -23,6 +22,12 @@ class WaveletLoader(ABC):
     @abstractmethod
     def annotate_pose(pose, behaviors):
         raise NotImplementedError()
+    
+
+    @staticmethod
+    def get_matfile(datasetname):
+        return os.path.join(LTA_DATA, "Wavelets", datasetname + "-pcaModes-wavelets.mat")
+
     
 
     def load_wavelets(self, identity=None, matfile=None):
@@ -45,7 +50,7 @@ class WaveletLoader(ABC):
 
         for i, datasetname in enumerate(tqdm(datasetnames, desc='loading wavelet dataset')):
             if matfile is None:
-                matfile=os.path.join(LTA_DATA, "Wavelets", datasetname + "-pcaModes-wavelets.mat")
+                matfile=self.get_matfile(datasetname)
 
             if not os.path.exists(matfile):
                 print(f"{matfile} not found")
@@ -53,7 +58,10 @@ class WaveletLoader(ABC):
 
             data=hdf5storage.loadmat(matfile)
             freq_names=[f.decode() for f in data["freq_names"]]
+
             wavelets_single_animal=pd.DataFrame(data["wavelets"], columns=freq_names)
+            # wavelets_single_animal["indices"]=data["indices"]
+
             if previous_freq_names is None:
                 previous_freq_names=freq_names
             assert all([a == b for a, b in zip(freq_names, previous_freq_names)])
@@ -104,8 +112,9 @@ class WaveletLoader(ABC):
     
         
         # merge pose and wavelet information
-        # NOTE This assaumes the frame number of the wavelet is the same as the pose
+        # NOTE This assumes the frame number of the wavelet is the same as the pose
         wavelets["frame_number"]=pose_annotated["frame_number"].values
+        
         pose_annotated.set_index(["id", "frame_number"], inplace=True)
         wavelets.set_index("frame_number", append=True, inplace=True)
         
@@ -114,30 +123,10 @@ class WaveletLoader(ABC):
         del wavelets
         pose_annotated_with_wavelets.reset_index(inplace=True)
 
-        # generate a dataset of wavelets and the ground truth for all behaviors
-        ##########################################################################
-        pe_inactive=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="pe_inactive"]
-        behaviors=np.unique(pose_annotated_with_wavelets["behavior"]).tolist()
-        for behav in ["unknown", "pe_inactive"]:
-            if behav in behaviors:
-                behaviors.pop(behaviors.index(behav))
-
-
-        dfs=[pe_inactive]
-        for behav in behaviors:
-            d=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]==behav].sample(frac=1).reset_index(drop=True)
-            samples_available=d.shape[0]
-            if behav=="pe_inactive":
-                n_max=samples_available
-            else:
-                max_seconds=60
-                n_max=6*max_seconds
-            number_of_samples=NUMBER_OF_SAMPLES.get(behav, n_max)
-            dfs.append(
-                d.iloc[:number_of_samples]
-            )
-
-        labeled_dataset = pd.concat(dfs, axis=0)
+        # labeled_dataset=sample_informative_behaviors(pose_annotated_with_wavelets)
+        labeled_dataset = pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]!="unknown"]
         unknown_dataset = pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="unknown"]
 
         return labeled_dataset, unknown_dataset, (frequencies, freq_names)
+
+
