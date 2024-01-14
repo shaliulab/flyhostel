@@ -1,3 +1,4 @@
+import time
 from abc import ABC, abstractmethod
 import sqlite3
 import glob
@@ -404,6 +405,8 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
         self.pose_annotated=None
         self.pose_speed_boxcar=None
         self.pose_boxcar_2=None
+        self.pose_boxcar=None
+        
 
         
         # for index in self.index_pandas:
@@ -416,14 +419,6 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
         self.min_window_size=40
         self.min_supporting_points=3
     
-    @property
-    def pose_boxcar(self):
-        return self.pose_filters["nanmean"]
-
-    
-    @pose_boxcar.setter
-    def pose_boxcar(self, value):
-        self.pose_filters["nanmean"]=value
 
     @property
     def pose_median(self):
@@ -456,6 +451,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
             else:
                 pose_out=pose
 
+        frame_number=pose_out["frame_number"]
 
         id=pose_out["id"].iloc[0]
         assert len(np.unique(pose_out["id"]))==1, f"Exported dataset contains more than 1 id. Please filter it or provide an id to .export()"
@@ -468,6 +464,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
         reshaped_array = input_array.reshape(N, number_of_bodyparts, 2).transpose(2, 1, 0)
         reshaped_array=reshaped_array[np.newaxis, :]
 
+        assert len(frame_number) == reshaped_array.shape[3]
 
         files=sorted(self.meta_pose[id]["files"])
         
@@ -484,6 +481,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
         f.create_dataset("tracks", data=reshaped_array)
         f.create_dataset("node_names", data=node_names)
         f.create_dataset("files", data=files)
+        # f.create_dataset("frame_number", data=frame_number)
         f.close()
         return
 
@@ -711,7 +709,9 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
                 raise NotImplementedError()
                 # out=load_pose_data_processed(min_time, max_time, time_system, self.datasetnames, self.identities, self.lq_thresh)
             elif self.pose_source == "compiled":
-                out=load_pose_data_compiled([self.datasetnames[int(identity)-1]], [self.identities[int(identity)-1]], self.lq_thresh, stride=stride, files=files)
+                datasets=[dataset for dataset in self.datasetnames if dataset.endswith(str(identity).zfill(2))]
+                identities=[ident for ident in self.identities if ident.endswith(str(identity).zfill(2))]
+                out=load_pose_data_compiled(datasets, identities, self.lq_thresh, stride=stride, files=files)
             else:
                 raise Exception("source must be processed or compiled")
 
@@ -768,6 +768,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
             ]
     
         return pose
+
 
     def make_movie(self, ts=None, frame_numbers=None, **kwargs):
         return make_pose_movie(self.basedir, self.dt_with_pose, ts=ts, frame_numbres=frame_numbers, **kwargs)
@@ -840,12 +841,6 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
             merged (pd.DataFrame): Merged dataset containing both timeseries and interpolating the slowest one
             to match the quickest one
         """
-
-        def verify_sorted_frame_number(data):
-            assert (data.groupby("id").apply(lambda x: np.mean(np.diff(x["frame_number"]) > 0)) == 1.0).all()
-        # merge centroid and pose data
-        # verify_sorted_frame_number(dt)
-        # verify_sorted_frame_number(pose)
         if tolerance is not None:
             tolerance=int(self.framerate*tolerance)
 

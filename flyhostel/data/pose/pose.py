@@ -19,6 +19,7 @@ from flyhostel.data.pose.filters import (
 from flyhostel.data.pose.constants import framerate as POSE_FRAMERATE
 from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import min_score as MIN_SCORE
 
 from flyhostel.utils import restore_cache, save_cache
 from .gpu_filters import filter_and_interpolate_pose_single_animal_gpu_
@@ -56,18 +57,23 @@ class FilterPose(ABC):
     )
     """
 
+
     def __init__(self, *args, **kwargs):
 
         self.pose=None
-        self.pose_raw=None
-        self.pose_jumps=None
-        self.pose_filters=None
+        self.pose_boxcar=None
         self.pose_interpolated=None
         self.experiment=None
         super(FilterPose, self).__init__(*args, **kwargs)
 
 
-    def filter_and_interpolate_pose_single_animal(self, pose, min_time, max_time, stride, identifier, *args, bodyparts=BODYPARTS, filters=None, min_score=0.5, useGPU=-1, cache=None, **kwargs):
+    def filter_and_interpolate_pose_single_animal(self, *args, **kwargs):
+        out=self.filter_and_interpolate_pose_single_animal_all_filters(*args, **kwargs)
+        pose=out["filters"]["nanmean"]
+        return pose
+
+
+    def filter_and_interpolate_pose_single_animal_all_filters(self, pose, min_time, max_time, stride, identifier, *args, bodyparts=BODYPARTS, filters=None, min_score=MIN_SCORE, useGPU=-1, cache=None, **kwargs):
         if cache is not None:
             cache_file=f"{cache}/{identifier}_{min_time}_{max_time}_{stride}_pose_filtered.pkl"
             if not os.path.exists(cache_file):
@@ -159,6 +165,7 @@ class FilterPose(ABC):
                The filter with order 0 is run on the pose_jumps dataset
 
         """
+        raise NotImplementedError()
         useGPU=-1
         logger.debug("Filtering jumps deviating from median")
         pose=filter_pose_far_from_median(
@@ -197,19 +204,18 @@ class FilterPose(ABC):
             pose_filters[filter_f]=pose_filtered
             
         return {"jumps": pose_jumps, "filters": pose_filters}
+    
+    def filter_pose_by_time(min_time, max_time, pose):
+        raise NotImplementedError()
 
 
     def filter_and_interpolate_pose(self, *args, min_time=MIN_TIME, max_time=MAX_TIME, **kwargs):
         """
         Call filter_and_interpolate_pose_single_animal once for every animal in the experiment
         """
-        if self.pose_raw is None:
-            self.pose_raw=self.pose.copy()
         
-        pose_datasets=self.pose_raw.groupby("id")
-
-        self.pose_jumps=[]
-        self.pose_filters={}
+        pose_datasets=self.pose.groupby("id")
+        all_poses=[]
 
         for id, pose in pose_datasets:
 
@@ -223,24 +229,14 @@ class FilterPose(ABC):
             identity=pose["identity"].iloc[0].item()
             identifier=self.experiment + "__" + str(identity).zfill(2)
             pose = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, min_time=min_time, max_time=max_time, identifier=identifier, **kwargs)
+            pose=self.filter_pose_by_time(min_time=min_time, max_time=max_time, pose=pose)
 
-            self.pose_jumps.append(pose["jumps"])
-            for filt_f in pose["filters"]:
-                if filt_f not in self.pose_filters:
-                    self.pose_filters[filt_f]=[]
-                self.pose_filters[filt_f].append(pose["filters"][filt_f])
+            all_poses.append(pose)
         
-        if self.pose_jumps[0] is not None:
-            self.pose_jumps=pd.concat(self.pose_jumps, axis=0)
-            self.pose_jumps=self.filter_pose_by_time(min_time=min_time, max_time=max_time, pose=self.pose_jumps)
-
-        
-        for filt_f in self.pose_filters:
-            if self.pose_filters[filt_f] is not None:
-                logger.debug("Concatenating %s dataset", filt_f)
-                self.pose_filters[filt_f]=pd.concat(self.pose_filters[filt_f], axis=0)
-                self.pose_filters[filt_f]=self.filter_pose_by_time(min_time=min_time, max_time=max_time, pose=self.pose_filters[filt_f])
-                logger.debug("Done")
+ 
+        logger.debug("Concatenating dataset")
+        self.pose_boxcar=pd.concat(all_poses, axis=0)
+        logger.debug("Done")
 
     @staticmethod
     def full_interpolation(pose, columns):
