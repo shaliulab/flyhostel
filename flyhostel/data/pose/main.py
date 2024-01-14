@@ -660,16 +660,14 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
         make it the behavior feed+walk
         """
 
-        behav_index=deg[["frame_number", "id", "behavior"]].groupby(["frame_number", "id"]).count().iloc[:,:1]
-        multi_behav_index=behav_index.loc[behav_index.iloc[:,0]>1].reset_index()
-
-        deg.set_index(["frame_number", "id"], inplace=True)
-        for i, row in tqdm(multi_behav_index.iterrows(), desc="Grouping simultaneous behaviors"):
-            behaviors=deg.loc[pd.IndexSlice[row["frame_number"], row["id"]], "behavior"]
-            behavior="+".join(sorted(behaviors))
-            deg.loc[pd.IndexSlice[row["frame_number"], row["id"]], "behavior"]=behavior
-        deg.reset_index(inplace=True)
-        deg=deg.loc[~deg[["frame_number", "id"]].duplicated()]
+        # Group by frame_number and id, join behaviors with '+', and reset index
+        deg_group = deg.groupby(["id", "frame_number"])["behavior"].agg(lambda x: "+".join(sorted(list(set(x))))).reset_index()
+        deg=deg_group.merge(
+            deg.drop(["behavior"], axis=1).drop_duplicates(),
+            on=["id", "frame_number"]
+        )
+        deg.sort_values(["id", "frame_number"],  inplace=True)
+        after=time.time()
         return deg
 
 
