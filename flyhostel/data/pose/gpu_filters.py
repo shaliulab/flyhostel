@@ -97,7 +97,7 @@ def split_xy(arr):
     ], axis=2)
 
 
-def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, min_score=min_score, window_size_seconds=JUMP_WINDOW_SIZE_SECONDS, max_jump_mm=MAX_JUMP_MM, framerate=FRAMERATE):
+def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window_size_seconds=JUMP_WINDOW_SIZE_SECONDS, max_jump_mm=MAX_JUMP_MM, framerate=FRAMERATE):
     
     window_size=int(window_size_seconds*framerate)
     min_periods=3
@@ -127,7 +127,7 @@ def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, min_sc
     return pose
 
 
-def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min_score=0.5, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, download=True, framerate=150):
+def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, download=True, framerate=150):
 
     bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
     pose=pose.sort_values("t")
@@ -147,7 +147,7 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, min
     logger.debug("Filtering jumps deviating from median")
     missing_data_mask=pose[bodyparts_xy].isna()
     pose_cudf=filter_pose_far_from_median_gpu(
-        pose_cudf, bodyparts, min_score=min_score,
+        pose_cudf, bodyparts,
         window_size_seconds=window_size_seconds,
         max_jump_mm=max_jump_mm,
         framerate=framerate
