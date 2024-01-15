@@ -85,7 +85,7 @@ class WaveletLoader(ABC):
 
 
 
-    def load_dataset(self, pose=None, wavelets=None):
+    def load_dataset(self, pose=None, wavelets=None, segregate=True):
         """"
         Generate dataset of pose + wavelets 
 
@@ -123,10 +123,12 @@ class WaveletLoader(ABC):
         del wavelets
         pose_annotated_with_wavelets.reset_index(inplace=True)
 
-        # labeled_dataset=sample_informative_behaviors(pose_annotated_with_wavelets)
-        labeled_dataset = pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]!="unknown"]
-        unknown_dataset = pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="unknown"]
 
-        return labeled_dataset, unknown_dataset, (frequencies, freq_names)
+        if segregate:
+            labeled_dataset = pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]!="unknown"]
+            unknown_dataset = pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="unknown"]
+            return labeled_dataset, unknown_dataset, (frequencies, freq_names)
+        else:
+            return pose_annotated_with_wavelets, (frequencies, freq_names)
 
 

@@ -47,7 +47,7 @@ from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from imgstore.interface import VideoCapture
-from flyhostel.data.pose.ethogram import annotate_bout_duration, annotate_bouts
+from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
 from flyhostel.data.pose.distances import compute_distance_features_pairs
 from flyhostel.data.pose.wavelets import WaveletLoader
 
@@ -246,18 +246,18 @@ class BehaviorLoader(ABC):
     def load_behavior_data(self, experiment, identity, pose=None, interpolate_frames=0):
         logger.debug("Loading behavior data")
         tokens=experiment.split("_")
-        csv=os.path.join(
+        feather_path=os.path.join(
             os.environ["FLYHOSTEL_VIDEOS"],
             tokens[0],
             tokens[1],
             "_".join(tokens[2:4]),
             "motionmapper",
             str(identity).zfill(2),
-            f"{experiment}__{str(identity).zfill(2)}.csv"
+            f"{experiment}__{str(identity).zfill(2)}.feather"
         )
-        if os.path.exists(csv):
+        if os.path.exists(feather_path):
 
-            dt_behavior=pd.read_csv(csv, index_col=0)[["id", "frame_number", "behavior"]]
+            dt_behavior=pd.read_feather(feather_path)[["id", "frame_number", "behavior"]]
     
             if interpolate_frames>0:
                 dt_behavior_t_complete=[]
@@ -292,7 +292,7 @@ class BehaviorLoader(ABC):
             self.dt_behavior=dt
 
         else:
-            logger.warning("%s does not exist", csv)
+            logger.warning("%s does not exist", feather_path)
 
         logger.debug("Done")
 

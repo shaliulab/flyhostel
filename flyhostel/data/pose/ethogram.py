@@ -1,5 +1,5 @@
 import logging
-import glob
+import time
 import math
 import logging
 import os.path
@@ -9,7 +9,8 @@ import plotly.express as px
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
-
+from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
+from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.pose.constants import chunksize, framerate
 
 logger=logging.getLogger(__name__)
@@ -31,9 +32,12 @@ DEEPETHOGRAM_PROJECT_PATH=os.environ["DEEPETHOGRAM_PROJECT_PATH"]
 FLYHOSTEL_VIDEOS=os.environ["FLYHOSTEL_VIDEOS"]
 OUTPUT_FOLDER=os.path.join(MOTIONMAPPER_DATA, "output")
 MODELS_PATH=os.path.join(MOTIONMAPPER_DATA, "models")
-stride=25
-MODEL_PATH=glob.glob(os.path.join(MODELS_PATH, "*knn.pkl"))[0]
 
+from motionmapperpy import setRunParameters
+STRIDE=setRunParameters().wavelet_downsample
+
+MODEL_PATH=os.path.join(MODELS_PATH, "2024-01-15_07-30-25_rf.pkl")
+RECOMPUTE=True
 
 def get_bout_length_percentile_from_project(project_path, percentile=1):
     records = projects.get_records_from_datadir(os.path.join(project_path, "DATA"))
@@ -55,41 +59,6 @@ def get_bout_length_percentile_from_project(project_path, percentile=1):
 
 
 
-def count_bout_position(df, variable, counter):
-    """
-    Compute position in bout of variable
-
-    Detect bouts of rows wit the same value in column variable
-    and annotate the position of each row in its bout
-    """
-
-    # Initialize a new column with zeros
-    df[counter] = 0
-
-    # Create a mask to identify the start of each bout
-    bout_start_mask = df[variable] != df[variable].shift(1)
-    
-    # Create a cumulative count of bout starts
-    df['bout_count'] = bout_start_mask.cumsum()
-    
-    # Calculate the rank within each bout
-    df[counter] = df.groupby('bout_count').cumcount() + 1
-    
-    # # Drop the 'bout_count' column if you don't need it
-    # df.drop(columns=['bout_count'], inplace=True)
-    return df
-
-
-def annotate_bout_duration(dataset, fps=framerate/stride):
-    duration_table=dataset.loc[dataset["bout_out"]==1, ["bout_in", "bout_count"]]
-    duration_table["duration"]=duration_table["bout_in"]/fps
-    dataset=dataset.drop("duration", axis=1, errors="ignore").merge(duration_table.drop("bout_in", axis=1), on=["bout_count"])
-    return dataset
-
-def annotate_bouts(dataset, variable):
-    dataset=count_bout_position(dataset.iloc[::-1], variable=variable, counter="bout_out").iloc[::-1]
-    dataset=count_bout_position(dataset, variable=variable, counter="bout_in")
-    return dataset
 
 def generate_path_to_output_folder(experiment, identity):
     tokens=experiment.split("_")
@@ -101,7 +70,7 @@ def generate_path_to_output_folder(experiment, identity):
 def generate_path_to_data(experiment, identity):
     folder=generate_path_to_output_folder(experiment, identity)
     data_src=os.path.join(folder, experiment + "__" + str(identity).zfill(2) + ".csv")
-    assert os.path.exists(data_src), f"{data_src} not found"
+    # assert os.path.exists(data_src), f"{data_src} not found"
     return data_src
 
 
@@ -117,94 +86,94 @@ def most_common(group, variable="behavior"):
     # Prepare the result including additional data
     result = first_row.to_dict()
     result[variable] = most_common_val
-    result['score'] = np.round(score, 2)
+    result['fraction'] = np.round(score, 2)
     
     return pd.Series(result)
 
 
-def draw_ethogram(df, resolution=1):
-    """
+# def draw_ethogram(df, resolution=1):
+#     """
     
-    """
+#     """
 
-    df=df.copy()
+#     df=df.copy()
 
-    id = df["id"].iloc[0]
-    if resolution is not None:
-        df["t"]=np.floor(df["t"]//resolution)*resolution
-        df = df.groupby(["id", "t"]).apply(most_common).reset_index(drop=True)
+#     id = df["id"].iloc[0]
+#     if resolution is not None:
+#         df["t"]=np.floor(df["t"]//resolution)*resolution
+#         df = df.groupby(["id", "t"]).apply(most_common).reset_index(drop=True)
 
-    df["zt"]=(df["t"]/3600).round(2)
-    df["zt_"]=(df["t"]/3600)
+#     df["zt"]=(df["t"]/3600).round(2)
+#     df["zt_"]=(df["t"]/3600)
 
-    # Get unique behaviors
-    behaviors = df['behavior'].unique()
+#     # Get unique behaviors
+#     behaviors = df['behavior'].unique()
 
-    x_var="zt_"
-    # Create a figure
-    fig = go.Figure()
+#     x_var="zt_"
+#     # Create a figure
+#     fig = go.Figure()
 
-    # Plot a thin black line for all behaviors throughout the plot
-    for behavior in behaviors:
-        fig.add_trace(go.Scatter(
-            x=[df[x_var].min(), df[x_var].max()],
-            y=[behavior, behavior],
-            mode='lines',
-            line=dict(color='black', width=1),
-            showlegend=False
-        ))
+#     # Plot a thin black line for all behaviors throughout the plot
+#     for behavior in behaviors:
+#         fig.add_trace(go.Scatter(
+#             x=[df[x_var].min(), df[x_var].max()],
+#             y=[behavior, behavior],
+#             mode='lines',
+#             line=dict(color='black', width=1),
+#             showlegend=False
+#         ))
 
-    df["zt"]=np.round(df["t"]/3600, 2).values
+#     df["zt"]=np.round(df["t"]/3600, 2).values
 
-    # Define a color map for different behaviors
-    colors = {behavior: f'rgba({np.random.randint(0, 255)}, {np.random.randint(0, 255)}, {np.random.randint(0, 255)},' for behavior in behaviors}
+#     # Define a color map for different behaviors
+#     colors = {behavior: f'rgba({np.random.randint(0, 255)}, {np.random.randint(0, 255)}, {np.random.randint(0, 255)},' for behavior in behaviors}
 
-    # Plot each behavior on a separate track with additional information on hover
-    for behavior in behaviors:
-        behavior_data = df[df['behavior'] == behavior]
+#     # Plot each behavior on a separate track with additional information on hover
+#     for behavior in behaviors:
+#         behavior_data = df[df['behavior'] == behavior]
 
-        text = []
-        meta_columns=["behavior", "id", "chunk","frame_idx", "zt", "score"]
-        metadata=[behavior_data[c] for c in meta_columns]
+#         text = []
+#         meta_columns=["behavior", "id", "chunk","frame_idx", "zt", "score"]
+#         metadata=[behavior_data[c] for c in meta_columns]
 
-        for meta in zip(*metadata):
-            row=""
-            for i, col in enumerate(meta):
-                row+=f"{meta_columns[i]}: {col} "
-            text.append(row)
+#         for meta in zip(*metadata):
+#             row=""
+#             for i, col in enumerate(meta):
+#                 row+=f"{meta_columns[i]}: {col} "
+#             text.append(row)
 
-        # Map transparency of the color to the value of score
-        alphas = np.interp(behavior_data['score'], [0, 1], [0, 1])
-        marker_colors = [colors[behavior] + str(alpha) + ')' for alpha in alphas]
+#         # Map transparency of the color to the value of score
+#         alphas = np.interp(behavior_data['score'], [0, 1], [0, 1])
+#         marker_colors = [colors[behavior] + str(alpha) + ')' for alpha in alphas]
 
-        fig.add_trace(go.Scatter(
-            x=behavior_data[x_var],
-            y=[behavior] * len(behavior_data),
-            mode='markers',
-            marker=dict(size=10, color=marker_colors, symbol="square"),
-            name=behavior,
-            text=text,
-            hoverinfo='text',
-        ))
+#         fig.add_trace(go.Scatter(
+#             x=behavior_data[x_var],
+#             y=[behavior] * len(behavior_data),
+#             mode='markers',
+#             marker=dict(size=10, color=marker_colors, symbol="square"),
+#             name=behavior,
+#             text=text,
+#             hoverinfo='text',
+#         ))
 
-    # annoying to read 1 seconds in the plot title x)
-    if resolution==1:
-        title=f"Ethogram - {id} - Resolution {resolution} second"
-    else:
-        title=f"Ethogram - {id} - Resolution {resolution} seconds"
+#     # annoying to read 1 seconds in the plot title x)
+#     if resolution==1:
+#         title=f"Ethogram - {id} - Resolution {resolution} second"
+#     else:
+#         title=f"Ethogram - {id} - Resolution {resolution} seconds"
 
 
-    fig.update_layout(
-        title=title,
-        xaxis_title="ZT (hours)",
-        yaxis_title="Behavior",
-        yaxis=dict(type='category'),
-        showlegend=True,
-        height=300,
+#     fig.update_layout(
+#         title=title,
+#         xaxis_title="ZT (hours)",
+#         yaxis_title="Behavior",
+#         yaxis=dict(type='category'),
+#         showlegend=True,
+#         height=300,
 
-    )
+#     )
 
-    return fig
+#     return fig
 
 
 def enforce_behavioral_context(dataset, modify, context, replacement, seconds=5, framerate=1):
@@ -308,7 +277,21 @@ def join_strings_by_repeated_integers(integers, strings):
     return list(grouped_strings.values())
 
 
-def make_ethogram(experiment, identity, model_path, input=None, output="./", frame_numbers=None, postprocess=True):
+def load_dataset(experiment, identity):
+    # logger.debug("%s not found. Did you run UMAP model?", csv_path)
+    loader=FlyHostelLoader(experiment, identity=identity, chunks=range(0, 400))
+    loader.load_and_process_data(
+        stride=STRIDE,
+        cache="/flyhostel_data/cache",
+        filters=None,
+        useGPU=0
+    )
+    out=loader.load_dataset(segregate=False)
+    dataset, (frequencies, freq_names)=out
+    dataset.sort_values(["id","frame_number"], inplace=True)
+    return dataset
+    
+def make_ethogram(experiment, identity, model_path, input=None, output="./", frame_numbers=None, postprocess=True, train=RECOMPUTE):
     """
     Generate ethogram for a particular fly
 
@@ -320,34 +303,54 @@ def make_ethogram(experiment, identity, model_path, input=None, output="./", fra
     """
 
     with open(model_path, "rb") as handle:
-        classifier, knn_feats=pickle.load(handle)
-        
+        classifier, features=pickle.load(handle)
+    behaviors=classifier.classes_
+
     if input is None:
         if output is None:
             output_folder=generate_path_to_output_folder(experiment, identity)
         else:
             output_folder=output
-        csv_path=generate_path_to_data(experiment, identity)
+            feather_path=os.path.join(output, experiment + "__" + str(identity).zfill(2) + "_raw_prediction.feather")
     else:
         output_folder=output
-        csv_path=input
+        feather_path=input
     
-    assert os.path.exists(csv_path), f"{csv_path} not found. Did you run UMAP model?"
-    dataset=pd.read_csv(csv_path, index_col=0)
+    if not os.path.exists(feather_path):
+        dataset=load_dataset(experiment, identity)
+        dataset.reset_index().to_feather(feather_path)
+
+    else:
+        dataset=pd.read_feather(feather_path)
+
     logger.debug("Read dataset of shape %s", dataset.shape)
     dataset["chunk"]=dataset["frame_number"]//chunksize
     dataset["frame_idx"]=dataset["frame_number"]%chunksize
     dataset["zt"]=(dataset["t"]/3600).round(2)
-    
     if frame_numbers is not None:
         dataset=dataset.loc[
             dataset["frame_number"].isin(frame_numbers)
         ]
-    logger.debug("Predicting behavior of %s rows", dataset.shape[0])
+
+    if train:
     
-    dataset["behavior"]=classifier.predict(dataset[knn_feats].values)
+        logger.debug("Predicting behavior of %s rows", dataset.shape[0])
+        before=time.time()
+        probs=classifier.predict_proba(dataset[features].values)
+        after=time.time()
+        logger.debug(
+            "Done in %s seconds (%s points/s or %s recording seconds / s)",
+            round(after-before, 2),
+            round(dataset.shape[0]/(after-before)),
+            round((dataset.shape[0]/(framerate/STRIDE))/(after-before))
+        )
+
+        dataset["behavior"]=behaviors[probs.argmax(axis=1)]
+        dataset["score"]=probs.max(axis=1)
+        dataset.reset_index(drop=True).to_feather(feather_path)
 
     if postprocess:
+        logger.debug("Postprocessing predictions")
         unique_behaviors=dataset["behavior"].unique().tolist()
         if "background" in unique_behaviors:
             unique_behaviors.pop(unique_behaviors.index("background"))
@@ -377,26 +380,152 @@ def make_ethogram(experiment, identity, model_path, input=None, output="./", fra
 
 
     dataset=annotate_bouts(dataset, "behavior")
-    dataset=annotate_bout_duration(dataset)
+    dataset=annotate_bout_duration(dataset, fps=framerate/STRIDE)
     # dataset=enforce_behavioral_context(dataset, modify="pe_inactive", context=["inactive", "background", "pe_inactive"], replacement="pe_unknown", framerate=1, seconds=3)
     # dataset=annotate_bouts(dataset, "behavior")
     # dataset=annotate_bout_duration(dataset)
 
-    csv_out=os.path.join(output_folder, "dataset_out.csv")
-    logger.info("Saving to ---> %s", csv_out)
-    dataset.to_csv(csv_out)
+    feather_out=os.path.join(output, experiment + "__" + str(identity).zfill(2) + ".feather")
+    html_out=os.path.join(output, experiment + "__" + str(identity).zfill(2) + ".html")
+    json_out=os.path.join(output, experiment + "__" + str(identity).zfill(2) + ".json")
+    logger.info("Saving to ---> %s", feather_out)
+    dataset.reset_index(drop=True).to_feather(feather_out)
 
-    # bouts_df=dataset.loc[dataset["bout_in"]==1][["id", "chunk", "frame_idx", "t", "C_1","C_2", "behavior", "duration"]]
+    fig=draw_ethogram(dataset, resolution=1)
+    logger.info("Saving to ---> %s", html_out)
+    fig.write_html(html_out)
+    fig.write_json(json_out)
 
-    fig = draw_umap(dataset, max_points=50_000)
-    
-    if experiment is not None:
-        fig.write_html(os.path.join(output_folder, f"{experiment}__{str(identity).zfill(2)}_umap.html"))
-        chunks = sorted(dataset["chunk"].unique())
-        for chunk in chunks:
-            fig = draw_ethogram(dataset.loc[dataset["chunk"]== chunk], resolution=1)
-            fig.write_html(os.path.join(output_folder, f"{experiment}__{str(identity).zfill(2)}_{str(chunk).zfill(6)}_ethogram.html"))
+
+def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info):
+
+    df=df.copy()
+    id = df["id"].iloc[0]
+
+    df["zt"]=(df["t"]/3600).round(2)
+    df["zt_"]=(df["t"]/3600)
+
+    if x_var=="seconds":
+        df["t"]=(df["frame_number"]-df["frame_number"].min())/framerate
+        x_var="t"
+        
+    if resolution is not None:
+        df["t"]=np.floor(df["t"]//resolution)*resolution
+        df = df.groupby(["id", "t"]).apply(most_common).reset_index(drop=True)
+
+
+    # Get unique behaviors
+    behaviors = df['behavior'].unique()
+
+    zt_min=round(df[x_var].min(), 2)
+    zt_max=round(df[x_var].max(), 2)   
+    message("Generating ethogram from %s to %s ZT", zt_min, zt_max)
+
+    # Create a figure
+    fig = go.Figure()
+
+    # Plot a thin black line for all behaviors throughout the plot
+    for behavior in behaviors:
+        fig.add_trace(go.Scatter(
+            x=[df[x_var].min(), df[x_var].max()],
+            y=[behavior, behavior],
+            mode='lines',
+            line=dict(color='black', width=1),
+            showlegend=False
+        ))
+
+
+    # Define a color map for different behaviors
+    colors = {behavior: f'rgba({np.random.randint(0, 255)}, {np.random.randint(0, 255)}, {np.random.randint(0, 255)},' for behavior in behaviors}
+
+    # Plot each behavior on a separate track with additional information on hover
+    for behavior in behaviors:
+        behavior_data = df[df['behavior'] == behavior]
+
+        text = []
+        meta_columns=["behavior", "id", "chunk","frame_idx", "zt", "score", "fraction"]
+        metadata=[behavior_data[c] for c in meta_columns]
+
+        for meta in zip(*metadata):
+            row=""
+            for i, col in enumerate(meta):
+                row+=f"{meta_columns[i]}: {col} "
+            text.append(row)
+
+        # Map transparency of the color to the value of score
+        alphas = np.interp(behavior_data['score'], [0, 1], [0, 1])
+        marker_colors = [colors[behavior] + str(alpha) + ')' for alpha in alphas]
+
+        fig.add_trace(go.Scattergl(
+            x=behavior_data[x_var],
+            y=[behavior] * len(behavior_data),
+            mode='markers',
+            marker=dict(size=10, color=marker_colors, symbol="square"),
+            name=behavior,
+            text=text,
+            hoverinfo='text',
+        ))
+
+    # annoying to read 1 seconds in the plot title x)
+    if resolution==1:
+        title=f"Ethogram - {id} - Resolution {resolution} second"
     else:
-        fig.write_html(os.path.join(output_folder, f"plot_out.html"))
+        title=f"Ethogram - {id} - Resolution {resolution} seconds"
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="ZT (hours)",
+        yaxis_title="Behavior",
+        yaxis=dict(type='category'),
+        showlegend=True,
+        height=600,
+    )
+    
+    # Set the default range for the x-axis to the first 300 unique values
+    default_x_range = [df[x_var].min(), df[x_var].min() + 300]
+    center_x = np.mean(default_x_range)
+    
+    # Configure the x-axis with the default range
+    fig.update_layout(
+        xaxis=dict(
+            range=default_x_range,
+            rangeslider=dict(
+                visible=True,
+                thickness=0.05
+            ),
+            type="linear"
+        ),
+         shapes=[
+            go.layout.Shape(
+                type="line",
+                x0=center_x,
+                y0=0,  # Assuming your y-axis starts at 0
+                x1=center_x,
+                y1=1,  # Assuming your y-axis ends at 1
+                xref="x",
+                yref="paper",  # 'paper' refers to the entire range of the y-axis
+                line=dict(
+                    color="Black",
+                    width=3
+                )
+            )
+        ]
+    )
+    
+    step=900
+    tickvals=np.arange(
+        np.floor(df[x_var].min()/step)*step,
+        np.ceil(df[x_var].max()/step)*step,
+        step
+    )
+    ticktext=[str(df["zt"].iloc[np.argmin(np.abs(df[x_var]-val))]) for val in tickvals]        
+    fig.update_xaxes(
+        tickvals=tickvals,
+        ticktext=ticktext
+        )
+
+
+    message("Done")
+
 
     return fig
