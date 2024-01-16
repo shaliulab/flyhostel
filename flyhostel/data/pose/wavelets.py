@@ -85,7 +85,7 @@ class WaveletLoader(ABC):
 
 
 
-    def load_dataset(self, pose=None, wavelets=None, segregate=True):
+    def load_dataset(self, pose=None, wavelets=None, segregate=True, deg=None):
         """"
         Generate dataset of pose + wavelets 
 
@@ -94,13 +94,18 @@ class WaveletLoader(ABC):
 
         # load pose data and annotate it using ground truth
         #####################################################
+        if deg is None:
+            deg=self.deg
+
         if pose is None:
             pose=self.pose_boxcar.copy()
+            pose=self.annotate_pose(pose, deg)
+        else:
+            pose=pose.copy()
 
         pose["frame_idx"]=pose["frame_number"]%chunksize
         pose["chunk"]=pose["frame_number"]//chunksize
         
-        pose_annotated=self.annotate_pose(pose, self.deg)
 
         # load wavelet transform of the data
         #####################################################
@@ -113,22 +118,22 @@ class WaveletLoader(ABC):
         
         # merge pose and wavelet information
         # NOTE This assumes the frame number of the wavelet is the same as the pose
-        wavelets["frame_number"]=pose_annotated["frame_number"].values
+        wavelets["frame_number"]=pose["frame_number"].values
         
-        pose_annotated.set_index(["id", "frame_number"], inplace=True)
+        pose.set_index(["id", "frame_number"], inplace=True)
         wavelets.set_index("frame_number", append=True, inplace=True)
         
         # wavelets=wavelets.reset_index().set_index(["id", "frame_number"])
-        pose_annotated_with_wavelets=pd.merge(pose_annotated, wavelets, left_index=True, right_index=True)
+        pose_with_wavelets=pd.merge(pose, wavelets, left_index=True, right_index=True)
         del wavelets
-        pose_annotated_with_wavelets.reset_index(inplace=True)
+        pose_with_wavelets.reset_index(inplace=True)
 
 
         if segregate:
-            labeled_dataset = pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]!="unknown"]
-            unknown_dataset = pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="unknown"]
+            labeled_dataset = pose_with_wavelets.loc[pose_with_wavelets["behavior"]!="unknown"]
+            unknown_dataset = pose_with_wavelets.loc[pose_with_wavelets["behavior"]=="unknown"]
             return labeled_dataset, unknown_dataset, (frequencies, freq_names)
         else:
-            return pose_annotated_with_wavelets, (frequencies, freq_names)
+            return pose_with_wavelets, (frequencies, freq_names)
 
 

@@ -184,8 +184,8 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
     test_set["C_2"]=np.nan
     
 
-    labeled_dataset=pd.concat([training_set, test_set], axis=0).sort_values(["id", "frame_number"])
-    labeled_dataset.reset_index().to_feather(os.path.join(output, f"{timestamp}_dataset.feather"))
+    labeled_datasets=pd.concat([training_set, test_set], axis=0).sort_values(["id", "frame_number"])
+    labeled_datasets.reset_index().to_feather(os.path.join(output, f"{timestamp}_dataset.feather"))
     all_labeled_datasets.reset_index().to_feather(os.path.join(output, f"{timestamp}_all_dataset.feather"))
 
     color_mapping = {

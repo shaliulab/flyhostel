@@ -75,6 +75,3 @@ def main():
         )
         for identity in range(1, number_of_animals+1)
     )
-
-    # for identity in range(1, number_of_animals+1):
-    #     pipeline(experiment_name, identity, concatenation, args.chunks)

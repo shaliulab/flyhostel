@@ -223,6 +223,7 @@ def load_concatenation_table(cur, basedir):
 
 
 def pipeline(experiment_name, identity, concatenation, chunks=None, output="."):
+
     if chunks is not None:
         concatenation=concatenation.loc[concatenation["chunk"].isin(chunks)]
 
@@ -243,8 +244,6 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output="."):
             print(f"{concatenation_i.shape[0]} < {len(chunks)}. The concatenation is missing data")
             raise Exception(f"Chunks missing: {set(chunks).difference(set(concatenation_i['chunk'].tolist()))}")
 
-
-
     files=concatenation_i["dfile"]
     node_names, datasets, point_scores = load_files(files)
     dest_file=os.path.join(output, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
@@ -252,4 +251,3 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output="."):
 
     generate_single_file(node_names, datasets, point_scores, files, dest_file=dest_file)
     assert os.path.exists(dest_file)
-

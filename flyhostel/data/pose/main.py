@@ -618,7 +618,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
         for ident in identities:
             self.load_pose_data(*args, identity=ident, min_time=min_time, max_time=max_time, verbose=False, cache=cache, files=files, **kwargs)
         logger.info("Loading DEG data")
-        self.load_deg_data(*args, identity=None, ground_truth=True, stride=stride, verbose=False, cache=cache, **kwargs)
+        self.load_deg_data(*args, identity=None, ground_truth=True, stride=stride, verbose=False, cache=None, **kwargs)
         if self.identity is not None:
             self.load_behavior_data(self.experiment, self.identity, self.pose)
 
@@ -627,9 +627,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
         
         if cache is not None:
             path = os.path.join(cache, f"{self.experiment}_{min_time}_{max_time}_{stride}_deg_data.pkl")
-            # ret, self.deg=restore_cache(path)
-            # invalidate cache
-            ret=False
+            ret, self.deg=restore_cache(path)
             if ret:
                 return
 

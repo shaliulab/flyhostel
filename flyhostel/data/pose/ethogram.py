@@ -4,11 +4,15 @@ import math
 import logging
 import os.path
 import pickle
+
 import plotly.graph_objs as go
 import plotly.express as px
 import pandas as pd
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 from tqdm.auto import tqdm
+import webcolors
+
 from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.pose.constants import chunksize, framerate
@@ -89,91 +93,6 @@ def most_common(group, variable="behavior"):
     result['fraction'] = np.round(score, 2)
     
     return pd.Series(result)
-
-
-# def draw_ethogram(df, resolution=1):
-#     """
-    
-#     """
-
-#     df=df.copy()
-
-#     id = df["id"].iloc[0]
-#     if resolution is not None:
-#         df["t"]=np.floor(df["t"]//resolution)*resolution
-#         df = df.groupby(["id", "t"]).apply(most_common).reset_index(drop=True)
-
-#     df["zt"]=(df["t"]/3600).round(2)
-#     df["zt_"]=(df["t"]/3600)
-
-#     # Get unique behaviors
-#     behaviors = df['behavior'].unique()
-
-#     x_var="zt_"
-#     # Create a figure
-#     fig = go.Figure()
-
-#     # Plot a thin black line for all behaviors throughout the plot
-#     for behavior in behaviors:
-#         fig.add_trace(go.Scatter(
-#             x=[df[x_var].min(), df[x_var].max()],
-#             y=[behavior, behavior],
-#             mode='lines',
-#             line=dict(color='black', width=1),
-#             showlegend=False
-#         ))
-
-#     df["zt"]=np.round(df["t"]/3600, 2).values
-
-#     # Define a color map for different behaviors
-#     colors = {behavior: f'rgba({np.random.randint(0, 255)}, {np.random.randint(0, 255)}, {np.random.randint(0, 255)},' for behavior in behaviors}
-
-#     # Plot each behavior on a separate track with additional information on hover
-#     for behavior in behaviors:
-#         behavior_data = df[df['behavior'] == behavior]
-
-#         text = []
-#         meta_columns=["behavior", "id", "chunk","frame_idx", "zt", "score"]
-#         metadata=[behavior_data[c] for c in meta_columns]
-
-#         for meta in zip(*metadata):
-#             row=""
-#             for i, col in enumerate(meta):
-#                 row+=f"{meta_columns[i]}: {col} "
-#             text.append(row)
-
-#         # Map transparency of the color to the value of score
-#         alphas = np.interp(behavior_data['score'], [0, 1], [0, 1])
-#         marker_colors = [colors[behavior] + str(alpha) + ')' for alpha in alphas]
-
-#         fig.add_trace(go.Scatter(
-#             x=behavior_data[x_var],
-#             y=[behavior] * len(behavior_data),
-#             mode='markers',
-#             marker=dict(size=10, color=marker_colors, symbol="square"),
-#             name=behavior,
-#             text=text,
-#             hoverinfo='text',
-#         ))
-
-#     # annoying to read 1 seconds in the plot title x)
-#     if resolution==1:
-#         title=f"Ethogram - {id} - Resolution {resolution} second"
-#     else:
-#         title=f"Ethogram - {id} - Resolution {resolution} seconds"
-
-
-#     fig.update_layout(
-#         title=title,
-#         xaxis_title="ZT (hours)",
-#         yaxis_title="Behavior",
-#         yaxis=dict(type='category'),
-#         showlegend=True,
-#         height=300,
-
-#     )
-
-#     return fig
 
 
 def enforce_behavioral_context(dataset, modify, context, replacement, seconds=5, framerate=1):
@@ -277,21 +196,28 @@ def join_strings_by_repeated_integers(integers, strings):
     return list(grouped_strings.values())
 
 
-def load_dataset(experiment, identity):
-    # logger.debug("%s not found. Did you run UMAP model?", csv_path)
-    loader=FlyHostelLoader(experiment, identity=identity, chunks=range(0, 400))
+def load_dataset(experiment, identity, wavelets=None, cache="/flyhostel_data/cache", **kwargs):
+
+    loader=FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
     loader.load_and_process_data(
         stride=STRIDE,
-        cache="/flyhostel_data/cache",
+        cache=cache,
         filters=None,
-        useGPU=0
+        useGPU=0,
+        **kwargs
     )
-    out=loader.load_dataset(segregate=False)
+    out=loader.load_dataset(segregate=False, wavelets=wavelets, deg=loader.deg)
+
     dataset, (frequencies, freq_names)=out
     dataset.sort_values(["id","frame_number"], inplace=True)
-    return dataset
+    return dataset, (frequencies, freq_names)
     
-def make_ethogram(experiment, identity, model_path, input=None, output="./", frame_numbers=None, postprocess=True, train=RECOMPUTE):
+def make_ethogram(
+        experiment, identity, model_path, input=None, output="./",
+        cache="/flyhostel_data/cache", frame_numbers=None, postprocess=True,
+        t0=None,
+        train=RECOMPUTE,
+        **kwargs):
     """
     Generate ethogram for a particular fly
 
@@ -302,26 +228,13 @@ def make_ethogram(experiment, identity, model_path, input=None, output="./", fra
      2) a list of columns that should be used as features
     """
 
-    with open(model_path, "rb") as handle:
-        classifier, features=pickle.load(handle)
-    behaviors=classifier.classes_
 
-    if input is None:
-        if output is None:
-            output_folder=generate_path_to_output_folder(experiment, identity)
-        else:
-            output_folder=output
-            feather_path=os.path.join(output, experiment + "__" + str(identity).zfill(2) + "_raw_prediction.feather")
-    else:
-        output_folder=output
-        feather_path=input
-    
-    if not os.path.exists(feather_path):
-        dataset=load_dataset(experiment, identity)
-        dataset.reset_index().to_feather(feather_path)
+    dataset, (frequencies, freq_names)=load_dataset(experiment=experiment, identity=identity, cache=cache, **kwargs)
+    features=freq_names
 
-    else:
-        dataset=pd.read_feather(feather_path)
+    feather_path=os.path.join(output, "raw_prediction.feather")
+    dataset.reset_index().to_feather(feather_path)
+
 
     logger.debug("Read dataset of shape %s", dataset.shape)
     dataset["chunk"]=dataset["frame_number"]//chunksize
@@ -333,21 +246,30 @@ def make_ethogram(experiment, identity, model_path, input=None, output="./", fra
         ]
 
     if train:
-    
-        logger.debug("Predicting behavior of %s rows", dataset.shape[0])
-        before=time.time()
-        probs=classifier.predict_proba(dataset[features].values)
-        after=time.time()
-        logger.debug(
-            "Done in %s seconds (%s points/s or %s recording seconds / s)",
-            round(after-before, 2),
-            round(dataset.shape[0]/(after-before)),
-            round((dataset.shape[0]/(framerate/STRIDE))/(after-before))
-        )
+        classifier=RandomForestClassifier(n_estimators=100, random_state=42)
+        X_train=dataset[features].values
+        y_train=dataset["behavior"].values
+        classifier.fit(X_train, y_train)
 
-        dataset["behavior"]=behaviors[probs.argmax(axis=1)]
-        dataset["score"]=probs.max(axis=1)
-        dataset.reset_index(drop=True).to_feather(feather_path)
+    else:
+        with open(model_path, "rb") as handle:
+            classifier, features=pickle.load(handle)
+    
+    behaviors=classifier.classes_    
+    logger.debug("Predicting behavior of %s rows", dataset.shape[0])
+    before=time.time()
+    probs=classifier.predict_proba(dataset[features].values)
+    after=time.time()
+    logger.debug(
+        "Done in %s seconds (%s points/s or %s recording seconds / s)",
+        round(after-before, 2),
+        round(dataset.shape[0]/(after-before)),
+        round((dataset.shape[0]/(framerate/STRIDE))/(after-before))
+    )
+
+    dataset["behavior"]=behaviors[probs.argmax(axis=1)]
+    dataset["score"]=probs.max(axis=1)
+    dataset.reset_index(drop=True).to_feather(feather_path)
 
     if postprocess:
         logger.debug("Postprocessing predictions")
@@ -385,19 +307,38 @@ def make_ethogram(experiment, identity, model_path, input=None, output="./", fra
     # dataset=annotate_bouts(dataset, "behavior")
     # dataset=annotate_bout_duration(dataset)
 
-    feather_out=os.path.join(output, experiment + "__" + str(identity).zfill(2) + ".feather")
-    html_out=os.path.join(output, experiment + "__" + str(identity).zfill(2) + ".html")
-    json_out=os.path.join(output, experiment + "__" + str(identity).zfill(2) + ".json")
+    feather_out=os.path.join(output, "dataset.feather")
+    html_out=os.path.join(output, "plot.html")
+    json_out=os.path.join(output, "plot.json")
     logger.info("Saving to ---> %s", feather_out)
     dataset.reset_index(drop=True).to_feather(feather_out)
 
-    fig=draw_ethogram(dataset, resolution=1)
+    fig=draw_ethogram(dataset, resolution=1, t0=t0)
     logger.info("Saving to ---> %s", html_out)
     fig.write_html(html_out)
     fig.write_json(json_out)
 
 
-def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info):
+# list of colors is taken from https://www.w3.org/TR/SVG11/types.html#ColorKeywords
+color_mapping = {
+    "pe_inactive": "gold",
+    "feed": "orange",
+    "groom": "green",
+    "inactive": "blue",
+    "walk": "red",
+    "background": "black",
+    "feed+inactive": "peachpuff",
+    "groom+pe": "darkseagreen",
+    "feed+walk": "crimson",
+    "feed+groom": "peachpuff",
+    "inactive+walk": "darkgray",
+}
+
+color_mapping={k: webcolors.name_to_rgb(v) for k, v in color_mapping.items()}
+color_mapping = {behavior: f'rgba({v[0]}, {v[1]}, {v[2]},' for behavior, v in color_mapping.items()}
+
+
+def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info, t0=None):
 
     df=df.copy()
     id = df["id"].iloc[0]
@@ -406,7 +347,10 @@ def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info):
     df["zt_"]=(df["t"]/3600)
 
     if x_var=="seconds":
-        df["t"]=(df["frame_number"]-df["frame_number"].min())/framerate
+        if t0 is None:
+            t0=df["frame_number"].min()
+
+        df["t"]=(df["frame_number"]-t0)/framerate
         x_var="t"
         
     if resolution is not None:
@@ -415,10 +359,10 @@ def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info):
 
 
     # Get unique behaviors
-    behaviors = df['behavior'].unique()
+    behaviors = list(set(list(color_mapping.keys()) + df["behavior"].unique().tolist()))
 
     zt_min=round(df[x_var].min(), 2)
-    zt_max=round(df[x_var].max(), 2)   
+    zt_max=round(df[x_var].max(), 2)
     message("Generating ethogram from %s to %s ZT", zt_min, zt_max)
 
     # Create a figure
@@ -434,9 +378,6 @@ def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info):
             showlegend=False
         ))
 
-
-    # Define a color map for different behaviors
-    colors = {behavior: f'rgba({np.random.randint(0, 255)}, {np.random.randint(0, 255)}, {np.random.randint(0, 255)},' for behavior in behaviors}
 
     # Plot each behavior on a separate track with additional information on hover
     for behavior in behaviors:
@@ -454,7 +395,15 @@ def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info):
 
         # Map transparency of the color to the value of score
         alphas = np.interp(behavior_data['score'], [0, 1], [0, 1])
-        marker_colors = [colors[behavior] + str(alpha) + ')' for alpha in alphas]
+        marker_colors={}
+        for alpha in alphas:
+            if behavior in color_mapping:
+                color=color_mapping[behavior]
+            else:
+                logger.warning("Behavior %s does not have a color. Setting to white", behavior)
+                color="rgba(255, 255, 255,"
+            
+            marker_colors = [color + str(alpha) + ')' for alpha in alphas]
 
         fig.add_trace(go.Scattergl(
             x=behavior_data[x_var],
