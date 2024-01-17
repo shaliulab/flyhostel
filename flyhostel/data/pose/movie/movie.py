@@ -11,6 +11,7 @@ from .ffmpeg import annotate_behavior_in_video_ffmpeg
 stride=1
 
 
+logger=logging.getLogger(__name__)
 logging.getLogger("flyhostel.data.pose.sleap").setLevel(logging.INFO)
 
 
@@ -21,12 +22,16 @@ def annotate_behavior_in_video(*args, **kwargs):
 def make_video(pose, id, filename, frame_numbers, output_folder="."):
     pose=pose.loc[pose["id"]==id]
     pose["animal"]=pose["id"]
+    identity=int(id.split("|")[1])
+    logger.info("id =  %s, identity = %s", id, identity)
+
     
     # make index: annotate in which .mp4 video file 
     # can the source video be found for each fly in each frame
-    index=cross_with_video_data(pose[["t", "frame_number", "identity", "id", "animal"]])
+    index=cross_with_video_data(pose[["frame_number", "identity", "id", "animal"]])
     draw_video(
-        pose, index, identity=0,
+        pose, index,
+        identity=identity,
         frame_numbers=frame_numbers,
         chunksize=chunksize,
         fps=framerate//stride,
