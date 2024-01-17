@@ -319,8 +319,10 @@ def make_ethogram(
     fig.write_json(json_out)
 
 
+behaviors=["inactive", "pe_inactive", "feed", "feed+inactive", "groom", "feed+groom", "groom+pe", "feed+walk", "walk", "inactive+walk", "background"]
 # list of colors is taken from https://www.w3.org/TR/SVG11/types.html#ColorKeywords
-color_mapping = {
+# in English
+color_mapping_eng = {
     "pe_inactive": "gold",
     "feed": "orange",
     "groom": "green",
@@ -333,9 +335,10 @@ color_mapping = {
     "feed+groom": "peachpuff",
     "inactive+walk": "darkgray",
 }
-
-color_mapping={k: webcolors.name_to_rgb(v) for k, v in color_mapping.items()}
-color_mapping = {behavior: f'rgba({v[0]}, {v[1]}, {v[2]},' for behavior, v in color_mapping.items()}
+# in RGB
+color_mapping_rgb={behavior: webcolors.name_to_rgb(v) for behavior, v in color_mapping_eng.items()}
+# in RGBA partial string (to be completed witj alpha value )
+color_mapping_rgba_str = {behavior: f'rgba({v[0]}, {v[1]}, {v[2]},' for behavior, v in color_mapping_rgb.items()}
 
 
 def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info, t0=None):
@@ -354,15 +357,20 @@ def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info, t0=Non
         x_var="t"
         
     if resolution is not None:
+        logger.debug("Setting time resolution to %s second(s)", resolution)
         df["t"]=np.floor(df["t"]//resolution)*resolution
         df = df.groupby(["id", "t"]).apply(most_common).reset_index(drop=True)
 
 
     # Get unique behaviors
-    behaviors = list(set(list(color_mapping.keys()) + df["behavior"].unique().tolist()))
+    found_behaviors = list(set(list(color_mapping_rgba_str.keys()) + df["behavior"].unique().tolist()))
+    for behav in found_behaviors:
+        if behav not in behaviors:
+            logger.warning("Ignoring behavior %s", behav)
 
-    zt_min=round(df[x_var].min(), 2)
-    zt_max=round(df[x_var].max(), 2)
+    
+    zt_min=round(df["zt"].min(), 2)
+    zt_max=round(df["zt"].max(), 2)
     message("Generating ethogram from %s to %s ZT", zt_min, zt_max)
 
     # Create a figure
@@ -370,6 +378,7 @@ def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info, t0=Non
 
     # Plot a thin black line for all behaviors throughout the plot
     for behavior in behaviors:
+        logger.debug("Adding %s line", behavior)
         fig.add_trace(go.Scatter(
             x=[df[x_var].min(), df[x_var].max()],
             y=[behavior, behavior],
@@ -381,6 +390,7 @@ def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info, t0=Non
 
     # Plot each behavior on a separate track with additional information on hover
     for behavior in behaviors:
+        logger.debug("Adding %s trace", behavior)
         behavior_data = df[df['behavior'] == behavior]
 
         text = []
@@ -395,15 +405,16 @@ def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info, t0=Non
 
         # Map transparency of the color to the value of score
         alphas = np.interp(behavior_data['score'], [0, 1], [0, 1])
-        marker_colors={}
+        marker_colors=[]
         for alpha in alphas:
-            if behavior in color_mapping:
-                color=color_mapping[behavior]
+            if behavior in color_mapping_rgba_str:
+                color=color_mapping_rgba_str[behavior]
             else:
                 logger.warning("Behavior %s does not have a color. Setting to white", behavior)
                 color="rgba(255, 255, 255,"
             
-            marker_colors = [color + str(alpha) + ')' for alpha in alphas]
+            marker_colors.append(color + str(alpha) + ')')
+
 
         fig.add_trace(go.Scattergl(
             x=behavior_data[x_var],
