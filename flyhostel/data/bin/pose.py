@@ -28,6 +28,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true", default=False)
     group=ap.add_mutually_exclusive_group()
     group.add_argument("--experiment", type=str, help="Experiment key (FlyHostelX_XX_XXXXX)")
+    ap.add_argument("--identity", type=str, help="00 or 01 or 02...", default=None)
     group.add_argument("--dbfile", type=str, help="Path to .db file")
     ap.add_argument("--chunks", type=int, nargs="+", required=False, default=None)
     ap.add_argument("--n-jobs", type=int, default=1)
@@ -60,11 +61,16 @@ def main():
     date_time = "_".join(tokens[2:4])
     basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], flyhostel, number_of_animals_x, date_time)
 
-
     with sqlite3.connect(dbfile) as conn:
         cur=conn.cursor()
         number_of_animals=parse_number_of_animals(cur)
         concatenation=load_concatenation_table(cur, basedir)
+
+
+    if args.identity is None:
+        identities=range(1, number_of_animals+1)
+    else:
+        identities=[int(args.identity)]
 
     joblib.Parallel(n_jobs=args.n_jobs)(
     # joblib.Parallel(n_jobs=1)(
@@ -73,5 +79,5 @@ def main():
         )(
             experiment_name, identity, concatenation, args.chunks, output=args.output
         )
-        for identity in range(1, number_of_animals+1)
+        for identity in identities
     )
