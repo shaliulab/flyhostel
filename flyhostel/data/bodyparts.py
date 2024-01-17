@@ -7,19 +7,19 @@ import itertools
 import numpy as np
 import pandas as pd
 import joblib
-ROI_WIDTH=ROI_HEIGHT=100
-anchor_bp="thorax"
+SQUARE_WIDTH=SQUARE_HEIGHT=100
+ANCHOR_BP="thorax"
 
 
 def parse_identity(id):
     return int(id.split("|")[1])
 
 
-def make_absolute_pose_coordinates(dt, bodyparts, roi_width):
+def make_absolute_pose_coordinates(dt, bodyparts, roi_width, roi_height, square_width=SQUARE_WIDTH, square_height=SQUARE_HEIGHT, anchor_bp=ANCHOR_BP):
     """
     Convert to absolute coordinates
     
-    dt contaions the coordinates of the centroid in units relative to the roi_width e.g. 1,1 means bottom right corner
+    dt contains the coordinates of the centroid in units relative to the roi_width e.g. 1,1 means bottom right corner
     and the coordinates of the body parts relative to the top left corner of the inset of the animal (50 pixels up and right from centroid)
     to obtain all bodyparts in absolute:
 
@@ -29,15 +29,14 @@ def make_absolute_pose_coordinates(dt, bodyparts, roi_width):
     """
 
     dt["centroid_x"] = dt["x"] *roi_width
-    dt["tl_x"] = dt["centroid_x"]-ROI_WIDTH//2
-    dt["centroid_y"] = dt["y"] *roi_width
-    dt["tl_y"] = dt["centroid_y"]-ROI_HEIGHT//2
+    dt["tl_x"] = dt["centroid_x"]-square_width//2
+    dt["centroid_y"] = dt["y"] *roi_height
+    dt["tl_y"] = dt["centroid_y"]-square_height//2
     dt[f"{anchor_bp}_x_original"] = dt[f"{anchor_bp}_x"]
     dt[f"{anchor_bp}_y_original"] = dt[f"{anchor_bp}_y"]
     for bp in bodyparts:
         for coord in ["x", "y"]:
             dt[bp + "_" + coord] = dt["tl_" + coord] + dt[bp + "_" + coord]
-    dt["identity"] = [parse_identity(identity) for identity in dt["id"]]
     del dt["tl_y"]
     del dt["tl_x"]
     return dt
