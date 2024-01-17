@@ -53,8 +53,12 @@ try:
             frame_idx=frame_number%chunksize
 
             instance_series=pose.loc[(pose["identity"]==identity) & (pose["frame_number"]==frame_number)]
+            
+            # if no data is found for the fly in that frame
+            if instance_series.shape[0]==0:
+                logger.warning("No data found for fly %s in frame %s", identity, frame_number)
+                continue
             base_instance_numpy=numpy(instance_series, bodyparts=[node.name for node in skeleton.nodes])
-
 
             instance=Instance.from_numpy( 
                 base_instance_numpy, skeleton=skeleton
