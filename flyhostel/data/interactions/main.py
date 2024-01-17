@@ -24,7 +24,7 @@ class InteractionDetector(ABC):
     def find_interactions(self, dt, pose, bodyparts, min_interaction_duration=1):
         dt_gpu=cudf.DataFrame(dt[["id", "frame_number", "x", "y", "identity"]])
 
-        bodyparts_xy=itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts])
+        bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
         pose_gpu=cudf.DataFrame(pose[["id", "frame_number"] + bodyparts_xy])
         pose_and_centroid=pose_gpu.merge(dt_gpu, on=["id", "frame_number"], how="left")
         
