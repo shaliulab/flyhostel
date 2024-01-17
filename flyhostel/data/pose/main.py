@@ -38,7 +38,6 @@ from flyhostel.data.pose.h5py import (
 )
 from flyhostel.data.pose.pose import FilterPose
 from flyhostel.data.interactions.bouts import annotate_interaction_bouts, compute_bouts_, DEFAULT_STRIDE
-from flyhostel.data.bodyparts import make_absolute_pose_coordinates, legs
 from flyhostel.data.bodyparts import bodyparts as BODYPARTS
 from flyhostel.utils import load_roi_width, load_metadata_prop, restore_cache, save_cache
 from flyhostel.data.pose.movie_old import make_pose_movie
@@ -50,7 +49,7 @@ from imgstore.interface import VideoCapture
 from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
 from flyhostel.data.pose.distances import compute_distance_features_pairs
 from flyhostel.data.pose.wavelets import WaveletLoader
-
+from flyhostel.data.interactions.main import InteractionDetector
 bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in BODYPARTS]))
 bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in BODYPARTS]))
 
@@ -298,7 +297,7 @@ class BehaviorLoader(ABC):
 
 
 
-class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose):
+class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector, BehaviorLoader, DEGLoader, FilterPose):
     """
     Analyse microbehavior produced in the flyhostel
 
@@ -369,6 +368,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
         self.store=None
         self.store_index=None
         self.chunks=chunks
+        self.stride=None
 
         self.roi_width = load_roi_width(self.dbfile)
         
@@ -534,6 +534,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
         # processing happens with stride = 1 and original framerate (150)
         self.process_data(*args, min_time=min_time, max_time=max_time, stride=stride, bodyparts=bodyparts, cache=cache, **kwargs)
         self.apply_stride_all(stride=stride)
+        self.stride=stride
     
     def apply_stride_all(self, stride=1):
         
@@ -1013,9 +1014,3 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, BehaviorLoader, DEG
     def draw_videos(self, index):
         for i, row in index.iterrows():
             draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos")
-
-class InteractionDetector(FlyHostelLoader):
-
-    def __init__(self, *args, **kwargs):
-        print(f"InteractionDetector is deprecated. Please use flyhostel loader")
-        super(InteractionDetector, self).__init__(*args, **kwargs)
