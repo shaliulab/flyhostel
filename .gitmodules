@@ -4,3 +4,6 @@
 [submodule "libraries/trajectorytools"]
 	path = libraries/trajectorytools
 	url = git@github.com:shaliulab/trajectorytools
+[submodule "ethoscopy"]
+	path = libraries/ethoscopy
+	url = git@github.com:shaliulab/ethoscopy.git
