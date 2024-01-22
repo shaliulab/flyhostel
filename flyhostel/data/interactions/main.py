@@ -11,6 +11,7 @@ from flyhostel.data.interactions.neighbors_gpu import compute_pairwise_distances
 from flyhostel.data.bodyparts import make_absolute_pose_coordinates, legs
 
 logger = logging.getLogger(__name__)
+dist_max_mm=4
 
 class InteractionDetector(ABC):
 
@@ -20,6 +21,10 @@ class InteractionDetector(ABC):
     dist_max_mm=None
     px_per_mm=None
     neighbors_df=None
+
+    def __init__(self, *args, dist_max_mm=dist_max_mm, **kwargs):
+        self.dist_max_mm=dist_max_mm
+
 
     def find_interactions(self, dt, pose, bodyparts, min_interaction_duration=1):
         dt_gpu=cudf.DataFrame(dt[["id", "frame_number", "x", "y", "identity"]])

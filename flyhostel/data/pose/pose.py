@@ -212,6 +212,7 @@ class FilterPose(ABC):
             
         return {"jumps": pose_jumps, "filters": pose_filters}
     
+    
     def filter_pose_by_time(self, min_time, max_time, pose):
         raise NotImplementedError()
 
