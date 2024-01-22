@@ -20,7 +20,7 @@ class WaveletLoader(ABC):
     deg=None
     
     @abstractmethod
-    def annotate_pose(pose, behaviors):
+    def annotate_pose(self, pose, behaviors):
         raise NotImplementedError()
     
 

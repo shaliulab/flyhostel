@@ -8,11 +8,13 @@ import cudf
 
 from flyhostel.data.interactions.neighbors_gpu import find_neighbors as find_neighbors_gpu
 from flyhostel.data.interactions.neighbors_gpu import compute_pairwise_distances_using_bodyparts_gpu
-from flyhostel.data.bodyparts import make_absolute_pose_coordinates, legs
+from flyhostel.data.bodyparts import make_absolute_pose_coordinates
+from flyhostel.data.pose.constants import DIST_MAX_MM, ROI_WIDTH_MM, MIN_INTERACTION_DURATION, SQUARE_WIDTH, SQUARE_HEIGHT
+from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.utils import load_roi_width
+from flyhostel.utils.filesystem import FilesystemInterface
 
 logger = logging.getLogger(__name__)
-dist_max_mm=4
-
 
 try:
     import cupy as cp
@@ -23,21 +25,26 @@ except:
     logger.debug("Cannot load cupy")
 
 
-class InteractionDetector:
+class InteractionDetector(FilesystemInterface):
 
-    framerate=None
-    roi_height=None
-    roi_width=None
-    dist_max_mm=None
-    px_per_mm=None
-    neighbors_df=None
 
-    def __init__(self, *args, dist_max_mm=dist_max_mm, **kwargs):
+    def __init__(self, *args, dist_max_mm=DIST_MAX_MM, min_interaction_duration=MIN_INTERACTION_DURATION, roi_width_mm=ROI_WIDTH_MM, **kwargs):
+        self.framerate=None
+        
+        self.dbfile = self.load_dbfile()
+        self.roi_width = load_roi_width(self.dbfile)
+        self.roi_height=self.roi_width
+        self.roi_width_mm=roi_width_mm
+
+        self.px_per_mm=self.roi_width/roi_width_mm
+        self.neighbors_df=None
         self.dist_max_mm=dist_max_mm
+        self.min_interaction_duration=min_interaction_duration
+
         super(InteractionDetector, self).__init__(*args, **kwargs)
 
 
-    def find_interactions(self, dt, pose, bodyparts, min_interaction_duration=1):
+    def find_interactions(self, dt, pose, bodyparts, framerate=FRAMERATE):
         dt_gpu=cudf.DataFrame(dt[["id", "frame_number", "x", "y", "identity"]])
 
         bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
@@ -51,16 +58,16 @@ class InteractionDetector:
         # (which is the same for all animals)
         pose_absolute = make_absolute_pose_coordinates(
             pose_and_centroid.copy(), bodyparts,
-            square_width=100, square_height=100,
+            square_width=SQUARE_WIDTH, square_height=SQUARE_HEIGHT,
             roi_height=self.roi_height,
             roi_width=self.roi_width
         )
 
         # find frames where the centroid of at least two flies it at most dist_max_mm mm from each other
-        neighbors=self.find_neighbors(pose_absolute[["id", "frame_number", "centroid_x", "centroid_y"]], dist_max_mm=4)
+        neighbors=self.find_neighbors(pose_absolute[["id", "frame_number", "centroid_x", "centroid_y"]], dist_max_mm=self.dist_max_mm)
 
         # for those frames, go through each pair of 'neighbors' and compute the distance between the two closest bodyparts
-        neighbors=compute_pairwise_distances_using_bodyparts_gpu(neighbors.copy(), pose_absolute, bodyparts, bodyparts_xy)
+        neighbors=self.compute_pairwise_distances_using_bodyparts(neighbors.copy(), pose_absolute, bodyparts, bodyparts_xy)
 
         neighbors["distance_bodypart_mm"]=neighbors["distance_bodypart"]/self.px_per_mm
         neighbors["scene_start"]=[True] + (cp.diff(neighbors["frame_number"])!=1).tolist()
@@ -70,13 +77,17 @@ class InteractionDetector:
             on=["interaction"],
             how="left"
         )
-        neighbors["duration"]=neighbors["frames"]/self.framerate
-        interactions=neighbors.loc[(neighbors["duration"]>=min_interaction_duration)]
+        neighbors["duration"]=neighbors["frames"]/framerate
+        interactions=neighbors.loc[(neighbors["duration"]>=self.min_interaction_duration)]
 
         return interactions
+    
+
+    def compute_pairwise_distances_using_bodyparts(self, *args, **kwargs):
+        return compute_pairwise_distances_using_bodyparts_gpu(*args, **kwargs)
 
 
-    def find_neighbors(self, dt, dist_max_mm=None, useGPU=True):
+    def find_neighbors(self, dt, dist_max_mm=None):
 
         if dist_max_mm is None:
             dist_max_mm=self.dist_max_mm
@@ -91,12 +102,7 @@ class InteractionDetector:
                 dist_max_px=dist_max_mm*self.px_per_mm
                 logger.info("Neighbors = < %s mm (%s pixels)", dist_max_mm, dist_max_px)
 
-                if useGPU:
-                    neighbors = find_neighbors_gpu(dt, dist_max_px)
-
-                else:
-                     raise NotImplementedError()
-
+                neighbors = find_neighbors_gpu(dt, dist_max_px)
                 neighbors=neighbors.loc[neighbors["frame_number"].drop_duplicates().index]
                 neighbors["distance_mm"] = neighbors["distance"] / self.px_per_mm
 

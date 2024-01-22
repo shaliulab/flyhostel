@@ -84,17 +84,11 @@ class PoseLoader:
 
          
         if not ret:
-            if self.pose_source == "processed":
-                raise NotImplementedError()
-                # out=load_pose_data_processed(min_time, max_time, time_system, self.datasetnames, self.ids, self.lq_thresh)
-            elif self.pose_source == "compiled":
-                datasets=[dataset for dataset in self.datasetnames if dataset.endswith(str(identity).zfill(2))]
-                ids=[ident for ident in self.ids if ident.endswith(str(identity).zfill(2))]
-                if len(datasets)==0 or len(ids)==0:
-                    logger.error("identity %s not available in POSE_DATA", identity)
-                out=load_pose_data_compiled(datasets, ids, self.lq_thresh, stride=stride, files=files)
-            else:
-                raise Exception("source must be processed or compiled")
+            datasets=[dataset for dataset in self.datasetnames if dataset.endswith(str(identity).zfill(2))]
+            ids=[ident for ident in self.ids if ident.endswith(str(identity).zfill(2))]
+            if len(datasets)==0 or len(ids)==0:
+                logger.error("identity %s not available in POSE_DATA", identity)
+            out=load_pose_data_compiled(datasets, ids, self.lq_thresh, stride=stride, files=files)
 
             if out is not None:
                 pose, _, index_pandas=out

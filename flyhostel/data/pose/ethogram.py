@@ -94,6 +94,11 @@ def most_common(group, variable="behavior"):
     
     return pd.Series(result)
 
+def set_time_resolution(df, resolution):
+    df["t"]=np.floor(df["t"]//resolution)*resolution
+    df = df.groupby(["id", "t"]).apply(most_common).reset_index(drop=True)
+    return df
+
 
 def enforce_behavioral_context(dataset, modify, context, replacement, seconds=5, framerate=1):
     """
@@ -356,8 +361,8 @@ def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info, t0=Non
         
     if resolution is not None:
         logger.debug("Setting time resolution to %s second(s)", resolution)
-        df["t"]=np.floor(df["t"]//resolution)*resolution
-        df = df.groupby(["id", "t"]).apply(most_common).reset_index(drop=True)
+        df=set_time_resolution(df, resolution)
+
 
 
     # Get unique behaviors

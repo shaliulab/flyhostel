@@ -9,20 +9,18 @@ logger = logging.getLogger(__name__)
 import pandas as pd
 import numpy as np
 
-from flyhostel.data.interactions.centroids import (
-    load_centroid_data,
-)
-
 from flyhostel.data.pose.pose import FilterPose
 from flyhostel.utils import load_roi_width, load_metadata_prop, restore_cache, save_cache
 from flyhostel.data.pose.movie_old import make_pose_movie
 from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from imgstore.interface import VideoCapture
 from flyhostel.data.pose.loaders.wavelets import WaveletLoader
-from flyhostel.data.interactions.main import InteractionDetector
 from flyhostel.data.pose.loaders.behavior import BehaviorLoader
 from flyhostel.data.pose.loaders.pose import PoseLoader
+from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.data.pose.constants import ROI_WIDTH_MM
+from flyhostel.utils.filesystem import FilesystemInterface
 
 
 def dunder_to_slash(experiment):
@@ -31,7 +29,6 @@ def dunder_to_slash(experiment):
 
 
 # keep only interactions where the distance between animals is max mm_max mm
-roi_width_mm=60
 
 POSE_DATA=os.environ["POSE_DATA"]
 
@@ -41,7 +38,7 @@ from flyhostel.data.deg import DEGLoader
 from flyhostel.data.pose.video_crosser import CrossVideo
 
 
-class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector, BehaviorLoader, DEGLoader, FilterPose):
+class FlyHostelLoader(CrossVideo, FilesystemInterface, PoseLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose):
     """
     Analyse microbehavior produced in the flyhostel
 
@@ -84,7 +81,7 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
 
     """
 
-    def __init__(self, experiment, *args, identity=None, lq_thresh=1, roi_width_mm=roi_width_mm, n_jobs=1, pose_source="compiled", chunks=None, **kwargs):
+    def __init__(self, experiment, identity, *args, lq_thresh=1, roi_width_mm=ROI_WIDTH_MM, n_jobs=1, chunks=None, **kwargs):
         super(FlyHostelLoader, self).__init__(*args, **kwargs)
 
         basedir = os.environ["FLYHOSTEL_VIDEOS"] + "/" + dunder_to_slash(experiment)
@@ -98,14 +95,10 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
 
 
         self.experiment = experiment
-        if identity is None:
-            self.identity=None
-        else:
-            self.identity=int(identity)
+        self.identity=int(identity)
         self.lq_thresh = lq_thresh
         self.n_jobs=n_jobs
-        self.pose_source=pose_source
-        self.datasetnames=self.load_datasetnames(source=pose_source)
+        self.datasetnames=self.load_datasetnames()
         self.ids = self.make_ids(self.datasetnames)
 
         if self.identity is not None:
@@ -150,38 +143,10 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
         return f"{self.experiment}__{str(self.identity).zfill(2)}"
 
 
-    @property
-    def pose_median(self):
-        return self.pose_filters["nanmedian"]
-
-
     def list_ids(self):
         return np.unique(self.pose["id"])
 
 
-
-    def load_dbfile(self):
-        dbfiles=glob.glob(self.basedir + "/FlyHostel*.db")
-        assert len(dbfiles) == 1, f"{len(dbfiles)} dbfiles found in {self.basedir}: {' '.join(dbfiles)}"
-        return dbfiles[0]
-
-
-    def load_datasetnames(self, source=None):
-        if source is not None:
-            logger.warning("Multiple sources deprecated. Please dont pass any source")
-    
-        datasetnames = []
-        animals=os.listdir(POSE_DATA)
-        datasetnames=sorted(list(filter(lambda animals: animals.startswith(self.experiment), animals)))
-
-        if not datasetnames:
-            logger.warning(f"No datasets starting with {self.experiment} found in {POSE_DATA}")
-    
-        else:
-            if self.identity is not None:
-                datasetnames=[datasetnames[self.identity-1]]
-        return datasetnames
-    
 
 
     def process_data(self, stride, *args, min_time=MIN_TIME, max_time=MAX_TIME, useGPU=-1, framerate=FRAMERATE, cache=None, speed=False, sleep=False, **kwargs):
@@ -312,15 +277,6 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
             self.meta_info=meta_info[0]
         else:
             logger.warning("No centroid data database found for %s %s", self.experiment, identity)
-
-    
-    @staticmethod
-    def make_ids(datasetnames):
-        identities = [
-            d[:26] +  "|" + d[-2:]
-            for d in datasetnames
-        ]
-        return identities
 
     
     def draw_videos(self, index):

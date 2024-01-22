@@ -258,12 +258,3 @@ class FilterPose(ABC):
         pose=pd.concat(out, axis=0)
         logger.debug("Done")
         return pose
-    
-
-    def full_interpolation_all(self, pose, **kwargs):
-        dfs=[]
-        for id, df in pose.groupby("id"):
-            dfs.append(self.full_interpolation(df, **kwargs))
-        pose=pd.concat(dfs, axis=0).sort_values(["id", "frame_number"])
-        return pose
-

@@ -6,11 +6,7 @@ import numpy as np
 
 chunksize=45000
 framerate=150        # framerate of input videos
-bsoid_framerate=10
-stride=framerate//bsoid_framerate
 centroid_framerate=2
-bsoid_chunksize=chunksize // stride
-centroid_chunksize=centroid_framerate * chunksize // framerate
 DATASETS=os.environ["MOTIONMAPPER_DATA"]
 # "/Users/FlySleepLab Dropbox/Antonio/FSLLab/Projects/FlyHostel4/notebooks/datasets/"
 
@@ -70,3 +66,8 @@ JUMP_WINDOW_SIZE_SECONDS=0.5
 PARTITION_SIZE=framerate*3600
 PX_PER_CM=175
 APPLY_MEDIAN_FILTER=False
+ROI_WIDTH_MM=60
+DIST_MAX_MM=4
+SQUARE_HEIGHT=100
+SQUARE_WIDTH=100
+MIN_INTERACTION_DURATION=1 # seconds
