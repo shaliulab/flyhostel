@@ -1,10 +1,10 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 import logging
 import os.path
 
 import numpy as np
 import pandas as pd
-
+from flyhostel.utils import restore_cache, save_cache
 from flyhostel.utils import get_local_identities_from_experiment, get_sqlite_file, get_chunksize
 logger = logging.getLogger(__name__)
 
@@ -20,13 +20,70 @@ def parse_entry(data_entry, verbose=True):
     return True, tokens
 
 
-class DEGLoader(ABC):
+class DEGLoader:
+
 
     def __init__(self, *args, **kwargs):
         self.experiment=None
         self.deg=None
         self.datasetnames=None
+        self.store_index=None
         super(DEGLoader, self).__init__(*args, **kwargs)
+
+
+    @abstractmethod
+    def load_store_index(self, cache=None):
+        raise NotImplementedError()
+
+    def load_deg_data(self, *args, min_time=-np.inf, max_time=+np.inf, stride=1, time_system="zt", ground_truth=True,  cache=None, **kwargs):
+        
+        if cache is not None:
+            path = os.path.join(cache, f"{self.experiment}_{min_time}_{max_time}_{stride}_deg_data.pkl")
+            ret, self.deg=restore_cache(path)
+            if ret:
+                return
+
+        if ground_truth:
+            self.load_deg_data_gt(*args, **kwargs)
+        else:
+            self.load_deg_data_prediction(*args, **kwargs)
+
+        if self.deg is not None:
+            self.load_store_index(cache=cache)
+            
+            min_fn=self.store_index["frame_number"].iloc[
+                np.argmax(t>=min_time)
+            ]
+            max_fn=self.store_index["frame_number"].iloc[
+                -(np.argmax(t[::-1]<max_time)-1)
+            ]
+            self.deg=self.deg.loc[
+                (self.deg["frame_number"] >= min_fn) & (self.deg["frame_number"] < max_fn)
+            ]
+            self.deg["behavior"].loc[pd.isna(self.deg["behavior"])]="unknown"
+            self.deg=self.annotate_two_or_more_behavs_at_same_time(self.deg)
+
+        if cache and self.deg is not None:
+            save_cache(path, self.deg)
+
+
+    @staticmethod
+    def annotate_two_or_more_behavs_at_same_time(deg):
+        """
+        If more than 1 behavior is present in a given frame,
+        create a new behavioral label by chaining said behaviors with +
+        So for example, if the fly is walking and feeding at the same time,
+        make it the behavior feed+walk
+        """
+
+        # Group by frame_number and id, join behaviors with '+', and reset index
+        deg_group = deg.groupby(["id", "frame_number"])["behavior"].agg(lambda x: "+".join(sorted(list(set(x))))).reset_index()
+        deg=deg_group.merge(
+            deg.drop(["behavior"], axis=1).drop_duplicates(),
+            on=["id", "frame_number"]
+        )
+        deg.sort_values(["id", "frame_number"],  inplace=True)
+        return deg
 
 
     @staticmethod

@@ -1,7 +1,6 @@
 import time
 import glob
 import time
-import pickle
 import os.path
 import logging
 
@@ -9,21 +8,9 @@ logger = logging.getLogger(__name__)
 
 import pandas as pd
 import numpy as np
-import codetiming
-
-try:
-    import cupy as cp
-    useGPU=True
-except:
-    cp=None
-    useGPU=False
-    logger.debug("Cannot load cupy")
 
 from flyhostel.data.interactions.centroids import (
     load_centroid_data,
-)
-from flyhostel.data.interactions.distance import (
-    compute_distance_matrix_bodyparts
 )
 
 from flyhostel.data.pose.pose import FilterPose
@@ -135,14 +122,13 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
 
         self.roi_width = load_roi_width(self.dbfile)
         
-        # because the arena circular
+        # because the arena is circular
         self.roi_height = self.roi_width
+    
         self.framerate= int(float(load_metadata_prop(dbfile=self.dbfile, prop="framerate")))
         self.roi_width_mm=roi_width_mm
         self.px_per_mm=self.roi_width/roi_width_mm
 
-        # self.index_pandas = []
-        # self.h5s_pandas = []
         self.pose=None
     
         self.dt=None
@@ -180,19 +166,14 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
         return dbfiles[0]
 
 
-    def load_datasetnames(self, source):
+    def load_datasetnames(self, source=None):
+        if source is not None:
+            logger.warning("Multiple sources deprecated. Please dont pass any source")
+    
         datasetnames = []
-        if source == "processed":
-            pickle_files, experiments = self.load_experiments(self.experiment + "*")
-            settings={}
-            for i, pickle_file in enumerate(pickle_files):
-                with open(pickle_file, "rb") as handle:
-                    params = pickle.load(handle)
-                    settings[experiments[i]] = params
-                    datasetnames.extend(params["animals"])
-        elif source == "compiled":
-            animals=os.listdir(POSE_DATA)
-            datasetnames=sorted(list(filter(lambda animals: animals.startswith(self.experiment), animals)))
+        animals=os.listdir(POSE_DATA)
+        datasetnames=sorted(list(filter(lambda animals: animals.startswith(self.experiment), animals)))
+
         if not datasetnames:
             logger.warning(f"No datasets starting with {self.experiment} found in {POSE_DATA}")
     
@@ -215,9 +196,7 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
             )
 
         if sleep:
-            # annotate sleep using centroid data
-            self.process_sleep(min_time, max_time, stride, cache=cache)
-
+            pass
 
     def load_and_process_data(self, *args, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, cache=None, files=None, **kwargs):
         if files is not None:
@@ -253,21 +232,6 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
         return out
 
 
-    
-    def process_sleep(self, min_time, max_time, stride, cache):
-
-        if cache is not None:
-            path = os.path.join(cache, f"{self.experiment}__{min_time}_{max_time}_{stride}_sleep_data.pkl")
-            ret, out = restore_cache(path)
-            self.dt_sleep = out
-            return
-
-        self.dt_sleep = self.annotate_sleep(self.dt)
-        
-        if cache is not None:
-            save_cache(path, (self.dt_sleep))
-
-
     def load_store_index(self, cache=None):
 
         if cache is not None:
@@ -275,8 +239,6 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
             ret, self.store_index = restore_cache(path)
             if ret:
                 return
-
-
         before=time.time()
         if self.store_index is None:
             self.store=VideoCapture(self.store_path, 1)
@@ -326,109 +288,8 @@ class FlyHostelLoader(CrossVideo, PoseLoader, WaveletLoader, InteractionDetector
         self.load_behavior_data(self.experiment, identity=self.identity, pose=self.pose_boxcar, cache=cache)
 
 
-    def load_deg_data(self, *args, min_time=-np.inf, max_time=+np.inf, stride=1, time_system="zt", ground_truth=True,  cache=None, **kwargs):
-        
-        if cache is not None:
-            path = os.path.join(cache, f"{self.experiment}_{min_time}_{max_time}_{stride}_deg_data.pkl")
-            ret, self.deg=restore_cache(path)
-            if ret:
-                return
-
-        if ground_truth:
-            self.load_deg_data_gt(*args, **kwargs)
-        else:
-            self.load_deg_data_prediction(*args, **kwargs)
-
-        if self.deg is not None:
-            self.load_store_index(cache=cache)
-            # self.deg=self.annotate_time_in_dataset(self.deg, self.store_index, "frame_time", self.meta_info["t_after_ref"])
-            # self.deg=self.deg.loc[
-            #     (self.deg["t"] >= min_time) & (self.deg["t"] < max_time)
-            # ]
-            self.deg["behavior"].loc[pd.isna(self.deg["behavior"])]="unknown"
-            self.deg=self.annotate_two_or_more_behavs_at_same_time(self.deg)
-
-        if cache and self.deg is not None:
-            save_cache(path, self.deg)
-
-
-    @staticmethod
-    def annotate_two_or_more_behavs_at_same_time(deg):
-        """
-        If more than 1 behavior is present in a given frame,
-        create a new behavioral label by chaining said behaviors with +
-        So for example, if the fly is walking and feeding at the same time,
-        make it the behavior feed+walk
-        """
-
-        # Group by frame_number and id, join behaviors with '+', and reset index
-        deg_group = deg.groupby(["id", "frame_number"])["behavior"].agg(lambda x: "+".join(sorted(list(set(x))))).reset_index()
-        deg=deg_group.merge(
-            deg.drop(["behavior"], axis=1).drop_duplicates(),
-            on=["id", "frame_number"]
-        )
-        deg.sort_values(["id", "frame_number"],  inplace=True)
-        after=time.time()
-        return deg
-
-
-
-    @staticmethod
-    def annotate_time_in_dataset(dataset, index, t_column="t", t_after_ref=None):
-        before=time.time()
-        assert index is not None
-        assert "frame_number" in dataset.columns
-
-        if t_column in dataset.columns:
-            dataset_without_t=dataset.drop(t_column, axis=1)
-        else:
-            dataset_without_t=dataset
-        dataset=dataset_without_t.merge(index[["frame_number", t_column]], on=["frame_number"])
-        if t_after_ref is not None and t_column == "frame_time":
-            dataset["t"]=dataset[t_column]+t_after_ref
-        after=time.time()
-        logger.debug("annotate_time_in_dataset took %s seconds", after-before)
-        return dataset
-
-
-
-
     def make_movie(self, ts=None, frame_numbers=None, **kwargs):
         return make_pose_movie(self.basedir, self.dt_with_pose, ts=ts, frame_numbres=frame_numbers, **kwargs)
-
-
-    def compute_pairwise_distances_using_bodyparts_cpu(self, distances, pose, bodyparts, precision=100):
-        """
-        Compute distance between two closest bodyparts of two already close animals
-        See compute_distance_matrix_bodyparts
-        """
-
-        if useGPU:
-            impl = cp
-        else:
-            impl = np
-    
-        bodyparts_arr = np.array(bodyparts)
-        distance_matrix, bp_pairs = compute_distance_matrix_bodyparts(distances, pose, impl, bodyparts, precision=precision)
-        with codetiming.Timer(text="Computing closest body parts spent: {:.2f} seconds"):
-            selected_bp_pairs = impl.argmin(distance_matrix, axis=1)
-        min_distance=(distance_matrix[impl.arange(distance_matrix.shape[0]), selected_bp_pairs]/precision)
-
-        if useGPU:
-            min_distance=min_distance.get()
-            bp_pairs=bp_pairs.get()
-            selected_bp_pairs=selected_bp_pairs.get()
-    
-        pairs=np.stack([bodyparts_arr[bp_pairs[selected]] for selected in selected_bp_pairs], axis=0)
-        min_distance_mm = min_distance / self.px_per_mm
-
-        results=pd.DataFrame({"bp_distance_mm": min_distance_mm, "bp_distance": min_distance, "bp1": pairs[:, 0], "bp2": pairs[:, 1]})
-        distances = pd.concat([distances.reset_index(drop=True), results], axis=1)
-        distances["id"]=pd.Categorical(distances["id"])
-        distances["nn"]=pd.Categorical(distances["nn"])
-        distances.sort_values(["frame_number", "id", "nn"], inplace=True)
-        return distances
-
 
 
     def load_centroid_data(self, *args, identity=None, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, reference_hour=np.nan, cache=None, **kwargs):

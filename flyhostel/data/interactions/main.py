@@ -1,10 +1,10 @@
-from abc import ABC
 import itertools
 import codetiming
 import logging
 
 import cupy as cp
 import cudf
+
 
 from flyhostel.data.interactions.neighbors_gpu import find_neighbors as find_neighbors_gpu
 from flyhostel.data.interactions.neighbors_gpu import compute_pairwise_distances_using_bodyparts_gpu
@@ -13,7 +13,17 @@ from flyhostel.data.bodyparts import make_absolute_pose_coordinates, legs
 logger = logging.getLogger(__name__)
 dist_max_mm=4
 
-class InteractionDetector(ABC):
+
+try:
+    import cupy as cp
+    useGPU=True
+except:
+    cp=None
+    useGPU=False
+    logger.debug("Cannot load cupy")
+
+
+class InteractionDetector:
 
     framerate=None
     roi_height=None
@@ -24,6 +34,7 @@ class InteractionDetector(ABC):
 
     def __init__(self, *args, dist_max_mm=dist_max_mm, **kwargs):
         self.dist_max_mm=dist_max_mm
+        super(InteractionDetector, self).__init__(*args, **kwargs)
 
 
     def find_interactions(self, dt, pose, bodyparts, min_interaction_duration=1):

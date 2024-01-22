@@ -1,3 +1,4 @@
+import time
 import json
 import logging
 import os.path
@@ -249,9 +250,13 @@ def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
 
 def restore_cache(path):
     if os.path.exists(path):
-        logger.debug(f"Loading ---> {path}")
+        logger.debug("Loading ---> %s", path)
+        before=time.time()
         with open(path, "rb") as handle:
             out=pickle.load(handle)
+        after=time.time()
+        logger.debug("Loading %s took %s seconds", path, after-before)
+        
 
         return True, out
     else:
@@ -263,3 +268,18 @@ def save_cache(path, data):
         pickle.dump(data, handle, protocol=4)
 
 
+def annotate_time_in_dataset(dataset, index, t_column="t", t_after_ref=None):
+    before=time.time()
+    assert index is not None
+    assert "frame_number" in dataset.columns
+
+    if t_column in dataset.columns:
+        dataset_without_t=dataset.drop(t_column, axis=1)
+    else:
+        dataset_without_t=dataset
+    dataset=dataset_without_t.merge(index[["frame_number", t_column]], on=["frame_number"])
+    if t_after_ref is not None and t_column == "frame_time":
+        dataset["t"]=dataset[t_column]+t_after_ref
+    after=time.time()
+    logger.debug("annotate_time_in_dataset took %s seconds", after-before)
+    return dataset
