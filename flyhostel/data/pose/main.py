@@ -52,6 +52,8 @@ from flyhostel.data.pose.wavelets import WaveletLoader
 from flyhostel.data.interactions.main import InteractionDetector
 bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in BODYPARTS]))
 bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in BODYPARTS]))
+from flyhostel.data.pose.constants import framerate
+from motionmapperpy import setRunParameters
 
 
 def dunder_to_slash(experiment):
@@ -97,7 +99,7 @@ class PEDetector(ABC):
 
         self.experiment=None
         self.pose=None
-        self.identities=None
+        self.ids=None
         self.roi_width=None
         self.dt=None
         self.pe_df=None
@@ -184,7 +186,7 @@ class PEDetector(ABC):
     def detect_proboscis_extension(self, pose):
         all_dfs=[]
         for id, pose_d in pose.groupby("id"):
-            if not id in self.identities:
+            if not id in self.ids:
                 print(f"No pose data is available for id {id}")
                 continue
 
@@ -215,35 +217,24 @@ class PEDetector(ABC):
         pe_df["frame_idx_start"]=pe_df["frame_idx_start"].astype(np.int64)
 
         self.pe_df=pe_df
-
         return pe_df
 
 
-class BehaviorLoader(ABC):
-
-
-    pose=None
+class BehaviorLoader():
 
     def __init__(self, *args, **kwargs):
-        self.dt_behavior=None
+        self.behavior=None
+        self.pose=None
         super(BehaviorLoader, self).__init__(*args, **kwargs)
-        
 
-    @staticmethod
-    def apply_sequence_model(dt):
-        dt=annotate_bouts(dt, "behavior")
-        dt=annotate_bout_duration(dt, fps=150)
-        # if a bout of groom is very short, overwrite it with whatever behavior came before
-        dt.loc[(dt["behavior"]=="groom") & (dt["duration"]<0.5), "behavior"]=np.nan
-        dt["behavior"].ffill(inplace=True)
-        dt=annotate_bouts(dt, "behavior")
-        dt=annotate_bout_duration(dt, fps=150)
+    def load_behavior_data(self, experiment, identity, pose=None, interpolate_frames=0, cache=None):
 
-        return dt
+        if cache is not None:
+            path = os.path.join(cache, f"{experiment}__{str(identity).zfill(2)}_behavior.pkl")
+            ret, self.behavior = restore_cache(path)
+            if ret:
+                return
 
-
-    def load_behavior_data(self, experiment, identity, pose=None, interpolate_frames=0):
-        logger.debug("Loading behavior data")
         tokens=experiment.split("_")
         feather_path=os.path.join(
             os.environ["FLYHOSTEL_VIDEOS"],
@@ -256,44 +247,54 @@ class BehaviorLoader(ABC):
         )
         if os.path.exists(feather_path):
 
-            dt_behavior=pd.read_feather(feather_path)[["id", "frame_number", "behavior"]]
+            dt=pd.read_feather(feather_path)[["id", "frame_number", "behavior", "score"]]
     
             if interpolate_frames>0:
-                dt_behavior_t_complete=[]
+                dt_t_complete=[]
                 for i in tqdm(range(interpolate_frames), desc="filling wavelet gaps"):
-                    df=dt_behavior.copy()
+                    df=dt.copy()
                     df["frame_number"]+=i
-                    dt_behavior_t_complete.append(df)
+                    dt_t_complete.append(df)
                 
-                dt_behavior=pd.concat(dt_behavior_t_complete, axis=0)
-                del dt_behavior_t_complete
-                dt_behavior.sort_values(["id", "frame_number"], inplace=True)
-
-
-            dt=self.apply_sequence_model(dt_behavior)
+                dt=pd.concat(dt_t_complete, axis=0)
+                del dt_t_complete
+                dt.sort_values(["id", "frame_number"], inplace=True)
+                
+            wavelet_downsample=setRunParameters().wavelet_downsample
+            fps=framerate//wavelet_downsample
 
             if pose is None:
                 logger.warning("Pose not found. Please provide a pose dataset, or refining of behavior will be disabled")
             else:
+                before=time.time()
+                logger.debug("Refining behavior")
                 pose["chunk"]=pose["frame_number"]//CHUNKSIZE
                 pose["frame_idx"]=pose["frame_number"]%CHUNKSIZE
                 
                 pose=compute_distance_features_pairs(pose, pairs=[("head", "proboscis"), ])
                 distances=[column for column in pose.columns if "distance" in column]
-                
-   
+
                 dt=pose[["id", "t", "frame_number", "chunk", "frame_idx", "identity"] + distances].merge(
-                    dt[["id", "frame_number", "behavior"]], how="left", on=["id", "frame_number"]
-                )               
-                # hardcoded criteria
+                    dt[["id", "frame_number", "behavior", "score"]], how="right", on=["id", "frame_number"]
+                )
+                
                 dt.loc[(dt["head_proboscis_distance"] < 0.01) & (dt["behavior"]=="pe_inactive"), "behavior"]="inactive"
-            
-            self.dt_behavior=dt
+                after=time.time()
+                logger.debug("Refining behavior took %s seconds", after-before)
+
+
 
         else:
             logger.warning("%s does not exist", feather_path)
+            return
+    
+        dt=annotate_bouts(dt, "behavior")
+        dt=annotate_bout_duration(dt, fps=fps)
+        self.behavior=dt
 
-        logger.debug("Done")
+
+        if cache is not None:
+            save_cache(path, self.behavior)
 
 
 
@@ -362,7 +363,13 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
         self.n_jobs=n_jobs
         self.pose_source=pose_source
         self.datasetnames=self.load_datasetnames(source=pose_source)
-        self.identities = self.make_identities(self.datasetnames)
+        self.ids = self.make_ids(self.datasetnames)
+
+        if self.identity is not None:
+            pose_found=any([int(id.split("|")[1])==self.identity for id in self.ids])
+            if not pose_found:
+                logger.error("Pose not found")
+
         self.dbfile = self.load_dbfile()
         self.store_path=os.path.join(os.path.dirname(self.dbfile), "metadata.yaml")
         self.store=None
@@ -422,7 +429,10 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
         self.window_size_seconds=0.5
         self.min_window_size=40
         self.min_supporting_points=3
-    
+
+    def __str__(self):
+        return f"{self.experiment}__{str(self.identity).zfill(2)}"
+
 
     @property
     def pose_median(self):
@@ -508,8 +518,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
                     datasetnames.extend(params["animals"])
         elif source == "compiled":
             animals=os.listdir(POSE_DATA)
-            datasetnames=list(filter(lambda animals: animals.startswith(self.experiment), animals))
-
+            datasetnames=sorted(list(filter(lambda animals: animals.startswith(self.experiment), animals)))
         if not datasetnames:
             logger.warning(f"No datasets starting with {self.experiment} found in {POSE_DATA}")
     
@@ -522,14 +531,13 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
     def load_and_process_data(self, *args, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, cache=None, bodyparts=BODYPARTS, files=None, **kwargs):
         if files is not None:
             self.datasetnames=[os.path.splitext(os.path.basename(file))[0] for file in files]
-            self.identities=self.make_identities(self.datasetnames)
+            self.ids=self.make_ids(self.datasetnames)
 
         self.load_data(min_time=min_time, max_time=max_time, stride=stride, cache=cache, files=files)
-        assert self.dt is not None
-        assert self.pose is not None
-        ids=self.pose["id"].unique()
-        for id in self.identities:
-            assert id in ids
+        if self.dt is None:
+            logger.warning("No centroid data for %s__%s", self.experiment, str(self.identity).zfill(2))
+        if self.pose is None:
+            logger.warning("No pose data for %s__%s", self.experiment, str(self.identity).zfill(2))
 
         # processing happens with stride = 1 and original framerate (150)
         self.process_data(*args, min_time=min_time, max_time=max_time, stride=stride, bodyparts=bodyparts, cache=cache, **kwargs)
@@ -595,7 +603,16 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
         return filtered_pose
 
 
-    def load_store_index(self):
+    def load_store_index(self, cache=None):
+
+        if cache is not None:
+            path = os.path.join(cache, f"{self.experiment}_store_index.pkl")
+            ret, self.store_index = restore_cache(path)
+            if ret:
+                return
+
+
+        before=time.time()
         if self.store_index is None:
             self.store=VideoCapture(self.store_path, 1)
             if self.chunks is not None:
@@ -604,28 +621,44 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
                 self.store_index=pd.DataFrame(self.store._index.get_all_metadata())
             self.store_index["frame_time"]/=1000
             self.store.release()
+        after=time.time()
+
+        if cache is not None:
+            save_cache(path, self.store_index)
+
+        logger.debug("Loading store index took %s seconds", after-before)
 
 
     def load_data(self, *args, identity=None, min_time=-float('inf'), max_time=+float('inf'), stride=1, n_jobs=1, cache=None, files=None, **kwargs):
-        self.load_store_index()
-
-        logger.info("Loading centroid data")
-        self.load_centroid_data(*args, min_time=min_time, max_time=max_time, n_jobs=n_jobs, stride=stride, verbose=False, cache=cache, reference_hour=np.nan, **kwargs)
-        logger.info("Loading pose data")
-        # we always load all pose data, no matter the stride
+        self.load_store_index(cache=cache)
         if identity is None:
             identities=[self.identity]
+            identity=self.identity
+            
             if self.identity is None:
-                identities=[int(id.split("|")[1]) for id in self.identities]
+                identities=[int(id.split("|")[1]) for id in self.ids]
         else:
             identities=[identity]
 
+    
+        logger.info("Loading centroid data")
+        self.load_centroid_data(*args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs, stride=stride, verbose=False, cache=None, reference_hour=np.nan, **kwargs)
+       
+        logger.info("Loading pose data")
         for ident in identities:
             self.load_pose_data(*args, identity=ident, min_time=min_time, max_time=max_time, verbose=False, cache=cache, files=files, **kwargs)
         logger.info("Loading DEG data")
-        self.load_deg_data(*args, identity=None, ground_truth=True, stride=stride, verbose=False, cache=None, **kwargs)
-        if self.identity is not None:
-            self.load_behavior_data(self.experiment, self.identity, self.pose)
+        self.load_deg_data(*args, identity=identity, ground_truth=True, stride=stride, verbose=False, cache=None, **kwargs)
+        
+        logger.info("Loading behavior data")
+        self.load_behavior_data(self.experiment, identity, self.pose_boxcar, cache=cache)
+
+    def load_fast(self, cache):
+        self.load_centroid_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None, reference_hour=np.nan)
+        self.load_pose_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)
+        self.process_data(stride=1, cache=cache)
+        self.load_deg_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)
+        self.load_behavior_data(self.experiment, identity=self.identity, pose=self.pose_boxcar, cache=cache)
 
 
     def load_deg_data(self, *args, min_time=-np.inf, max_time=+np.inf, stride=1, time_system="zt", ground_truth=True,  cache=None, **kwargs):
@@ -642,11 +675,11 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
             self.load_deg_data_prediction(*args, **kwargs)
 
         if self.deg is not None:
-            self.load_store_index()
-            self.deg=self.annotate_time_in_dataset(self.deg, self.store_index, "frame_time", self.meta_info["t_after_ref"])
-            self.deg=self.deg.loc[
-                (self.deg["t"] >= min_time) & (self.deg["t"] < max_time)
-            ]
+            self.load_store_index(cache=cache)
+            # self.deg=self.annotate_time_in_dataset(self.deg, self.store_index, "frame_time", self.meta_info["t_after_ref"])
+            # self.deg=self.deg.loc[
+            #     (self.deg["t"] >= min_time) & (self.deg["t"] < max_time)
+            # ]
             self.deg["behavior"].loc[pd.isna(self.deg["behavior"])]="unknown"
             self.deg=self.annotate_two_or_more_behavs_at_same_time(self.deg)
 
@@ -677,6 +710,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
 
     @staticmethod
     def annotate_time_in_dataset(dataset, index, t_column="t", t_after_ref=None):
+        before=time.time()
         assert index is not None
         assert "frame_number" in dataset.columns
 
@@ -687,6 +721,8 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
         dataset=dataset_without_t.merge(index[["frame_number", t_column]], on=["frame_number"])
         if t_after_ref is not None and t_column == "frame_time":
             dataset["t"]=dataset[t_column]+t_after_ref
+        after=time.time()
+        logger.debug("annotate_time_in_dataset took %s seconds", after-before)
         return dataset
     
     def load_pose_data(self, identity, min_time=-float("inf"), max_time=float("inf"), time_system="zt", stride=1, cache=None, verbose=False, files=None):
@@ -694,13 +730,14 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
         if min_time>=max_time:
             logger.warning("Passed time interval (%s - %s) is meaningless")
 
-        self.load_store_index()
+        self.load_store_index(cache=cache)
         ret=False
         pose=None
     
         if cache is not None:
             path = f"{cache}/{self.experiment}__{str(identity).zfill(2)}_{stride}_pose_data.pkl"
             ret, out=restore_cache(path)
+
             if ret:
                 (pose, meta_pose)=out
 
@@ -708,16 +745,21 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
         if not ret:
             if self.pose_source == "processed":
                 raise NotImplementedError()
-                # out=load_pose_data_processed(min_time, max_time, time_system, self.datasetnames, self.identities, self.lq_thresh)
+                # out=load_pose_data_processed(min_time, max_time, time_system, self.datasetnames, self.ids, self.lq_thresh)
             elif self.pose_source == "compiled":
                 datasets=[dataset for dataset in self.datasetnames if dataset.endswith(str(identity).zfill(2))]
-                identities=[ident for ident in self.identities if ident.endswith(str(identity).zfill(2))]
-                out=load_pose_data_compiled(datasets, identities, self.lq_thresh, stride=stride, files=files)
+                ids=[ident for ident in self.ids if ident.endswith(str(identity).zfill(2))]
+                if len(datasets)==0 or len(ids)==0:
+                    logger.error("identity %s not available in POSE_DATA", identity)
+                out=load_pose_data_compiled(datasets, ids, self.lq_thresh, stride=stride, files=files)
             else:
                 raise Exception("source must be processed or compiled")
 
             if out is not None:
                 pose, _, index_pandas=out
+                if len(pose)==0:
+                    return None
+
                 assert len(index_pandas)==1
                 
                 meta_pose={"files": [file.decode() for file in index_pandas[0]["files"].unique()]}
@@ -763,10 +805,21 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
             pose=self.pose
 
         if self.dt is not None and len(pose) > 0:
-            pose=self.annotate_time_in_dataset(pose, self.store_index, "frame_time", self.meta_info["t_after_ref"])
-            pose=pose.loc[
-                (pose["t"] >= min_time) & (pose["t"] < max_time)
-            ]
+            
+            
+            # pose=self.annotate_time_in_dataset(pose, self.store_index, "frame_time", self.meta_info["t_after_ref"])
+            
+            if min_time > float("-inf") or max_time < float("+inf"):
+                t=self.store_index["frame_time"]+self.meta_info["t_after_ref"]
+                min_fn=self._store_index["frame_number"].iloc[
+                    np.argmax(t>=min_time)
+                ]
+                max_fn=self._store_index["frame_number"].iloc[
+                    -(np.argmax(t[::-1]<max_time)-1)
+                ]
+                pose=pose.loc[
+                    (pose["t"] >= min_fn) & (pose["t"] < max_fn)
+                ]
     
         return pose
 
@@ -877,68 +930,33 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
         return distances_sleep
 
 
-
     def main(self):
         self.integrate(self.dt, self.pose_boxcar)
         self.make_movie(ts=np.arange(60000, 60300, 1))
         self.annotate_interactions(n_jobs=self.n_jobs)
 
 
-    def load_centroid_data(self, *args, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, reference_hour=np.nan, cache=None, **kwargs):
-        if cache is not None:
-            path = f"{cache}/{self.experiment}_{min_time}_{max_time}_{stride}_centroid_data.pkl"
-            ret, out=restore_cache(path)
-            if ret:
-                self.dt, self.meta_info=out
-                return
-
-        dt, meta_info=load_centroid_data(*args, experiment=self.experiment, reference_hour=reference_hour, **kwargs)
-        dt.reset_index(inplace=True)
-
-        missing_frame_number=pd.isna(dt["frame_number"])
-        missing_frame_number_count = missing_frame_number.sum()
-
-        if missing_frame_number_count > 0:
-            print(f"{missing_frame_number_count} bins are missing the frame_number")
-
-        dt=dt.loc[~missing_frame_number]
-        dt["frame_number"]=dt["frame_number"].astype(np.int32)
-        dt["id"]=pd.Categorical(dt["id"])
-        self.dt=dt
-        self.meta_info=meta_info[0]
+    def load_centroid_data(self, *args, identity=None, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, reference_hour=np.nan, cache=None, **kwargs):
 
         if cache is not None:
-            save_cache(path, (self.dt, self.meta_info))
-            return
+            logger.warning("Supplied cache will be ignored. ethoscopy cached will be used instead")
 
-    # def qc_plot1(self):
-    #     bodyparts=self.h5s_pandas[0].columns.unique("bodyparts")
-    #     lks = [pd.DataFrame({bodypart: self.h5s_pandas[i]["SLEAP"][bodypart]["likelihood"] for bodypart in bodyparts}) for i in range(len(self.h5s_pandas))]
-    #     rejoined = [
-    #         pd.concat(
-    #             [
-    #                 self.h5s_pandas[i].loc[:,  pd.IndexSlice["SLEAP", :, ["is_interpolated"]]].T.reset_index(level=2, drop=True).reset_index(level=0, drop=True).T,
-    #                 self.index_pandas[i]
-    #             ], axis=1)
-    #         for i in range(len(self.h5s_pandas))
-    #     ]
+        if identity is None:
+            identity=self.identity
 
-    #     iintp = [rejoined[i].groupby("chunk").aggregate({bp: np.mean for bp in bodyparts}) for i in range(len(self.h5s_pandas))]
-    #     for bp in iintp[0]:
-    #         plt.plot(iintp[0].index, iintp[0][bp])
-    #     plt.show()
-            
-    # def qc_plot2(self, lks):
-    #     bodyparts=self.h5s_pandas[0].columns.unique("bodyparts")
-    #     lks = [pd.DataFrame({bodypart: self.h5s_pandas[i]["SLEAP"][bodypart]["likelihood"] for bodypart in bodyparts}) for i in range(len(self.h5s_pandas))]
-        
-    #     for bp in lks[0]:
-    #         if bp == "animal":
-    #             continue
-    #         plt.hist(lks[0][bp], bins=100)
+        dt, meta_info=load_centroid_data(*args, experiment=self.experiment, identity=identity, reference_hour=reference_hour, min_time=min_time, max_time=max_time, stride=1, **kwargs)
+        if dt is not None:
+            dt.reset_index(inplace=True)
+            if stride != 1:
+                dt=dt.iloc[::stride]
+    
+            dt["frame_number"]=dt["frame_number"].astype(np.int32)
+            dt["id"]=pd.Categorical(dt["id"])
+            self.dt=dt
+            self.meta_info=meta_info[0]
+        else:
+            logger.warning("No centroid data database found for %s %s", self.experiment, identity)
 
-    #     plt.show()
-    #     plt.show()
 
     @staticmethod
     def load_experiments(pattern="*"):
@@ -948,7 +966,7 @@ class FlyHostelLoader(PEDetector, CrossVideo, WaveletLoader, InteractionDetector
 
     
     @staticmethod
-    def make_identities(datasetnames):
+    def make_ids(datasetnames):
         identities = [
             d[:26] +  "|" + d[-2:]
             for d in datasetnames

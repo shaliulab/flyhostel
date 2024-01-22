@@ -48,7 +48,7 @@ def main():
     
     loader.load_behavior_data(loader.experiment, identity=0, pose=loader.pose_boxcar, interpolate_frames=25)
 
-    df=loader.dt_behavior
+    df=loader.behavior
     del loader
     
     if df is None:

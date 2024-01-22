@@ -242,7 +242,7 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output="."):
     if chunks is not None:
         if concatenation_i.shape[0] < len(chunks):
             print(f"{concatenation_i.shape[0]} < {len(chunks)}. The concatenation is missing data")
-            raise Exception(f"Chunks missing: {set(chunks).difference(set(concatenation_i['chunk'].tolist()))}")
+            raise Exception(f"Chunks missing in concatenation table for identity {identity}: {set(chunks).difference(set(concatenation_i['chunk'].tolist()))}")
 
     files=concatenation_i["dfile"]
     node_names, datasets, point_scores = load_files(files)

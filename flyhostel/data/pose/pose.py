@@ -220,7 +220,9 @@ class FilterPose(ABC):
         """
         Call filter_and_interpolate_pose_single_animal once for every animal in the experiment
         """
-        
+        if self.pose is None:
+            return
+
         pose_datasets=self.pose.groupby("id")
         all_poses=[]
 

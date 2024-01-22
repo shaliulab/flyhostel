@@ -83,7 +83,7 @@ def load_pose_data_processed(min_time, max_time, time_system, datasetnames, iden
     else:
         return pose_list, h5s_pandas, index_pandas
 
-def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=1, files=None):
+def load_pose_data_compiled(datasetnames, ids, lq_thresh, stride=1, files=None):
     """
     Load dataset stored in POSE_DATA
     """
@@ -191,7 +191,7 @@ def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=1, files
         pose_df["t"]=pose_df["zt"]*3600
         del pose_df["zt"]
         pose_df.insert(0, "t", pose_df.pop("t"))
-        pose_df.insert(0, "id", identities[animal_id])
+        pose_df.insert(0, "id", ids[animal_id])
         pose_list.append(pose_df)
         index_pandas.append(index)
     
@@ -199,6 +199,6 @@ def load_pose_data_compiled(datasetnames, identities, lq_thresh, stride=1, files
     # logger.debug("Load pose data in % seconds", round(after_out-before_out, 1))
 
     if len(pose_list) == 0:
-        return None
+        return [], [], []
     else:
         return pose_list, h5s_pandas, index_pandas

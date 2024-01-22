@@ -45,7 +45,7 @@ class WaveletLoader(ABC):
         if identity is None:
             datasetnames=self.datasetnames
         else:
-            datasetnames=[self.datasetnames[identity-1]]
+            datasetnames=[self.datasetnames[0]]
 
 
         for i, datasetname in enumerate(tqdm(datasetnames, desc='loading wavelet dataset')):
@@ -68,9 +68,9 @@ class WaveletLoader(ABC):
             frequencies=data["f"]
             
             if identity is None:
-                id=self.identities[i]
+                id=self.ids[i]
             else:
-                id=self.identities[identity-1]
+                id=self.ids[0]
 
             wavelets_single_animal["id"]=id
 
@@ -109,7 +109,7 @@ class WaveletLoader(ABC):
 
         # load wavelet transform of the data
         #####################################################
-        out=self.load_wavelets(matfile=wavelets)
+        out=self.load_wavelets(matfile=wavelets, identity=self.identity)
         if out is None:
             raise Exception(f"Wavelets of experiment {self.experiment} cannot be loaded. Did you generate them?")
         else:

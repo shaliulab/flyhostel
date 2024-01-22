@@ -1,48 +1,75 @@
 import logging
+import time
 from functools import partial
+import tempfile
 
 import numpy as np
 from ethoscopy import link_meta_index, load_flyhostel, behavpy, flyhostel_sleep_annotation
 from ethoscopy import flyhostel_sleep_annotation as flyhostel_sleep_annotation_primitive
 from ethoscopy.flyhostel import compute_xy_dist_log10x1000
+from ethoscopy.load import update_metadata
 
 logger=logging.getLogger(__name__)
 
 
 metadata_folder='/flyhostel_data/metadata'
-meta_loc = f'{metadata_folder}/flyhostel.csv'
 remote = '/flyhostel_data/videos'
 local = '/flyhostel_data/videos'
 flyhostel_cache='/flyhostel_data/cache'
 time_window_length=10
 
-def load_centroid_data(metadata=None, experiment=None, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20, verbose=False, reference_hour=np.nan, **kwargs):
+def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20, verbose=False, reference_hour=np.nan, **kwargs):
+    
+    meta_loc=tempfile.NamedTemporaryFile(suffix=".csv", prefix="flyhostel").name
+
     if metadata is None:
         assert experiment is not None
+        update_metadata(meta_loc)
         meta = link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
         meta=meta.loc[meta["id"].str.startswith(experiment[:26])]
-        assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
+        if identity is not None:
+            meta=meta.loc[meta["identity"]==str(int(identity))]
+            n_after=meta.shape[0]
+            if n_after==0:
+                logger.warning("No metadata with for experiment %s and identity %s", experiment, identity)
+            if n_after>1:
+                raise Exception("> 1 animals matches experiment %s and identity %s", experiment, identity)
+
+        if meta.shape[0]==0:
+            logger.warning("Experiment %s {} and identity %s not found in %s", experiment, identity, meta_loc)
+            return None, {}
+
         meta["experiment"]=experiment
     else:
+        assert all([field in metadata.columns for field in ["flyhostel_date", "flyhostel_number", "number_of_animals"]])
         metadata["date"] = metadata["flyhostel_date"]
-        metadata["machine_id"] = [f"FlyHostel{row['flyhostel_number']}" for _, row in metadata.iterrows()]
-        count = metadata.groupby(["flyhostel_number", "flyhostel_date"]).count().iloc[:,:1].reset_index()
-        count.columns=["flyhostel_number", "flyhostel_date", "number_of_animals"]
-        metadata=metadata.merge(count, on=["flyhostel_number", "flyhostel_date"])
-        metadata["machine_name"] = [f"{row['number_of_animals']}X" for _, row in metadata.iterrows()]
         metadata["input_date"]=metadata["date"]
+        # machine_id = FlyHostelX
+        metadata["machine_id"] = [f"FlyHostel{row['flyhostel_number']}" for _, row in metadata.iterrows()]
+        # machine_name "NX"
+        metadata["machine_name"] = [f"{row['number_of_animals']}X" for _, row in metadata.iterrows()]
+        
         metadata.to_csv(meta_loc, index=None)
         
         meta = link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
-        assert meta.shape[0]>0, f"Experiment not found in {meta_loc}"
-
+        assert meta.shape[0]>0, f"Experiment {experiment} and identity {identity} not found in {meta_loc}"
+    
     data, meta_info = load_flyhostel(
         meta, min_time = min_time, max_time = max_time, cache = flyhostel_cache, n_jobs=n_jobs,
         time_system=time_system, reference_hour=reference_hour, **kwargs
     )
 
     assert data.shape[0] > 0, "No data found!"
-    data.sort_values(["id", "t"], inplace=True)
+    if data.shape[0] == 1:
+        logger.warning("Either cache or flyhostel.db of %s %s are corrupted. Ignoring", experiment, identity)
+        return None, {}
+    
+    if identity is None:
+        before=time.time()
+        data.sort_values(["id", "t"], inplace=True)
+        after=time.time()
+        logger.debug("Sorting centroid data took %s seconds", after-before)
+    
     dt = behavpy(data = data, meta = meta, check = True)
     return dt, meta_info
 

@@ -16,9 +16,9 @@ MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
 
 logger=logging.getLogger(__name__)
 
-def filter_experiment(experiment, stride, min_time=MIN_TIME, max_time=MAX_TIME, output=MOTIONMAPPER_DATA, **kwargs):
+def filter_experiment(experiment, identity, stride, min_time=MIN_TIME, max_time=MAX_TIME, output=MOTIONMAPPER_DATA, **kwargs):
 
-    loader = FlyHostelLoader(experiment, chunks=range(0, 400))
+    loader = FlyHostelLoader(experiment, identity=identity, chunks=range(0, 400))
     loader.load_and_process_data(
         min_time=min_time, max_time=max_time,
         stride=stride,
@@ -51,6 +51,7 @@ def filter_experiment(experiment, stride, min_time=MIN_TIME, max_time=MAX_TIME, 
 def get_parser():
     ap=argparse.ArgumentParser()
     ap.add_argument("--experiment", type=str, required=True)
+    ap.add_argument("--identity", type=str, required=True)
     ap.add_argument("--output", type=str, required=False, default=MOTIONMAPPER_DATA)
     ap.add_argument("--stride", type=int, default=1)
     ap.add_argument("--min-time", type=int, default=MIN_TIME)
@@ -68,4 +69,4 @@ def main():
     else:
         files=None
 
-    filter_experiment(experiment=args.experiment, min_time=args.min_time, max_time=args.max_time, stride=args.stride, output=args.output, files=files)
+    filter_experiment(experiment=args.experiment, identity=args.identity, min_time=args.min_time, max_time=args.max_time, stride=args.stride, output=args.output, files=files)

@@ -232,10 +232,6 @@ def make_ethogram(
     dataset, (frequencies, freq_names)=load_dataset(experiment=experiment, identity=identity, cache=cache, **kwargs)
     features=freq_names
 
-    feather_path=os.path.join(output, "raw_prediction.feather")
-    dataset.reset_index().to_feather(feather_path)
-
-
     logger.debug("Read dataset of shape %s", dataset.shape)
     dataset["chunk"]=dataset["frame_number"]//chunksize
     dataset["frame_idx"]=dataset["frame_number"]%chunksize
@@ -269,7 +265,9 @@ def make_ethogram(
 
     dataset["behavior"]=behaviors[probs.argmax(axis=1)]
     dataset["score"]=probs.max(axis=1)
-    dataset.reset_index(drop=True).to_feather(feather_path)
+    feather_path=os.path.join(output, "dataset.feather")
+    dataset["behavior_raw"]=dataset["behavior"].copy()
+
 
     if postprocess:
         logger.debug("Postprocessing predictions")
@@ -311,7 +309,7 @@ def make_ethogram(
     html_out=os.path.join(output, "plot.html")
     json_out=os.path.join(output, "plot.json")
     logger.info("Saving to ---> %s", feather_out)
-    dataset.reset_index(drop=True).to_feather(feather_out)
+    dataset[["id", "frame_number", "behavior_raw","behavior", "score"]].reset_index(drop=True).to_feather(feather_out)
 
     fig=draw_ethogram(dataset, resolution=1, t0=t0)
     logger.info("Saving to ---> %s", html_out)
