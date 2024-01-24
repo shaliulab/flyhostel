@@ -79,9 +79,8 @@ def compute_distance_between_pairs(df, id1, id2, min_fn=None, max_fn=None):
         max_fn = distance.index.max()
     
     # full_range_index = cudf.RangeIndex(start=min_index, stop=max_index + 1)
-    distance = distance.reindex(cp.arange(min_fn, max_fn+1, 1, dtype=cp.int32), fill_value=cp.inf).values
+    distance = distance.reindex(cp.arange(min_fn, max_fn+1, 1, dtype=distance.index.dtype), fill_value=cp.inf).values
     return distance
-
 
 
 def find_neighbors(dt, dist_max_px):
