@@ -52,6 +52,10 @@ setup(
             "preprocess-pose=flyhostel.data.bin.pose:preprocess",
             "annotate-video=flyhostel.data.bin.movie:main",
             "list-frames-with-no-animals=flyhostel.data.sqlite3.missing_animals:main",
+            "make-identogram=flyhostel.data.bin.human_validation:main",
+            "auto-annotate-qc=flyhostel.data.bin.human_validation:annotate_scene_quality",
+            "make-space-time-images=flyhostel.data.bin.human_validation.annotate:main",
+            "integrate-human-annotations=flyhostel.data.bin.human_validation.integrate:main",
             ]
     },
 )
