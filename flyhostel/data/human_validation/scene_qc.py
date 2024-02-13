@@ -30,8 +30,6 @@ logging.getLogger("flyhostel.data.interactions.neighbors_gpu").setLevel(logging.
 def all_id_expected_qc_scene(scene, number_of_animals):
     result=scene.groupby("frame_number").apply(lambda df: all_id_expected_qc(df[["id"]].values, number_of_animals=number_of_animals, idx=0)).all().item()
     return result
- 
-
 
 
 def scene_qc(scene, number_of_animals):

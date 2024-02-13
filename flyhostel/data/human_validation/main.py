@@ -20,8 +20,6 @@ from zeitgeber.rle import encode
 
 logger=logging.getLogger(__name__)
 
-
-
 def load_identity(conn, interval=None):
     if interval is None:
         identity=pd.read_sql_query(con=conn, sql="SELECT * FROM IDENTITY;")
@@ -156,8 +154,6 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
         frame_number_0=row["frame_number"]
         duration=row["duration"]
         frame_number_last=frame_number_0+duration*FRAMERATE
-
-        # frame_number_last=frame_numbers.iloc[i+1]["frame_number"]
 
         tracking_data=df.loc[
             (df["frame_number"]>=frame_number_0) &

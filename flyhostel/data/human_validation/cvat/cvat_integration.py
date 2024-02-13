@@ -128,12 +128,12 @@ def join_task_data(task1, task2):
     ], axis=0)
     return annotations_df, contours
 
-def get_annotations(basedir, tasks, n_jobs=2):
+def get_annotations(basedir, tasks, reload=True, n_jobs=2):
     out = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             get_annotation
         )(
-            basedir, task_number
+            basedir, task_number, reload=reload
         )
         for task_number in tasks
     )
@@ -147,8 +147,7 @@ def get_annotations(basedir, tasks, n_jobs=2):
     return annotations_df, contours
 
 
-def get_annotation(basedir, task_number):
-    reload=True
+def get_annotation(basedir, task_number, reload=True):
     annotations, images, categories=download_task_annotations(task_number, reload=reload)
     annotations_df, contours=load_task_annotations(
         annotations, images, categories,

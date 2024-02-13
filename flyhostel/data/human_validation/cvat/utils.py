@@ -43,13 +43,13 @@ def load_tracking_data(basedir, frame_numbers):
 def load_data(basedir, where=""):
     dbfile=get_dbfile(basedir)
     with sqlite3.connect(dbfile) as conn:
-        roi0_table=pd.read_sql_query(sql=f"SELECT frame_number, in_frame_index, x, y, fragment, modified, class_name FROM ROI_0 {where};", con=conn)
+        roi_0_table=pd.read_sql_query(sql=f"SELECT frame_number, in_frame_index, x, y, fragment, modified, class_name FROM ROI_0 {where};", con=conn)
         identity_table=pd.read_sql_query(sql=f"SELECT frame_number, in_frame_index, local_identity FROM IDENTITY {where};", con=conn)
-        store_index_table=pd.read_sql_query(sql=f"SELECT frame_number, in_frame_index, local_identity FROM STORE_INDEX {where};", con=conn)
+        # store_index_table=pd.read_sql_query(sql=f"SELECT frame_number, frame_time FROM STORE_INDEX {where};", con=conn)
 
-    roi0_table["validated"]=False
+    roi_0_table["validated"]=False
     identity_table["validated"]=False    
-    return identity_table, roi0_table, store_index_table
+    return identity_table, roi_0_table#, store_index_table
     
     
 def annotate_crossings(ident):
