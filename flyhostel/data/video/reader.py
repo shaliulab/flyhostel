@@ -7,29 +7,13 @@ import logging
 import cv2
 import pandas as pd
 import numpy as np
-from scipy.signal import butter, lfilter
-from pykalman import KalmanFilter
 
 from imgstore.interface import VideoCapture
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from flyhostel.data.yolov7 import letterbox
 
+
 logger = logging.getLogger(__name__)
-
-def butter_lowpass_filter(data, cutoff, fs, order=4):
-    nyq = 0.5 * fs  # Nyquist frequency
-    normal_cutoff = cutoff / nyq
-    b, a = butter(order, normal_cutoff, btype='low', analog=False)
-    y = lfilter(b, a, data)
-    return y
-
-
-def kalman_filter(data):
-    kf = KalmanFilter(initial_state_mean=0, n_dim_obs=1)
-    kf = kf.em(data, n_iter=10)
-    (filtered_state_means, _) = kf.filter(data)
-    return filtered_state_means
-
 
 class MP4Reader:
 
@@ -95,22 +79,32 @@ class MP4Reader:
         self._cap = VideoCapture(self.store_path, self._chunk)
         self._frame_number=self._cap.frame_number
         self.success=None
+        self.roi_0_table=None
+        self.identity_table=None
+        
         self.load_data()
-        # self.filter_data()
+
+    def check_validation_tables(self):
+        self._cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='IDENTITY_VAL';")
+        out=self._cur.fetchone()
+        if out:
+            self.identity_table="IDENTITY_VAL"
+        else:
+            self.identity_table="IDENTITY"
 
 
-    def filter_data(self):
-        print("Filtering...")
-        self._data["x"]=np.round(kalman_filter(self._data["x"])).astype(np.int64)
-        self._data["y"]=np.round(kalman_filter(self._data["y"])).astype(np.int64)
-        print("Done")
-        # self._data["x"]=np.round(butter_lowpass_filter(self._data["x"], cutoff=1, fs=self.data_framerate, order=4)).astype(np.int64)
-        # self._data["y"]=np.round(butter_lowpass_filter(self._data["y"], cutoff=1, fs=self.data_framerate, order=4)).astype(np.int64)
-        print(self._data.head())
+        self._cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ROI_0_VAL';")
+        out=self._cur.fetchone()
+        if out:
+            self.roi_0_table="ROI_0_VAL"
+        else:
+            self.roi_0_table="ROI_0"
 
- 
+
     def load_data(self):
         self._cur=self.connection.cursor()
+        self.check_validation_tables()  
+
         self._cur.execute(self.sqlite_query,(self._chunk,))
         self._data = pd.DataFrame(self._cur.fetchall())
         self._last_frame_indices=[]
@@ -144,9 +138,9 @@ class MP4Reader:
                     ID.{self.IDENTIFIER_COLUMN},
                 IDX.chunk
             FROM
-                ROI_0 AS DT
+                {self.roi_0_table} AS DT
                 INNER JOIN STORE_INDEX AS IDX on DT.frame_number = IDX.frame_number
-                INNER JOIN IDENTITY AS ID on DT.frame_number = ID.frame_number AND DT.in_frame_index = ID.in_frame_index
+                INNER JOIN {self.identity_table} AS ID on DT.frame_number = ID.frame_number AND DT.in_frame_index = ID.in_frame_index
             WHERE
                 IDX.chunk = ?
             """
@@ -159,7 +153,7 @@ class MP4Reader:
                 DT.{self.IDENTIFIER_COLUMN},
                 IDX.chunk
             FROM
-                ROI_0 AS DT
+                {self.roi_0_table} AS DT
                 INNER JOIN STORE_INDEX AS IDX on DT.frame_number = IDX.frame_number
             WHERE
                 IDX.chunk = ?
