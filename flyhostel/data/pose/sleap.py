@@ -119,7 +119,7 @@ try:
         )
         labels=Labels(labeled_frames=labeled_frames, videos=[video], skeletons=[skeleton])
 
-        fn, extension = os.path.splitext(os.path.basename(video.backend.filename))   
+        fn, extension = os.path.splitext(os.path.basename(video.backend.filename))
 
         if output_filename is None:
             output_filename=os.path.join(os.path.dirname(video.backend.filename), fn + "_render" + extension)

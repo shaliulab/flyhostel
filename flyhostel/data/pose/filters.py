@@ -6,7 +6,8 @@ from typing import Union, Dict
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
-from flyhostel.data.bodyparts import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import bodyparts_xy as BODYPARTS_XY
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 logger=logging.getLogger(__name__)
@@ -216,22 +217,36 @@ def arr2df(pose, arr, bodyparts, features=["x", "y"]):
     return new_pose
 
 
-def interpolate_pose(pose, columns=None, seconds: Union[None, Dict, float, int]=0.5, pose_framerate=15):
+def interpolate_pose(pose, columns=None, seconds: Union[None, Dict, float, int]=0.5, pose_framerate=FRAMERATE, cache=None):
     if columns is None:
-        columns=pose.columns
+        columns=BODYPARTS_XY
 
-    for c in columns:
-        bp = "_".join(c.split("_")[:-1])
 
-        if isinstance(seconds, float) or isinstance(seconds, int):
-            seconds_bp=seconds
-            interpolation_limit=int(seconds_bp*pose_framerate)
-        elif isinstance(seconds, dict):
-            seconds_bp=seconds[bp]
-            interpolation_limit=int(seconds_bp*pose_framerate)
-        elif seconds is None:
-            interpolation_limit=None
-        pose[c].interpolate(method="linear", limit_direction="both", inplace=True, limit=interpolation_limit)
+    if isinstance(seconds, float) or isinstance(seconds, int):
+        interpolation_limit=max(1, int(seconds*pose_framerate))
+        pose[columns]=pose[columns].interpolate(method="linear", limit_direction="both", inplace=True, limit=interpolation_limit)
+
+    elif seconds is None:
+        before=time.time()
+        pose[columns]=pose[columns].interpolate(method="linear", limit_direction="both", limit=None)
+        after=time.time()
+        logger.debug("interpolate took %s seconds for colums %s with limit None", after-before, columns)
+
+    elif isinstance(seconds, dict):
+        values=sorted(list(set(list(seconds.values()))))
+        reverse_dict={v: [k for k in seconds if seconds[k]==v] for v in values}
+
+        for seconds in values:
+            interpolation_limit=max(1, int(seconds*pose_framerate))
+            bodyparts=reverse_dict[seconds]
+            columns=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
+            before=time.time()
+            # pose[columns]=pose[columns].interpolate(method="linear", limit_direction="both", limit=interpolation_limit)
+            pose[columns]=pose[columns].ffill(limit=interpolation_limit)
+            pose[columns]=pose[columns].bfill(limit=interpolation_limit)
+            after=time.time()
+            logger.debug("interpolate took %s seconds for colums %s with limit %s", after-before, columns, interpolation_limit)
+
     return pose
 
 def impute_proboscis_to_head(pose, selection=None):

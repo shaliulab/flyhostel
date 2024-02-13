@@ -50,7 +50,7 @@ assert len(body_parts_chosen) == len(labels)
 assert len(body_parts_chosen) == len(criteria) == len(score_filter) == len(labels)
 
 # Pose filtering
-interpolate_seconds={bp: 30 for bp in bodyparts}
+interpolate_seconds={bp: 3 for bp in bodyparts}
 interpolate_seconds["proboscis"]=0.5
 
 min_score={bp: 0.5 for bp in bodyparts}

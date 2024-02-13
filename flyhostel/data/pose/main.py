@@ -20,8 +20,12 @@ from flyhostel.data.pose.loaders.pose import PoseLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.constants import ROI_WIDTH_MM
+from flyhostel.data.pose.sleep import SleepAnnotator
+from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
+from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
-
+from motionmapperpy import setRunParameters
+wavelet_downsample=setRunParameters().wavelet_downsample
 
 def dunder_to_slash(experiment):
     tokens = experiment.split("_")
@@ -38,7 +42,7 @@ from flyhostel.data.deg import DEGLoader
 from flyhostel.data.pose.video_crosser import CrossVideo
 
 
-class FlyHostelLoader(CrossVideo, FilesystemInterface, PoseLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose):
+class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose):
     """
     Analyse microbehavior produced in the flyhostel
 
@@ -81,7 +85,9 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, PoseLoader, WaveletLoader
 
     """
 
-    def __init__(self, experiment, identity, *args, lq_thresh=1, roi_width_mm=ROI_WIDTH_MM, n_jobs=1, chunks=None, **kwargs):
+    def __init__(self, experiment, identity, *args, lq_thresh=1, roi_width_mm=ROI_WIDTH_MM, n_jobs=1, chunks=None,
+                 roi_0_table="ROI_0", identity_table="IDENTITY", **kwargs
+        ):
         super(FlyHostelLoader, self).__init__(*args, **kwargs)
 
         basedir = os.environ["FLYHOSTEL_VIDEOS"] + "/" + dunder_to_slash(experiment)
@@ -137,7 +143,9 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, PoseLoader, WaveletLoader
         self.interactions_sleep=None
         self.rejections=None
         self.dt_sleep_2fps=None
-    
+        self.analysis_data=None
+        self.identity_table=identity_table
+        self.roi_0_table=roi_0_table
 
     def __str__(self):
         return f"{self.experiment}__{str(self.identity).zfill(2)}"
@@ -147,6 +155,84 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, PoseLoader, WaveletLoader
         return np.unique(self.pose["id"])
 
 
+    @classmethod
+    def from_metadata(cls, flyhostel_number, number_of_animals, flyhostel_date, flyhostel_time, identity):
+        experiment = f"FlyHostel{flyhostel_number}_{number_of_animals}X_{flyhostel_date}_{flyhostel_time}"
+        loader=cls(experiment=experiment, identity=identity)
+        return loader
+
+    @classmethod
+    def load_single_hostel_from_metadata(cls, *args, **kwargs):
+        loader=cls.from_metadata(*args, **kwargs)
+        dt=loader.load_analysis_data()
+        return dt
+
+
+    def get_simple_metadata(self):
+        number_of_animals=int(os.path.basename(self.experiment).split("_")[1].replace("X", ""))
+        flyhostel_number=int(os.path.basename(self.experiment).split("_")[0].replace("FlyHostel", ""))
+        flyhostel_date, flyhostel_time=os.path.basename(self.experiment).split("_")[2:4]
+
+        animal=f"{self.experiment}__{str(self.identity).zfill(2)}"
+        id=self.make_ids(self.datasetnames)
+
+        return pd.DataFrame({
+            "identity": [self.identity],
+            "number_of_animals": [number_of_animals],
+            "flyhostel_number": [flyhostel_number],
+            "flyhostel_date": [flyhostel_date],
+            "flyhostel_time": [flyhostel_time],
+            "experiment": [self.experiment],
+            "animal": [animal],
+            "basedir": [self.basedir],
+            "id": [id],
+        })
+
+
+    def sleep_annotation(self, *args, source="inactive", **kwargs):
+        if source=="inactive":
+            return self.sleep_annotation_inactive(*args, **kwargs)
+        elif source=="centroids":
+            return flyhostel_sleep_annotation(*args, **kwargs)
+        
+
+    def compile_analysis_data(self):
+        data=self.dt.copy()
+        meta=data.meta.copy()
+        centroid_columns=data.columns.tolist()
+        data=data.loc[data["frame_number"] % wavelet_downsample == 0]
+
+        if self.behavior is None:
+            logger.warning("Behavior not computed for %s", self)
+            data["behavior"]=np.nan
+            data["score"]=np.nan
+            data["bout_in"]=np.nan
+            data["bout_out"]=np.nan
+            data["duration"]=np.nan
+        else:
+            data=data.merge(self.behavior, on=["id", "frame_number"], how="left")
+
+
+        fields = centroid_columns + ["behavior",  "score", "bout_in", "bout_out", "bout_count", "duration"]
+        data=data[fields]
+        data=to_behavpy(data, meta)
+        self.analysis_data=data
+
+        return data
+
+
+    def load_analysis_data(self):
+        if self.analysis_data is None:
+
+            self.load_and_process_data(
+                stride=1,
+                cache="/flyhostel_data/cache",
+                filters=None,
+                useGPU=0,
+            )
+            self.compile_analysis_data()
+
+        return self.analysis_data
 
 
     def process_data(self, stride, *args, min_time=MIN_TIME, max_time=MAX_TIME, useGPU=-1, framerate=FRAMERATE, cache=None, speed=False, sleep=False, **kwargs):
@@ -234,7 +320,14 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, PoseLoader, WaveletLoader
 
     
         logger.info("Loading centroid data")
-        self.load_centroid_data(*args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs, stride=stride, verbose=False, cache=None, reference_hour=np.nan, **kwargs)
+        self.load_centroid_data(
+            *args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs,
+            stride=stride, verbose=False,
+            cache=None,
+            reference_hour=np.nan,
+            identity_table=self.identity_table,
+            roi_0_table=self.roi_0_table,
+            **kwargs)
        
         logger.info("Loading pose data")
         for ident in identities:
@@ -265,7 +358,10 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, PoseLoader, WaveletLoader
         if identity is None:
             identity=self.identity
 
-        dt, meta_info=load_centroid_data(*args, experiment=self.experiment, identity=identity, reference_hour=reference_hour, min_time=min_time, max_time=max_time, stride=1, **kwargs)
+        dt, meta_info=load_centroid_data(
+            *args, experiment=self.experiment, identity=identity, reference_hour=reference_hour,
+            min_time=min_time, max_time=max_time, stride=1, **kwargs
+        )
         if dt is not None:
             dt.reset_index(inplace=True)
             if stride != 1:

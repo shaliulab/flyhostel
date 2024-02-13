@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from flyhostel.data.bodyparts import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from flyhostel.data.pose.h5py import load_pose_data_compiled
 from flyhostel.utils import restore_cache, save_cache
 from flyhostel.data.pose.filters import filter_pose, arr2df
 from flyhostel.data.pose.gpu_filters import filter_pose_df
-from flyhostel.data.bodyparts import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.constants import PARTITION_SIZE

@@ -40,11 +40,13 @@ def make_video(pose, id, filename, frame_numbers, output_folder="."):
     )
 
 
-def annotate_chunk(experiment, pose, behavior, chunk, identity, input_video, output_video="./output.mp4", with_pose=False, **kwargs):
+def annotate_chunk(experiment, behavior, chunk, identity, input_video, pose=None, output_video="./output.mp4", with_pose=False, frame_numbers=None, **kwargs):
 
     output_folder=os.path.dirname(output_video)
    
-    frame_numbers=np.arange(chunk*chunksize, (chunk+1)*chunksize, stride)
+    if frame_numbers is None:
+        frame_numbers=np.arange(chunk*chunksize, (chunk+1)*chunksize, stride)
+    
     key=f"{experiment}__{str(identity).zfill(2)}_{str(chunk).zfill(6)}"
     
     if output_video is None:
@@ -55,9 +57,9 @@ def annotate_chunk(experiment, pose, behavior, chunk, identity, input_video, out
     dt_scored=dt_scored.loc[dt_scored["identity"]==int(identity)].drop("identity", axis=1)
     assert dt_scored.shape[0] > 0, f"No data found for {experiment}__{str(identity).zfill(2)}"
 
-    pose=pose.loc[pose["identity"]==identity].drop("identity", axis=1)
-
+    
     if with_pose:
+        pose=pose.loc[pose["identity"]==identity].drop("identity", axis=1)
         filename, ext = os.path.splitext(os.path.basename(output_video))
         filename = filename +"_with_pose" + ext
         id = dt_scored["id"].iloc[0]

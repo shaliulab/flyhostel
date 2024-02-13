@@ -10,7 +10,11 @@ from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.utils import restore_cache, save_cache
 from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
 from flyhostel.data.pose.distances import compute_distance_features_pairs
-from motionmapperpy import setRunParameters
+try:
+    from motionmapperpy import setRunParameters
+    wavelet_downsample=setRunParameters().wavelet_downsample
+except ModuleNotFoundError:
+    wavelet_downsample=5
 
 class BehaviorLoader():
 
@@ -52,7 +56,7 @@ class BehaviorLoader():
                 del dt_t_complete
                 dt.sort_values(["id", "frame_number"], inplace=True)
                 
-            wavelet_downsample=setRunParameters().wavelet_downsample
+            
             fps=FRAMERATE//wavelet_downsample
 
             if pose is None:

@@ -1,17 +1,13 @@
 import logging
 import time
-import math
 import logging
 import os.path
 import pickle
 
-import plotly.graph_objs as go
-import plotly.express as px
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from tqdm.auto import tqdm
-import webcolors
 
 from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
 from flyhostel.data.pose.main import FlyHostelLoader
@@ -26,8 +22,6 @@ except ModuleNotFoundError:
     projects=None
     file_io=None
     logger.error("Please install deepethogram without dependencies (pip install --no-deps deepethogram")
-
-logger = logging.getLogger(__name__)
 
 
 MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
@@ -62,8 +56,6 @@ def get_bout_length_percentile_from_project(project_path, percentile=1):
     return percentiles
 
 
-
-
 def generate_path_to_output_folder(experiment, identity):
     tokens=experiment.split("_")
     key=os.path.sep.join([tokens[0], tokens[1], "_".join(tokens[2:4])])
@@ -94,8 +86,8 @@ def most_common(group, variable="behavior"):
     
     return pd.Series(result)
 
-def set_time_resolution(df, resolution):
-    df["t"]=np.floor(df["t"]//resolution)*resolution
+def set_time_resolution(df, time_window_length):
+    df["t"]=np.floor(df["t"]//time_window_length)*time_window_length
     df = df.groupby(["id", "t"]).apply(most_common).reset_index(drop=True)
     return df
 
@@ -137,21 +129,6 @@ def enforce_behavioral_context(dataset, modify, context, replacement, seconds=5,
             dataset.loc[(dataset["behavior"]==modify) & (dataset["bout_count"]==bout_count), "behavior"] = replacement
 
     return dataset
-
-    
-
-def draw_umap(dataset, max_points=50_000):
-    
-    if dataset.shape[0] > max_points:
-        skip = math.ceil(dataset.shape[0] / max_points)
-        dataset=dataset.iloc[::skip]
-
-    fig=px.scatter(
-        dataset, x="C_1", y="C_2", color="behavior",
-        hover_data=["id", "chunk", "frame_idx", "zt", "behavior"],
-    )
-
-    return fig
 
 
 def compute_bout_length_percentile(project_path, percentile=1):
@@ -270,7 +247,6 @@ def make_ethogram(
 
     dataset["behavior"]=behaviors[probs.argmax(axis=1)]
     dataset["score"]=probs.max(axis=1)
-    feather_path=os.path.join(output, "dataset.feather")
     dataset["behavior_raw"]=dataset["behavior"].copy()
 
 
@@ -303,7 +279,6 @@ def make_ethogram(
         prediction=join_strings_by_repeated_integers(rows, prediction)
         dataset["behavior"]=prediction
 
-
     dataset=annotate_bouts(dataset, "behavior")
     dataset=annotate_bout_duration(dataset, fps=framerate/STRIDE)
     # dataset=enforce_behavioral_context(dataset, modify="pe_inactive", context=["inactive", "background", "pe_inactive"], replacement="pe_unknown", framerate=1, seconds=3)
@@ -311,184 +286,7 @@ def make_ethogram(
     # dataset=annotate_bout_duration(dataset)
 
     feather_out=os.path.join(output, "dataset.feather")
-    html_out=os.path.join(output, "plot.html")
-    json_out=os.path.join(output, "plot.json")
     logger.info("Saving to ---> %s", feather_out)
-    dataset[["id", "frame_number", "behavior_raw","behavior", "score"]].reset_index(drop=True).to_feather(feather_out)
-
-    fig=draw_ethogram(dataset, resolution=1, t0=t0)
-    logger.info("Saving to ---> %s", html_out)
-    fig.write_html(html_out)
-    fig.write_json(json_out)
+    dataset[["id", "frame_number", "t", "behavior_raw","behavior", "score"]].reset_index(drop=True).to_feather(feather_out)
 
 
-behaviors=["inactive", "pe_inactive", "feed", "feed+inactive", "groom", "feed+groom", "groom+pe", "feed+walk", "walk", "inactive+walk", "background"]
-# list of colors is taken from https://www.w3.org/TR/SVG11/types.html#ColorKeywords
-# in English
-color_mapping_eng = {
-    "pe_inactive": "gold",
-    "feed": "orange",
-    "groom": "green",
-    "inactive": "blue",
-    "walk": "red",
-    "background": "black",
-    "feed+inactive": "peachpuff",
-    "groom+pe": "darkseagreen",
-    "feed+walk": "crimson",
-    "feed+groom": "peachpuff",
-    "inactive+walk": "darkgray",
-}
-# in RGB
-color_mapping_rgb={behavior: webcolors.name_to_rgb(v) for behavior, v in color_mapping_eng.items()}
-# in RGBA partial string (to be completed witj alpha value )
-color_mapping_rgba_str = {behavior: f'rgba({v[0]}, {v[1]}, {v[2]},' for behavior, v in color_mapping_rgb.items()}
-
-
-def draw_ethogram(df, resolution=1, x_var="seconds", message=logger.info, t0=None):
-
-    df=df.copy()
-    id = df["id"].iloc[0]
-
-    df["zt"]=(df["t"]/3600).round(2)
-    df["zt_"]=(df["t"]/3600)
-
-    if x_var=="seconds":
-        if t0 is None:
-            t0=df["frame_number"].min()
-
-        df["t"]=(df["frame_number"]-t0)/framerate
-        x_var="t"
-        
-    if resolution is not None:
-        logger.debug("Setting time resolution to %s second(s)", resolution)
-        df=set_time_resolution(df, resolution)
-
-
-
-    # Get unique behaviors
-    found_behaviors = list(set(list(color_mapping_rgba_str.keys()) + df["behavior"].unique().tolist()))
-    for behav in found_behaviors:
-        if behav not in behaviors:
-            logger.warning("Ignoring behavior %s", behav)
-
-    
-    zt_min=round(df["zt"].min(), 2)
-    zt_max=round(df["zt"].max(), 2)
-    message("Generating ethogram from %s to %s ZT", zt_min, zt_max)
-
-    # Create a figure
-    fig = go.Figure()
-
-    # Plot a thin black line for all behaviors throughout the plot
-    for behavior in behaviors:
-        logger.debug("Adding %s line", behavior)
-        fig.add_trace(go.Scatter(
-            x=[df[x_var].min(), df[x_var].max()],
-            y=[behavior, behavior],
-            mode='lines',
-            line=dict(color='black', width=1),
-            showlegend=False
-        ))
-
-
-    # Plot each behavior on a separate track with additional information on hover
-    for behavior in behaviors:
-        logger.debug("Adding %s trace", behavior)
-        behavior_data = df[df['behavior'] == behavior]
-
-        text = []
-        meta_columns=["behavior", "id", "chunk","frame_idx", "zt", "score", "fraction"]
-        metadata=[behavior_data[c] for c in meta_columns]
-
-        for meta in zip(*metadata):
-            row=""
-            for i, col in enumerate(meta):
-                row+=f"{meta_columns[i]}: {col} "
-            text.append(row)
-
-        # Map transparency of the color to the value of score
-        alphas = np.interp(behavior_data['score'], [0, 1], [0, 1])
-        marker_colors=[]
-        for alpha in alphas:
-            if behavior in color_mapping_rgba_str:
-                color=color_mapping_rgba_str[behavior]
-            else:
-                logger.warning("Behavior %s does not have a color. Setting to white", behavior)
-                color="rgba(255, 255, 255,"
-            
-            marker_colors.append(color + str(alpha) + ')')
-
-
-        fig.add_trace(go.Scattergl(
-            x=behavior_data[x_var],
-            y=[behavior] * len(behavior_data),
-            mode='markers',
-            marker=dict(size=10, color=marker_colors, symbol="square"),
-            name=behavior,
-            text=text,
-            hoverinfo='text',
-        ))
-
-    # annoying to read 1 seconds in the plot title x)
-    if resolution==1:
-        title=f"Ethogram - {id} - Resolution {resolution} second"
-    else:
-        title=f"Ethogram - {id} - Resolution {resolution} seconds"
-
-    fig.update_layout(
-        title=title,
-        xaxis_title="ZT (hours)",
-        yaxis_title="Behavior",
-        yaxis=dict(type='category'),
-        showlegend=True,
-        height=600,
-    )
-    
-    # Set the default range for the x-axis to the first 300 unique values
-    default_x_range = [df[x_var].min(), df[x_var].min() + 300]
-    center_x = np.mean(default_x_range)
-    
-    # Configure the x-axis with the default range
-    fig.update_layout(
-        xaxis=dict(
-            range=default_x_range,
-            rangeslider=dict(
-                visible=True,
-                thickness=0.05
-            ),
-            type="linear"
-        ),
-         shapes=[
-            go.layout.Shape(
-                type="line",
-                x0=center_x,
-                y0=0,  # Assuming your y-axis starts at 0
-                x1=center_x,
-                y1=1,  # Assuming your y-axis ends at 1
-                xref="x",
-                yref="paper",  # 'paper' refers to the entire range of the y-axis
-                line=dict(
-                    color="Black",
-                    width=3
-                )
-            )
-        ]
-    )
-    
-    step=900
-    tickvals=np.arange(
-        np.floor(df[x_var].min()/step)*step,
-        np.ceil(df[x_var].max()/step)*step,
-        step
-    )
-    ticktext=[str(df["zt"].iloc[np.argmin(np.abs(df[x_var]-val))]) for val in tickvals]        
-    fig.update_xaxes(
-        tickvals=tickvals,
-        ticktext=ticktext
-        )
-
-
-    message("Done")
-
-
-    return fig

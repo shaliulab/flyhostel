@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import joblib
 from imgstore.interface import VideoCapture
-from flyhostel.data.bodyparts import bodyparts, legs
+from flyhostel.data.pose.constants import bodyparts, legs
 
 logger=logging.getLogger(__name__)
 animal_colors=["#1A281F", "#635255", "#CE7B91", "#C0E8F9", "#B8D3D1", "#F2E86D"]

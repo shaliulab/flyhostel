@@ -30,12 +30,12 @@ def adjust_text_size(image, text, desired_width_fraction, desired_height_fractio
     thickness = base_thickness
     return font_scale, thickness
 
-def annotate_behavior_in_frame(frame, text, font_scale, thickness):
+def annotate_behavior_in_frame(frame, text, font_scale, thickness,x=0.7, y=0.1):
 
     frame_shape=frame.shape[:2]
 
     frame=cv2.resize(frame, (500, 500))
-    tr = (int(frame.shape[1]*0.7), int(frame.shape[0]*0.1))
+    tr = (int(frame.shape[1]*x), int(frame.shape[0]*y))
     frame=cv2.putText(
         frame,
         text,
@@ -50,29 +50,28 @@ def annotate_behavior_in_frame(frame, text, font_scale, thickness):
     return frame
 
 
-def annotate_behavior_in_video_cv2(video_input, frame_idx, behaviors, video_output, gui_progress=False, fps=FRAMERATE):
+def annotate_behavior_in_video_cv2(video_input, frame_idx, behaviors, video_output, gui_progress=False, fps=FRAMERATE, font_scale=None, thickness=None):
     vw=None
     cap=None
 
     try:
         cap=cv2.VideoCapture(video_input)
         i=0
-        cap.set(7, frame_idx[i])
+        cap.set(1, frame_idx[i])
         logger.debug("Will save %s frames to ---> %s @ %s FPS", len(frame_idx), video_output, fps)
         if gui_progress:
             pb=tqdm(total=len(frame_idx))
         
         ret=True
-        font_scale=thickness=None
         while ret:
             ret, frame=cap.read()
             frame=cv2.resize(frame, (500, 500))
             if font_scale is None:
-                font_scale, thickness = adjust_text_size(frame, "behavior", 0.4, 0.1)
+                font_scale, thickness = adjust_text_size(frame, "behavior", 0.15, 0.15)
             if not ret:
                 break
     
-            frame=annotate_behavior_in_frame(frame, behaviors[i], font_scale=font_scale, thickness=thickness)
+            frame=annotate_behavior_in_frame(frame, behaviors[i], font_scale=font_scale, thickness=thickness, x=0.7, y=0.1)
             if vw is None:
                 logger.debug("Initializing ---> %s", video_output)
                 vw=cv2.VideoWriter(
@@ -92,7 +91,7 @@ def annotate_behavior_in_video_cv2(video_input, frame_idx, behaviors, video_outp
                 break
             
             if frame_idx[i+1]-frame_idx[i]>1:
-                cap.set(7, frame_idx[i+1])
+                cap.set(1, frame_idx[i+1])
 
             i+=1
 

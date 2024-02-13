@@ -249,12 +249,12 @@ class FilterPose(ABC):
         logger.debug("Done")
 
     @staticmethod
-    def full_interpolation(pose, columns, seconds=None):
+    def full_interpolation(pose, columns, seconds=None, cache=None):
         logger.debug("Running interpolation on dataset of shape %s on columns %s", pose.shape, columns)
         logger.debug("Time limit = %s", seconds)
         out=[]
         for id, pose_dataset in pose.groupby("id"):
-            out.append(interpolate_pose(pose_dataset.copy(), columns, seconds=seconds))
+            out.append(interpolate_pose(pose_dataset.copy(), columns, seconds=seconds, cache=cache))
         pose=pd.concat(out, axis=0)
         logger.debug("Done")
         return pose
