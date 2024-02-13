@@ -48,6 +48,8 @@ setup(
             "train-umap=flyhostel.data.bin.umap:main",
             "project-pose=flyhostel.data.bin.behavior:main",
             "predict-behavior=flyhostel.data.bin.ethogram:main",
+            "draw-ethogram=flyhostel.data.bin.ethogram:draw_ethogram",
+            "compute-interactions=flyhostel.data.bin.interactions:main",
             "filter-pose=flyhostel.data.bin.filter_pose:main",
             "preprocess-pose=flyhostel.data.bin.pose:preprocess",
             "annotate-video=flyhostel.data.bin.movie:main",
@@ -56,6 +58,7 @@ setup(
             "auto-annotate-qc=flyhostel.data.bin.human_validation:annotate_scene_quality",
             "make-space-time-images=flyhostel.data.bin.human_validation.annotate:main",
             "integrate-human-annotations=flyhostel.data.bin.human_validation.integrate:main",
+            "cvat-label-constructor=flyhostel.data.bin.human_validation.label_constructor:main",
             ]
     },
 )
