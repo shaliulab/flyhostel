@@ -105,7 +105,7 @@ class IdtrackeraiExporter(SQLiteExporter, QCExporter, SleapExporter, Deepethogra
             list_of_blobs = ListOfBlobs.load(blobs_collection)
 
             cwd = os.getcwd()
-            os.chdir(os.path.join(self._basedir, "idtrackerai"))
+            os.chdir("idtrackerai")
             logger.debug("Loading %s", video_path)
             video_object = np.load(video_path, allow_pickle=True).item()
             os.chdir(cwd)
