@@ -3,7 +3,7 @@ import os.path
 import pandas as pd
 
 from flyhostel.data.pose.movie_old import connect_bps
-from flyhostel.data.bodyparts import bodyparts
+from flyhostel.data.pose.constants import bodyparts
 from flyhostel.data.pose.sleap import draw_video_row
 from flyhostel.data.pose.filters import filter_pose, arr2df
 from flyhostel.data.deg import read_label_file

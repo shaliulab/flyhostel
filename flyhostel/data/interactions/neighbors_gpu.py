@@ -9,27 +9,33 @@ import cupy as cp
 
 logger=logging.getLogger(__name__)
 
-def compute_distance_between_ids(pose, identities):
+def compute_distance_between_ids(df, identities):
     """
-    Arguments:
+        Arguments:
 
-    * pose (cudf.DataFrame): Contains columns id, frame_number, centroid_x and centroid_y.
-    The centroid columns must contain the coordinates in units of pixels of the original raw recording
+        * df (cudf.DataFrame): Contains columns id, frame_number, centroid_x, centroid_y.
+        The centroid columns must contain the coordinates in units of pixels of the original raw recording
 
-    * identities (list): For each animal in this list, the function will check the distance to all other animals
-    in all frames available in pose
+        * identities (list): For each animal in this list, the function will check the distance to all other animals
+        in all frames available in df
+
+        Returns
+            distance_matrix (cp.array): 
+        
     """
     distances=[]
     pairs=[]
-    min_fn=pose["frame_number"].min()
-    max_fn=pose["frame_number"].max()
+    min_fn=df["frame_number"].min()
+    max_fn=df["frame_number"].max()
+    identities=sorted(identities)
+    
 
     
     for id1, id2 in itertools.combinations(identities, 2):
-        with codetiming.Timer(text=f"Done computing distance between {id1} and {id2} in " + "{:.4f} seconds"):
+        with codetiming.Timer(text=f"Done computing distance between {id1} and {id2} in " + "{:.4f} seconds", logger=logger.debug):
             distances.append(
                 compute_distance_between_pairs(
-                    pose,
+                    df,
                     id1, id2,
                     min_fn=min_fn,
                     max_fn=max_fn,
@@ -54,6 +60,17 @@ def compute_distance_between_ids(pose, identities):
 
 
 def compute_distance_between_pairs(df, id1, id2, min_fn=None, max_fn=None):
+    """
+    Com
+    
+    Arguments:
+        df (cudf.DataFrame): Contains columns id, frame_number, centroid_x, centroid_y.
+        id1: id of one of the animals in the pair.
+        id2: id of another of the animals in the pair.
+        min_fn (int): First frame number where the distance will be computed. By default, all frames available will be used.
+        max_fn (int): Last frame number where the distance will be computed. By default, all frames available will be used.
+        
+    """
     summands={}
     for coord in ["x", "y"]:
         p0=df.loc[df["id"]==id1, ["frame_number", f"centroid_{coord}"]].set_index("frame_number")
@@ -70,9 +87,7 @@ def compute_distance_between_pairs(df, id1, id2, min_fn=None, max_fn=None):
             summ+=summand
     
     distance=cudf.Series(index=summ.index, data=cp.sqrt(summ.values.flatten()))
-    
 
-    # Step 1 & 2: Creating a range of indices from min to max of original index
     if min_fn is None:
         min_fn = distance.index.min()
     if max_fn is None:
@@ -89,6 +104,7 @@ def find_neighbors(dt, dist_max_px):
 
     Arguments
         dt (cudf.DataFrame): Dataset with columns id, frame_number, centroid_x, centroid_y
+        dist_max_px (float): Maximum of pixels between two flies considered to be neigbors
     
     Returns
         dt_annotated (cudf.DataFrame): Dataset with same columns as input plus
@@ -151,17 +167,15 @@ def compute_pairwise_distances_using_bodyparts_gpu(neighbors, pose, bodyparts, b
 
     bodyparts_1=df1[bodyparts_xy].fillna(cp.inf).values.reshape((-1, len(bodyparts), 2))
     bodyparts_2=df2[bodyparts_xy].fillna(cp.inf).values.reshape((-1, len(bodyparts), 2))
-    
-    # bodyparts_1=df1[bodyparts_xy].fillna(cp.inf).values
-    # bodyparts_1=cp.stack([bodyparts_1[:,::2], bodyparts_1[:,1::2]], axis=2)
-
-    # bodyparts_2=df2[bodyparts_xy].fillna(cp.inf).values
-    # bodyparts_2=cp.stack([bodyparts_2[:,::2], bodyparts_2[:,1::2]], axis=2)
-    
+   
 
     across_bodyparts=[]
     for bp_i, bp in tqdm(enumerate(bodyparts), desc="Computing distance between bodyparts"):
         diff=bodyparts_1[:,[bp_i],:]-bodyparts_2
+        # make inf-inf (which yields nan) also inf
+        # that way the distance is inf
+        diff[cp.isnan(diff)]=cp.inf
+        
         across_bodyparts.append(
             cp.sqrt(
                 ((diff)**2).sum(axis=2)
@@ -174,9 +188,6 @@ def compute_pairwise_distances_using_bodyparts_gpu(neighbors, pose, bodyparts, b
 
     logger.debug("Finding closest bodyparts")
     distance, (bp_index_2, bp_index_1) = find_closest_entities(across_bodyparts)
-
-    # print(across_bodyparts[idx, 6 ,7])
-
     nn_bodypart=cudf.Series(bodyparts)[bp_index_2].reset_index(drop=True)
     id_bodypart=cudf.Series(bodyparts)[bp_index_1].reset_index(drop=True)
 
@@ -188,6 +199,9 @@ def compute_pairwise_distances_using_bodyparts_gpu(neighbors, pose, bodyparts, b
     neighbors["id_bodypart"]=id_bodypart
     neighbors["distance_bodypart"]=distance
 
+    # keep only the rows where a non infinite distance was found
+    neighbors=neighbors.loc[~cp.isinf(neighbors["distance_bodypart"])]
+
     return neighbors.sort_values("frame_number")
 
 
@@ -196,7 +210,7 @@ def find_closest_entities(arr):
     arr is assumed to have dimensions interactions x bodyparts x bodyparts
     """
     # Find the minimum distances for each time slice
-    min_distances = cp.nanmin(arr, axis=(1, 2))
+    min_distances = cp.min(arr, axis=(1, 2))
 
     # Reshape the array to 2D (time x (body parts combined))
     reshaped_arr = arr.reshape(arr.shape[0], -1)
@@ -210,3 +224,32 @@ def find_closest_entities(arr):
 
     return min_distances, (j_indices, k_indices)
 
+
+
+def find_closest_pair(arr, time_axis, partner_axis):
+    """
+    arr is assumed to have 3 dimensions
+    """
+    # Find the minimum distances for each time slice
+    min_distances = cp.min(arr, axis=(time_axis, partner_axis))
+
+    focal_axis=[0, 1, 2]
+    focal_axis.pop(focal_axis.index(time_axis))
+    focal_axis.pop(focal_axis.index(partner_axis))
+    focal_axis=focal_axis[0]
+
+    # Reshape the array to 2D (time x (body parts combined))
+    reshaped_arr = arr.reshape(arr.shape[focal_axis], -1)
+
+    # Find the flattened indices of the minimum values in the reshaped array
+    flat_indices = cp.argmin(reshaped_arr, axis=1)
+
+    # Convert flattened indices to 2D indices in the original n x n body parts grid
+    n=arr.shape[-1] # because of the C order in reshape
+    j_indices, k_indices = cp.divmod(flat_indices, n)
+
+    return min_distances, (j_indices, k_indices)
+
+
+def find_closest_entities_v2(arr):
+    return find_closest_pair(arr, time_axis=0, partner_axis=1)
