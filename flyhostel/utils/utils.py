@@ -252,8 +252,11 @@ def restore_cache(path):
     if os.path.exists(path):
         logger.debug("Loading ---> %s", path)
         before=time.time()
-        with open(path, "rb") as handle:
-            out=pickle.load(handle)
+        try:
+            with open(path, "rb") as handle:
+                out=pickle.load(handle)
+        except:
+            return False, None
         after=time.time()
         logger.debug("Loading %s took %s seconds", path, after-before)
         
