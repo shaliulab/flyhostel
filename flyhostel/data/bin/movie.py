@@ -17,6 +17,7 @@ def get_parser():
     ap.add_argument("--chunk", type=int, required=True)
     ap.add_argument("--verbose", action="store_true", default=False)
     ap.add_argument("--with-pose", action="store_true", default=False, dest="with_pose")
+    ap.add_argument("--frame-numbers", type=int, nargs="+", default=None)
     return ap
 
 
@@ -62,5 +63,6 @@ def main():
         experiment, df, df, args.chunk, identity,
         input_video=args.input, output_video=args.output, fps=fps,
         with_pose=args.with_pose,
-        gui_progress=args.verbose
+        gui_progress=args.verbose,
+        frame_numbers=args.frame_numbers
     )
