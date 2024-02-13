@@ -4,3 +4,6 @@
 [submodule "ethoscopy"]
 	path = libraries/ethoscopy
 	url = git@github.com:shaliulab/ethoscopy.git
+[submodule "libraries/googleapi"]
+	path = libraries/googleapi
+	url = git@github.com:shaliulab/googleapi
