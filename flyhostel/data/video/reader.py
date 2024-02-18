@@ -100,6 +100,7 @@ class MP4Reader:
         else:
             self.roi_0_table="ROI_0"
 
+        logger.info("Reading tables %s and %s", self.identity_table, self.roi_0_table)
 
     def load_data(self):
         self._cur=self.connection.cursor()
