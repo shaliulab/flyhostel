@@ -10,3 +10,6 @@
 [submodule "libraries/flyhostel-validation"]
 	path = libraries/flyhostel-validation
 	url = git@github.com:shaliulab/flyhostel-validation
+[submodule "libraries/imgstore"]
+	path = libraries/imgstore
+	url = git@github.com:shaliulab/imgstore
