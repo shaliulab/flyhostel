@@ -1,147 +1,151 @@
-import os
+import itertools
 import codetiming
 import logging
-import itertools
-import argparse
-import pickle
 
 import pandas as pd
+import cupy as cp
+import cudf
 
-from flyhostel.data.interactions.load_data import load_animal_dataset
-from flyhostel.data.movies.pose import draw_pose_on_axis
-from flyhostel.data.interactions.centroid_detector import centroid_interaction_detector
-from flyhostel.data.interactions.sleap_ import generate_sleap_files
 
-DATA_PATH=os.environ["MOTIONMAPPER_DATA"]
-SLEAP_DATA=os.environ["SLEAP_DATA"]
-SLEAP_PROJECT_PATH=os.environ["SLEAP_PROJECT_PATH"]
-
-half_window_in_frames=75
+from flyhostel.data.interactions.neighbors_gpu import find_neighbors as find_neighbors_gpu
+from flyhostel.data.interactions.neighbors_gpu import compute_pairwise_distances_using_bodyparts_gpu
+from flyhostel.data.bodyparts import make_absolute_pose_coordinates
+from flyhostel.data.pose.constants import DIST_MAX_MM, ROI_WIDTH_MM, MIN_INTERACTION_DURATION, SQUARE_WIDTH, SQUARE_HEIGHT
+from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.utils import load_roi_width
+from flyhostel.utils.filesystem import FilesystemInterface
 
 logger = logging.getLogger(__name__)
 
-def get_parser():
-
-    ap = argparse.ArgumentParser()
-    command_group = ap.add_mutually_exclusive_group()
-
-    command_group.add_argument("--animals", nargs="+", type=str, help="Example = FlyHostel4_6X_2023-06-27_14-00-00__03")
-    command_group.add_argument("--experiment", type=str, help="basedir in file format, example FlyHostel4_6X_2023-06-27_14-00-00")
-
-    ap.add_argument("--distance-threshold", type=float, required=True, help="max distance between two flies during an interaction, in cm")
-    ap.add_argument("--save-img", action="store_true", required=False, default=False)
-    ap.add_argument("--output-folder", type=str, required=False, default="./output")
-    return ap
+try:
+    import cupy as cp
+    useGPU=True
+except:
+    cp=None
+    useGPU=False
+    logger.debug("Cannot load cupy")
 
 
-def compute_interactions(animal0, animal1, interaction_detector_FUN, with_data=False, **kwargs):
-    
-
-    dt0, dt_index = load_animal_dataset(animal0)
-    dt1, _ = load_animal_dataset(animal1)
-
-    interactions = interaction_detector_FUN(
-        animal0, animal1,
-        dt0, dt1, dt_index,
-        **kwargs
-    )
-
-    interactions["animal0"]=animal0
-    interactions["animal1"]=animal1
-
-    if with_data:
-        return interactions, [dt0, dt1]
-    else:
-        return interactions
+class InteractionDetector(FilesystemInterface):
 
 
-def analyze_pairwise_interactions(animal0, animal1, min_length=0, max_length=20, output_folder="./interactions", save_img=False, **kwargs):
-
-    logger.info("Detecting interaction events")
-    
-    with codetiming.Timer(text="Done in {:.4f} seconds", logger=logger):
-        interactions, dts = compute_interactions(
-            animal0, animal1,
-            interaction_detector_FUN=centroid_interaction_detector,
-            with_data=True,
-            **kwargs
-        )
-    interactions = interactions.loc[(interactions["length"] > min_length) & (interactions["length"] <= max_length)]
-    interactions.to_csv(f"{output_folder}/interactions.csv")
-
-    if save_img:
-
-        with open(f"{DATA_PATH}/{animal0.split('__')[0]}.pkl", "rb") as handle:
-            params=pickle.load(handle)
-        params["animals"] = [animal0, animal1]
+    def __init__(self, *args, dist_max_mm=DIST_MAX_MM, min_interaction_duration=MIN_INTERACTION_DURATION, roi_width_mm=ROI_WIDTH_MM, **kwargs):
         
-        for interaction_id in range(interactions.shape[0]):
-            fig = render_interaction(dts=dts, frame_number=interactions.iloc[interaction_id]["frame_number"], params=params)
-            fig.savefig(f"{output_folder}/interaction_{str(interaction_id).zfill(4)}.png", bbox_inches='tight', pad_inches=0)
-            fig.clear()
-
-    return interactions
-    
-
-
-def render_interaction(dts, frame_number, params):
-
-    pose_data = []
-    for dt_i in dts:
-    
-        pose_data.append((
-            dt_i.loc[
-                (dt_i.index >= frame_number-half_window_in_frames) & (dt_i.index < frame_number+half_window_in_frames)
-            ]
-        ))
-    
-    
-    fns={"raw":pose_data[0].index[0]}
-    h5inds=[0, 1]
-
-    return draw_pose_on_axis(pose_data, fns, h5inds, params)
+        self.framerate=None
+        self.dbfile = self.load_dbfile()
+        self.roi_width = load_roi_width(self.dbfile)
+        self.roi_height=self.roi_width
+        self.roi_width_mm=roi_width_mm
+        self.px_per_mm=self.roi_width/roi_width_mm
+        self.neighbors_df=None
+        self.dist_max_mm=dist_max_mm
+        self.min_interaction_duration=min_interaction_duration
+        super(InteractionDetector, self).__init__(*args, **kwargs)
 
 
-def main():
+    def find_interactions(self, dt, pose, bodyparts, framerate=FRAMERATE, using_bodyparts=True):
+        
+        if not isinstance(dt, cudf.DataFrame) and not pd.api.types.is_categorical_dtype(dt["id"]):
+            dt["id"]=pd.Categorical(dt["id"])
 
-    ap = get_parser()
-    args = ap.parse_args()
+        if not isinstance(pose, cudf.DataFrame) and not pd.api.types.is_categorical_dtype(pose["id"]):
+            pose["id"]=pd.Categorical(pose["id"])
+        
+        dt_gpu=cudf.DataFrame(dt[["id", "frame_number", "x", "y", "identity"]])
 
+        if "thorax" not in bodyparts:
+            # thorax is required in any case
+            bodyparts=["thorax"] + bodyparts
 
-    output_folder=args.output_folder
-    os.makedirs(output_folder, exist_ok=True)
+        bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
+        pose_gpu=cudf.DataFrame(pose[["id", "frame_number"] + bodyparts_xy])
+        pose_and_centroid=pose_gpu.merge(dt_gpu, on=["id", "frame_number"], how="left")
+        
+        logger.debug("Projecting to absolute coordinates")
 
-    if args.experiment:
-        number_of_animals=int(args.experiment.split("_")[1].replace("X", ""))
-        animals = [f"{args.experiment}__{str(i+1).zfill(2)}" for i in range(number_of_animals)]
-
-    else:
-        animals=args.animals
-
-    animal_pairs = itertools.combinations(animals, 2)
-
-    interactions=[]
-    for animal0, animal1 in animal_pairs:
-        subfolder=f"{output_folder}/{animal0}_{animal1}"
-        os.makedirs(subfolder, exist_ok=True)
-
-        pair_interactions = analyze_pairwise_interactions(
-            animal0, animal1, max_length=20,
-            output_folder=subfolder,
-            save_img=args.save_img, distance_threshold=args.distance_threshold
+        # project pose relative to the top left corner of the 100x100 square around the animal
+        # to absolute coordinates, relative to the top left corner of the original raw frame
+        # (which is the same for all animals)
+        pose_absolute = make_absolute_pose_coordinates(
+            pose_and_centroid.copy(), bodyparts,
+            square_width=SQUARE_WIDTH, square_height=SQUARE_HEIGHT,
+            roi_height=self.roi_height,
+            roi_width=self.roi_width
         )
 
-        logger.info("Generating sleap file %s_%s", animal0, animal1)
-        generate_sleap_files(pair_interactions, root=SLEAP_PROJECT_PATH)
+        # find frames where the centroid of at least two flies it at most dist_max_mm mm from each other
+        neighbors=self.find_neighbors(pose_absolute[["id", "frame_number", "centroid_x", "centroid_y"]], dist_max_mm=self.dist_max_mm)
 
-        interactions.append(
-            pair_interactions
-        )
+        if using_bodyparts:
 
-    interactions=pd.concat(interactions)
-    interactions.to_csv(f"{output_folder}/interactions.csv")
+            # for those frames, go through each pair of 'neighbors' and compute the distance between the two closest bodyparts
+            neighbors=self.compute_pairwise_distances_using_bodyparts(neighbors.copy(), pose_absolute, bodyparts, bodyparts_xy)
+
+            neighbors["distance_bodypart_mm"]=neighbors["distance_bodypart"]/self.px_per_mm
+            neighbors=neighbors.loc[neighbors["distance_bodypart_mm"] < self.dist_max_mm]
+            neighbors=neighbors.sort_values(["id", "nn", "frame_number"])
+
+            neighbors["scene_start"]=[True] + (cp.diff(neighbors["frame_number"])!=FRAMERATE//framerate).tolist()
+            neighbors["interaction"]=neighbors["scene_start"].cumsum()
+
+            neighbors=neighbors.merge(
+                neighbors.groupby("interaction").size().reset_index().rename({0: "frames"}, axis=1),
+                on=["interaction"],
+                how="left"
+            ).sort_values(["frame_number", "id"])
+            neighbors["duration"]=neighbors["frames"]/framerate
+            interactions=neighbors.loc[(neighbors["duration"]>=self.min_interaction_duration)]
+
+            return interactions
+        else:
+            return neighbors
+        
+
+    def compute_pairwise_distances_using_bodyparts(self, *args, **kwargs):
+        return compute_pairwise_distances_using_bodyparts_gpu(*args, **kwargs)
 
 
+    def find_neighbors(self, dt, dist_max_mm=None):
 
-if __name__ == "__main__":
-    main()
+        if dist_max_mm is None:
+            dist_max_mm=self.dist_max_mm
+
+
+        if self.neighbors_df is None or self.dist_max_mm!=dist_max_mm:
+            with codetiming.Timer():
+                logger.debug("Computing distance between animals")
+                # even though the pose is not needed to find the nns
+                # dt_with_pose is the most raw dataset that contains the centroid_x and centroid_y
+                # of the agents in absolute coordinates
+                dist_max_px=dist_max_mm*self.px_per_mm
+                logger.info("Neighbors = < %s mm (%s pixels)", dist_max_mm, dist_max_px)
+
+                neighbors = find_neighbors_gpu(dt, dist_max_px)
+                neighbors=neighbors.loc[neighbors["frame_number"].drop_duplicates().index]
+                neighbors["distance_mm"] = neighbors["distance"] / self.px_per_mm
+                
+                neighbors_df=neighbors[
+                    ["id", "nn", "distance_mm", "distance", "frame_number"]
+                ]
+                self.neighbors_df=neighbors_df.sort_values(["frame_number", "id"])
+
+        self.dist_max_mm=dist_max_mm
+        return self.neighbors_df
+    
+
+    @staticmethod
+    def interactions_by_closest_point(interactions):
+        return interactions.groupby(["id", "nn", "interaction"]).apply(lambda df: df.iloc[cp.argmin(df["distance_bodypart"].values)]).to_pandas()
+
+
+    @staticmethod
+    def interactions_by_first_point(interactions):
+        return interactions.groupby(["id", "nn", "interaction"]).first().reset_index().to_pandas()
+    
+
+    @staticmethod
+    def flatten_interactions(interactions):
+        return pd.concat([
+            interactions[["id", "frame_number"]],
+            interactions[["nn", "frame_number"]].rename({"nn": "id"}, axis=1)
+        ], axis=0).reset_index(drop=True)
