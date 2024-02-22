@@ -210,7 +210,6 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         else:
             data=data.merge(self.behavior.drop("t", axis=1, errors="ignore"), on=["id", "frame_number"], how="left")
 
-        import ipdb; ipdb.set_trace()
         fields = centroid_columns + behavior_columns
         data=data[fields]
         data=to_behavpy(data, meta)
@@ -381,7 +380,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
     def load_centroid_data(self, *args, identity=None, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, reference_hour=np.nan, cache=None, **kwargs):
 
         if cache is not None:
-            logger.warning("Supplied cache will be ignored. ethoscopy cached will be used instead")
+            logger.warning("Supplied cache will be ignored. ethoscopy cache will be used instead")
 
         if identity is None:
             identity=self.identity
