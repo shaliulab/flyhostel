@@ -201,19 +201,17 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         meta=data.meta.copy()
         centroid_columns=data.columns.tolist()
         data=data.loc[data["frame_number"] % wavelet_downsample == 0]
+        behavior_columns=["behavior",  "score", "bout_in", "bout_out", "bout_count", "duration"]
 
         if self.behavior is None:
             logger.warning("Behavior not computed for %s", self)
-            data["behavior"]=np.nan
-            data["score"]=np.nan
-            data["bout_in"]=np.nan
-            data["bout_out"]=np.nan
-            data["duration"]=np.nan
+            for column in behavior_columns:
+                data[column]=np.nan
         else:
             data=data.merge(self.behavior, on=["id", "frame_number"], how="left")
 
-
-        fields = centroid_columns + ["behavior",  "score", "bout_in", "bout_out", "bout_count", "duration"]
+        import ipdb; ipdb.set_trace()
+        fields = centroid_columns + behavior_columns
         data=data[fields]
         data=to_behavpy(data, meta)
         self.analysis_data=data
