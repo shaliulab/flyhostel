@@ -118,12 +118,12 @@ class WaveletLoader(ABC):
         
         # merge pose and wavelet information
         # NOTE This assumes the frame number of the wavelet is the same as the pose
+        assert wavelets.shape[0]==pose.shape[0], f"Wavelets has {wavelets.shape[0]} rows, but pose has {pose.shape[0]} rows. They should be the same"
         wavelets["frame_number"]=pose["frame_number"].values
         
         pose.set_index(["id", "frame_number"], inplace=True)
         wavelets.set_index("frame_number", append=True, inplace=True)
         
-        # wavelets=wavelets.reset_index().set_index(["id", "frame_number"])
         pose_with_wavelets=pd.merge(pose, wavelets, left_index=True, right_index=True)
         del wavelets
         pose_with_wavelets.reset_index(inplace=True)
