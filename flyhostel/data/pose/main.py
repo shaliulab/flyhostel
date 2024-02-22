@@ -3,7 +3,7 @@ import glob
 import time
 import os.path
 import logging
-
+import sqlite3
 logger = logging.getLogger(__name__)
 
 import pandas as pd
@@ -104,7 +104,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.identity=int(identity)
         self.lq_thresh = lq_thresh
         self.n_jobs=n_jobs
-        self.datasetnames=self.load_datasetnames()
+        self.datasetnames=[experiment + "__" + str(identity).zfill(2)]
         self.ids = self.make_ids(self.datasetnames)
 
         if self.identity is not None:
@@ -210,7 +210,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
             data["bout_out"]=np.nan
             data["duration"]=np.nan
         else:
-            data=data.merge(self.behavior, on=["id", "frame_number"], how="left")
+            data=data.merge(self.behavior.drop("t", axis=1, errors="ignore"), on=["id", "frame_number"], how="left")
 
 
         fields = centroid_columns + ["behavior",  "score", "bout_in", "bout_out", "bout_count", "duration"]
@@ -320,14 +320,25 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
 
     
         logger.info("Loading centroid data")
-        self.load_centroid_data(
-            *args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs,
-            stride=stride, verbose=False,
-            cache=None,
-            reference_hour=np.nan,
-            identity_table=self.identity_table,
-            roi_0_table=self.roi_0_table,
-            **kwargs)
+        try:
+            self.load_centroid_data(
+                *args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs,
+                stride=stride, verbose=False,
+                cache=None,
+                reference_hour=np.nan,
+                identity_table=self.identity_table,
+                roi_0_table=self.roi_0_table,
+                **kwargs)
+        except AssertionError as error:
+            logger.error(error)
+            self.load_centroid_data(
+                *args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs,
+                stride=stride, verbose=False,
+                cache=None,
+                reference_hour=np.nan,
+                identity_table="IDENTITY",
+                roi_0_table="ROI_0",
+                **kwargs)
        
         logger.info("Loading pose data")
         for ident in identities:
@@ -339,7 +350,26 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.load_behavior_data(self.experiment, identity, self.pose_boxcar, cache=cache)
 
     def load_fast(self, cache):
-        self.load_centroid_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None, reference_hour=np.nan)
+        try:
+            self.load_centroid_data(
+                identity=self.identity,
+                identity_table=self.identity_table,
+                roi_0_table=self.roi_0_table,
+                min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None,
+                reference_hour=np.nan
+            )
+
+        except AssertionError as error:
+            logger.error(error)
+            self.load_centroid_data(
+                identity=self.identity,
+                identity_table="IDENTITY",
+                roi_0_table="ROI_0",
+                min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None,
+                reference_hour=np.nan,
+            )
+                
+    
         self.load_pose_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)
         self.process_data(stride=1, cache=cache)
         self.load_deg_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)
