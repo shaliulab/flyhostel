@@ -39,7 +39,7 @@ def get_parser():
     ap=argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="Path to feather dataset")
     ap.add_argument("--output", required=False, type=str, default=".")
-    ap.add_argument("--time_window_length", type=int, default=1)
+    ap.add_argument("--time-window-length", type=int, default=1)
     return ap
     
 
