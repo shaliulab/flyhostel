@@ -192,6 +192,12 @@ def load_dataset(experiment, identity, wavelets=None, cache="/flyhostel_data/cac
 
     dataset, (frequencies, freq_names)=out
     dataset.sort_values(["id","frame_number"], inplace=True)
+    loader.store_index["t"]=loader.store_index["frame_time"] + loader.meta_info["t_after_ref"]
+    dataset=dataset.drop("t", axis=1, errors="ignore").merge(
+        loader.store_index[["frame_number", "t"]],
+        how="left",
+        on="frame_number"
+    )
     return dataset, (frequencies, freq_names)
     
 def make_ethogram(
