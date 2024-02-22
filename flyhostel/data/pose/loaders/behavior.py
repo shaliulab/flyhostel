@@ -87,6 +87,15 @@ class BehaviorLoader():
         dt=annotate_bouts(dt, "behavior")
         dt=annotate_bout_duration(dt, fps=fps)
         self.behavior=dt
+        
+        self.store_index["t"]=self.store_index["frame_time"]+self.meta_info["t_after_ref"]
+
+        self.behavior=self.behavior.drop(
+            "t", axis=1, errors="ignore"
+        ).merge(
+            self.store_index[["frame_number", "t"]], on="frame_number", how="left").sort_values(
+                "frame_number"
+        )
 
 
         if cache is not None:
