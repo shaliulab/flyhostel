@@ -98,9 +98,13 @@ def split_xy(arr):
 
 
 def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window_size_seconds=JUMP_WINDOW_SIZE_SECONDS, max_jump_mm=MAX_JUMP_MM, framerate=FRAMERATE):
-    
+    """
+    Ignore points that deviate from the median
+
+    Points deviating from the median are those farther than `max_jump_mm` mm of the median computed on a window around them, of `window_size_seconds` seconds
+    framerate tells the program how many points make one second and px_per_cm how many pixels are 1 cm
+    """
     window_size=int(window_size_seconds*framerate)
-    min_periods=3
     arr=cp.from_dlpack(pose.interpolate(method="linear", axis=0, limit_direction="both").fillna(method="bfill", axis=0).to_dlpack())
     median_arr=filter_pose_partitioned(arr, cp.median, window_size, PARTITION_SIZE, pad=True)
 
