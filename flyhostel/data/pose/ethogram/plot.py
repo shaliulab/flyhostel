@@ -54,12 +54,8 @@ def main():
     fig.write_html(html_out)
     fig.write_json(json_out)
 
-    
 
-def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info, t0=None):
-
-    df=df.copy()
-    id = df["id"].iloc[0]
+def bin_behavior_table(df, time_window_length=1, x_var="seconds", t0=None):
 
     df["zt"]=(df["t"]/3600).round(2)
     df["zt_"]=(df["t"]/3600)
@@ -70,10 +66,20 @@ def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info
 
         df["t"]=(df["frame_number"]-t0)/framerate
         x_var="t"
-        
+
+    df["chunk"]=df["frame_number"]//chunksize
+    df["frame_idx"]=df["frame_number"]%chunksize
     if time_window_length is not None:
         logger.debug("Setting time resolution to %s second(s)", time_window_length)
         df=most_common_behavior_vectorized(df, time_window_length, other_cols=["zt", "zt_", "score", "chunk", "frame_idx"])
+
+    return df
+
+def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info, t0=None):
+
+    df=df.copy()
+    id = df["id"].iloc[0]
+    df=bin_behavior_table(df, time_window_length=time_window_length, x_var=x_var, t0=t0)
 
     # Get unique behaviors
     found_behaviors = list(set(list(color_mapping_rgba_str.keys()) + df["behavior"].unique().tolist()))
