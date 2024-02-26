@@ -1,4 +1,5 @@
 import time
+import io
 import glob
 import time
 import os.path
@@ -146,6 +147,26 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.analysis_data=None
         self.identity_table=identity_table
         self.roi_0_table=roi_0_table
+        self.meta_info=self.load_meta_info()
+    
+    def load_meta_info(self):
+        with sqlite3.connect(self.dbfile) as conn:
+            start_time=int(float(pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'date_time';", con=conn)["value"].values.item()))
+            start_time=start_time-start_time%3600
+            start_time=start_time%(24*3600)
+            metadata_str=pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'ethoscope_metadata'", con=conn)["value"].values.tolist()[0]
+        
+        metadata=pd.read_csv(io.StringIO(metadata_str))
+        
+        try:
+            reference_hour=metadata.loc[metadata["identity"]==self.identity, "reference_hour"]*3600
+            if reference_hour.shape[0]==0:
+                raise KeyError
+        except KeyError:
+            reference_hour=metadata["reference_hour"].iloc[0]*3600
+        
+        self.meta_info={"t_after_ref": start_time-reference_hour}
+        
 
     def __str__(self):
         return f"{self.experiment}__{str(self.identity).zfill(2)}"
@@ -214,7 +235,6 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         data=data[fields]
         data=to_behavpy(data, meta)
         self.analysis_data=data
-
         return data
 
 
