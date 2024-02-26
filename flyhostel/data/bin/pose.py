@@ -64,7 +64,10 @@ def main():
     with sqlite3.connect(dbfile) as conn:
         cur=conn.cursor()
         number_of_animals=parse_number_of_animals(cur)
-        concatenation=load_concatenation_table(cur, basedir)
+        if number_of_animals==1:
+            concatenation=load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION")
+        else:
+            concatenation=load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VAL")
 
 
     if args.identity is None:
