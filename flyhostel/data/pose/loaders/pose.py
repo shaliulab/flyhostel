@@ -150,7 +150,7 @@ class PoseLoader:
                     -(np.argmax(t[::-1]<max_time)-1)
                 ]
                 pose=pose.loc[
-                    (pose["t"] >= min_fn) & (pose["t"] < max_fn)
+                    (pose["frame_number"] >= min_fn) & (pose["frame_number"] < max_fn)
                 ]
     
         return pose
