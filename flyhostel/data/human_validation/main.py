@@ -82,6 +82,9 @@ def generate_label(df):
 
     
 def annotate_for_validation(experiment, output_folder, time_window_length=1, format=".png", n_jobs=20, interval=None, cache=False):
+    """
+    Generate movies capturing each scene where validation may be needed based on heuristics and QC
+    """
 
     tokens=experiment.split("_")
     suffix="/".join([tokens[0], tokens[1], "_".join(tokens[2:4])])

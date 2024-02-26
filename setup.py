@@ -37,6 +37,8 @@ setup(
         "hdf5storage",
         "yolov7tools==1.1",
         "vidio",
+        #"cupy>=12.2.0",
+        #"cudf>=23.10.02",
     ],
     entry_points={
         "console_scripts": [
@@ -54,9 +56,9 @@ setup(
             "preprocess-pose=flyhostel.data.bin.pose:preprocess",
             "annotate-video=flyhostel.data.bin.movie:main",
             "list-frames-with-no-animals=flyhostel.data.sqlite3.missing_animals:main",
-            "make-identogram=flyhostel.data.bin.human_validation:main",
-            "auto-annotate-qc=flyhostel.data.bin.human_validation:annotate_scene_quality",
-            "make-space-time-images=flyhostel.data.bin.human_validation.annotate:main",
+            "make-identogram=flyhostel.data.bin.human_validation.annotate:main",
+            "make-space-time-images=flyhostel.data.bin.human_validation.make_space_time_images:main",
+            "auto-annotate-qc=flyhostel.data.bin.human_validation.qc:main",
             "integrate-human-annotations=flyhostel.data.bin.human_validation.integrate:main",
             "cvat-label-constructor=flyhostel.data.bin.human_validation.label_constructor:main",
             ]

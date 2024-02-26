@@ -10,7 +10,8 @@ from flyhostel.data.human_validation.cvat.cvat_integration import get_annotation
 from flyhostel.data.human_validation.cvat.utils import load_tracking_data, load_data, get_number_of_animals, get_basedir, get_dbfile
 from flyhostel.data.human_validation.cvat.fragments import make_annotation_wo_fragment_index, make_fragment_index
 from flyhostel.data.human_validation.cvat.identity import annotate_identity
-from flyhostel.data.human_validation.cvat.sqlite3 import write_validated_identity, write_validated_roi0
+from flyhostel.data.human_validation.cvat.sqlite3 import write_validated_identity, write_validated_roi0, write_validated_concatenation
+
 
 logger=logging.getLogger(__name__)
 
@@ -182,9 +183,23 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
     out_file=os.path.join(folder, f"{experiment}.feather")
     logger.debug("Saving ---> %s", out_file)
     out.reset_index(drop=True).to_feather(out_file)
+
+
+    df_identity=out[["frame_number", "in_frame_index", "local_identity", "identity", "validated"]].reset_index(drop=True)
+    df_identity["identity"]=df_identity["identity"].astype(np.int32)
+    df_identity["local_identity"]=df_identity["local_identity"].astype(np.int32)
     
-    write_validated_identity(out, dbfile)
-    write_validated_roi0(out, dbfile)
+    df_roi0=out[["frame_number", "in_frame_index", "x", "y", "fragment", "area", "modified", "class_name", "validated"]].reset_index(drop=True)
+    df_roi0["fragment"]=df_roi0["fragment"].astype(np.int32)
+
+
+    df_concatenation=df_identity[["frame_number", "local_identity", "identity"]]
+    df_concatenation["chunk"]=df_concatenation["frame_number"]//chunksize
+    df_concatenation=df_concatenation.groupby(["chunk", "identity"]).agg({"local_identity": np.mean}).reset_index()
+
+    write_validated_identity(df_identity, dbfile)
+    write_validated_roi0(df_roi0, dbfile)
+    write_validated_concatenation(df_concatenation, dbfile)
 
 
 def list_flies_with_lid_0(data):
