@@ -22,7 +22,7 @@ color_mapping_eng = {
     "groom": "green",
     "inactive": "blue",
     "walk": "red",
-    "background": "black",
+    "background": "white",
     "feed+inactive": "peachpuff",
     "groom+pe": "darkseagreen",
     "feed+walk": "crimson",
@@ -73,13 +73,13 @@ def bin_behavior_table(df, time_window_length=1, x_var="seconds", t0=None):
         logger.debug("Setting time resolution to %s second(s)", time_window_length)
         df=most_common_behavior_vectorized(df, time_window_length, other_cols=["zt", "zt_", "score", "chunk", "frame_idx"])
 
-    return df
+    return df, x_var
 
 def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info, t0=None):
 
     df=df.copy()
     id = df["id"].iloc[0]
-    df=bin_behavior_table(df, time_window_length=time_window_length, x_var=x_var, t0=t0)
+    df, x_var=bin_behavior_table(df, time_window_length=time_window_length, x_var=x_var, t0=t0)
 
     # Get unique behaviors
     found_behaviors = list(set(list(color_mapping_rgba_str.keys()) + df["behavior"].unique().tolist()))
@@ -159,6 +159,10 @@ def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info
         showlegend=True,
         height=600,
     )
+
+    fig.update_layout(
+        template="plotly_dark"
+    )
     
     # Set the default range for the x-axis to the first 300 unique values
     default_x_range = [df[x_var].min(), df[x_var].min() + 300]
@@ -174,7 +178,7 @@ def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info
             ),
             type="linear"
         ),
-         shapes=[
+        shapes=[
             go.layout.Shape(
                 type="line",
                 x0=center_x,
