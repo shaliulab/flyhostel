@@ -101,18 +101,9 @@ def load_file(file):
     return node_names, tracks, score, file
 
 def load_files(files, n_jobs=1):
-
-    # files=sorted(files)
-    # files_ = []
-    # for f in files:
-    #     local_identity=int(os.path.basename(os.path.dirname(f)))
-    #     chunk=int(os.path.basename(f).split(".")[0])
-    #     if local_identity == 0:
-    #         print(f"local identity = 0 in chunk {chunk}")
-    #         continue
-    #     files_.append(f)
-    # files=files_
-
+    """
+    Load a collection of SLEAP .h5 files
+    """
 
     print(f"{len(files)} files will be loaded")
     Output = joblib.Parallel(n_jobs=n_jobs)(
@@ -203,20 +194,20 @@ def infer_analysis_path(basedir, local_identity, chunk, number_of_animals):
     else:
         return os.path.join(basedir, "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
 
-def load_concatenation_table(cur, basedir):
+def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VAL"):
     cur.execute("SELECT value FROM METADATA where field ='idtrackerai_conf';")
     conf=cur.fetchone()[0]
     number_of_animals=int(json.loads(conf)["_number_of_animals"]["value"])
 
 
-    cur.execute("PRAGMA table_info('CONCATENATION');")
+    cur.execute(f"PRAGMA table_info('{concatenation_table}');")
     header=[row[1] for row in cur.fetchall()]
 
-    cur.execute("SELECT * FROM CONCATENATION;")
+    cur.execute(f"SELECT * FROM {concatenation_table};")
     records=cur.fetchall()
     concatenation=pd.DataFrame.from_records(records, columns=header)
     concatenation["dfile"] = [
-        infer_analysis_path(basedir, row["local_identity"], row["chunk"], number_of_animals=number_of_animals)
+        infer_analysis_path(basedir, int(row["local_identity"]), row["chunk"], number_of_animals=number_of_animals)
         for i, row in concatenation.iterrows()
     ]
     return concatenation

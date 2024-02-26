@@ -309,13 +309,13 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         if identity is None:
             identities=[self.identity]
             identity=self.identity
-            
+
             if self.identity is None:
                 identities=[int(id.split("|")[1]) for id in self.ids]
         else:
             identities=[identity]
 
-    
+
         logger.info("Loading centroid data")
         try:
             self.load_centroid_data(
@@ -336,13 +336,13 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
                 identity_table="IDENTITY",
                 roi_0_table="ROI_0",
                 **kwargs)
-       
+
         logger.info("Loading pose data")
         for ident in identities:
             self.load_pose_data(*args, identity=ident, min_time=min_time, max_time=max_time, verbose=False, cache=cache, files=files, **kwargs)
         logger.info("Loading DEG data")
         self.load_deg_data(*args, identity=identity, ground_truth=True, stride=stride, verbose=False, cache=None, **kwargs)
-        
+
         logger.info("Loading behavior data")
         self.load_behavior_data(self.experiment, identity, self.pose_boxcar, cache=cache)
 
@@ -365,8 +365,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
                 min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None,
                 reference_hour=np.nan,
             )
-                
-    
+
         self.load_pose_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)
         self.process_data(stride=1, cache=cache)
         self.load_deg_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)

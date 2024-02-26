@@ -4,18 +4,23 @@ import logging
 import os.path
 import yaml
 import re
-import pickle
 import shutil
 import glob
+import sys
 import sqlite3
 import joblib
 from confapp import conf
-from tqdm import tqdm
 import numpy as np
-
-
 import pandas as pd
 
+
+logger=logging.getLogger(__name__)
+
+if sys.version_info > (3, 8):
+    import pickle
+else:
+    logger.warning("Python version < 3.8 detected. Loading pickle5 instead of pickle")
+    import pickle5 as pickle
 
 from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG, ANALYSIS_FOLDER
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
@@ -212,11 +217,13 @@ def get_local_identities_from_experiment(experiment, frame_number):
     table=get_local_identities(dbfile, [frame_number])
     return table
 
-def get_local_identities(dbfile, frame_numbers):
+
+def get_local_identities_v1(dbfile, frame_numbers, identity_table="IDENTITY"):
 
     with sqlite3.connect(dbfile) as conn:
         cursor = conn.cursor()
-        query = "SELECT frame_number, identity, local_identity FROM identity WHERE frame_number IN ({})".format(
+        query = "SELECT frame_number, identity, local_identity FROM {} WHERE frame_number IN ({})".format(
+            identity_table,
             ','.join(['?'] * len(frame_numbers))
         )
         cursor.execute(query, frame_numbers)
@@ -225,6 +232,33 @@ def get_local_identities(dbfile, frame_numbers):
     
     table=pd.DataFrame.from_records(table, columns=["frame_number", "identity", "local_identity"])
     return table
+
+def get_local_identities_v2(dbfile, frame_numbers, identity_table=None):
+    chunksize=get_chunksize(dbfile)
+    chunks=(np.array(frame_numbers)//chunksize).tolist()
+
+    with sqlite3.connect(dbfile) as conn:
+        cursor = conn.cursor()
+        query = "SELECT * FROM CONCATENATION_VAL;"
+        cursor.execute(query)        
+        table = cursor.fetchall()
+    
+    table=pd.DataFrame.from_records(table, columns=["id", "chunk", "identity", "local_identity"])
+    table=table.loc[table["chunk"].isin(chunks)]
+    table["frame_number"]=table["chunk"]*chunksize
+
+    return table
+
+
+def get_local_identities(dbfile, *args, **kwargs):
+    try:
+        return get_local_identities_v2(dbfile, *args, **kwargs)
+    except sqlite3.OperationalError as error:
+        logger.debug("%s is not human validated", dbfile)
+        logger.debug(error)
+        return get_local_identities_v1(dbfile, *args, **kwargs)
+
+
 
 def get_chunksize(dbfile):
     with sqlite3.connect(dbfile) as conn:
@@ -244,8 +278,10 @@ def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
         local_identity=local_identity.item()
         single_animal_video = os.path.join(os.path.dirname(dbfile), "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
     
+    if single_animal_video is None:
+        logger.warning("identity %s not found in chunk %s", identity, chunk)
+    
     return single_animal_video
-
 
 
 def restore_cache(path):

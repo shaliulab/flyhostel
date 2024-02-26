@@ -21,7 +21,7 @@ def get_parser():
     return ap
 
 
-def main():
+def annotate_by_chunk():
 
     cache="/flyhostel_data/cache"
 
@@ -60,8 +60,9 @@ def main():
 
     df=df.reset_index(drop=True).drop("index", axis=1, errors="ignore")
     annotate_chunk(
-        experiment, df, df, args.chunk, identity,
-        input_video=args.input, output_video=args.output, fps=fps,
+        experiment, df, args.chunk, identity,
+        input_video=args.input, output_video=args.output,
+        fps=fps,
         with_pose=args.with_pose,
         gui_progress=args.verbose,
         frame_numbers=args.frame_numbers

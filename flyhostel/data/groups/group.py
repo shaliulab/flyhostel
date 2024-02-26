@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import cudf
 
-from flyhostel.data.interactions.main import InteractionDetector
+from flyhostel.data.interactions.detector import InteractionDetector
 from flyhostel.data.pose.constants import interpolate_seconds
 from flyhostel.data.pose.constants import bodyparts_xy as BODYPARTS_XY
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
@@ -36,13 +36,15 @@ class FlyHostelGroup(InteractionDetector):
             if protocol=="full":
                 if fly.pose is None:
                     fly.load_and_process_data(
-                        stride=1,
+                        stride=stride,
                         cache="/flyhostel_data/cache",
+                        min_time=min_time, max_time=max_time,
                         filters=None,
                         useGPU=0
                     )
                     fly.compile_analysis_data()
             elif protocol=="centroids":
+                # import ipdb; ipdb.set_trace()
                 logger.debug("Loading %s centroids", fly)
                 fly.load_centroid_data(
                     stride=stride,
@@ -71,6 +73,9 @@ class FlyHostelGroup(InteractionDetector):
     def animals(self):
         return sorted(list(self.flies.keys()))
     
+    @property
+    def ids(self):
+        return [self.flies[animal].ids[0] for animal in self.animals]
 
     def __len__(self):
         return len(self.flies)
@@ -147,7 +152,6 @@ class FlyHostelGroup(InteractionDetector):
         skip=FRAMERATE//framerate
         dfs=[]
         for fly in self.flies.values():
-            print(fly.identity)
             df=pd.DataFrame(fly.dt)
             df=cudf.DataFrame(df)
             df=df.loc[df["frame_number"]%skip==0]
@@ -161,13 +165,9 @@ class FlyHostelGroup(InteractionDetector):
 
         dfs=[]
         for fly in self.flies.values():
-            print(fly.identity)
             df=pd.DataFrame(getattr(fly, pose))
             df=cudf.DataFrame(df)
             df=df.loc[(df["frame_number"]%skip)==0]
             dfs.append(df)
         pose=cudf.concat(dfs, axis=0)
         return pose
-
-   
-

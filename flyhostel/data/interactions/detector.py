@@ -145,7 +145,10 @@ class InteractionDetector(FilesystemInterface):
 
     @staticmethod
     def flatten_interactions(interactions):
-        return pd.concat([
-            interactions[["id", "frame_number"]],
-            interactions[["nn", "frame_number"]].rename({"nn": "id"}, axis=1)
+        interactions["_idx"]=list(range(interactions.shape[0]))
+        interactions_idx= pd.concat([
+            interactions[["id", "_idx"]],
+            interactions[["nn", "_idx"]].rename({"nn": "id"}, axis=1)
         ], axis=0).reset_index(drop=True)
+        
+        return interactions_idx.merge(interactions.drop(["id", "nn"], axis=1), on="_idx", how="left")
