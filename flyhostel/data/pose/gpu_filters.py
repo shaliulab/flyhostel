@@ -165,7 +165,7 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, win
     logger.debug("Imputing proboscis to head")
     pose_cudf=impute_proboscis_to_head(
         pose=pose_cudf,
-        selection=pose["proboscis_x"].isna()
+        selection=np.bitwise_and(~pose["head_x"].isna(), pose["proboscis_x"].isna())
     )
 
     if APPLY_MEDIAN_FILTER:
@@ -187,7 +187,9 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, win
         # missing_data_mask[bp_x] is the same as missing_data_mask[bp_y]
         other_columns.loc[missing_data_mask[bp_feat].values, bp + "_is_interpolated"]=True
     logger.debug("Imputing proboscis to head")
-    pose_cudf=impute_proboscis_to_head(pose_cudf, selection=other_columns["proboscis_is_interpolated"])
+
+    selection=np.bitwise_and(~other_columns["head_is_interpolated"], other_columns["proboscis_is_interpolated"])
+    pose_cudf=impute_proboscis_to_head(pose_cudf, selection=selection)
     assert np.bitwise_and(
         pose_cudf["proboscis_x"].isna(),
         ~pose_cudf["head_x"].isna()

@@ -251,7 +251,7 @@ def interpolate_pose(pose, columns=None, seconds: Union[None, Dict, float, int]=
 
 def impute_proboscis_to_head(pose, selection=None):
     if selection is None:
-        selection=pose["proboscis_likelihood"].isna()
+        selection=np.bitwise_and(pose["proboscis_likelihood"].isna(), ~pose["head_likelihood"].isna())
     for coord in ["x", "y"]:
         pose.loc[selection, f"proboscis_{coord}"]=pose.loc[selection, f"head_{coord}"]
     return pose
