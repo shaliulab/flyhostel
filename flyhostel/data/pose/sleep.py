@@ -79,9 +79,9 @@ class SleepAnnotator(ABC):
         return find_brief_awakenings(dt, *args, **kwargs)
     
 
-    def sleep_annotation_inactive(self, dt, min_time_immobile=300, time_window_length=1):
+    def sleep_annotation_inactive(self, data, min_time_immobile=300, time_window_length=1):
         
-        dt=most_common_behavior_vectorized(dt, time_window_length)
+        dt=most_common_behavior_vectorized(data, time_window_length)
         
         behavior=dt["behavior"].copy()
         behavior.loc[behavior.isin(inactive_states)]="all_inactive"
