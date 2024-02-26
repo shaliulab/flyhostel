@@ -50,7 +50,7 @@ class DEGLoader:
 
         if self.deg is not None:
             self.load_store_index(cache=cache)
-            
+            t=self.store_index["frame_time"]+self.meta_info["t_after_ref"]
             min_fn=self.store_index["frame_number"].iloc[
                 np.argmax(t>=min_time)
             ]
@@ -177,10 +177,19 @@ class DEGLoader:
         dbfile=get_sqlite_file(animal)
         chunksize=get_chunksize(dbfile)
         counter=0
+        ignored_suffixes=[".dvc"]
+        ignored_prefixes=["."]
+        
 
         for data_entry in os.listdir(DEG_DATA):
 
             if data_entry=="split.yaml":
+                continue
+
+            if any((data_entry.startswith(pattern) for pattern in ignored_prefixes)):
+                continue
+
+            if any((data_entry.endswith(pattern) for pattern in ignored_suffixes)):
                 continue
 
             ret, labels_file = self.filter_by_id(data_entry, identity, chunksize=chunksize, verbose=verbose)
