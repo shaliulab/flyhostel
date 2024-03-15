@@ -60,7 +60,9 @@ setup(
             "make-space-time-images=flyhostel.data.bin.human_validation.make_space_time_images:main",
             "auto-annotate-qc=flyhostel.data.bin.human_validation.qc:main",
             "integrate-human-annotations=flyhostel.data.bin.human_validation.integrate:main",
+            "save-human-annotations=flyhostel.data.bin.human_validation.integrate:save",
             "cvat-label-constructor=flyhostel.data.bin.human_validation.label_constructor:main",
+            "fh-make-video=flyhostel.data.bin.video:main"
             ]
     },
 )
