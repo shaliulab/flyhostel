@@ -54,7 +54,7 @@ class SingleVideoMaker(MP4VideoMaker):
         self.background_color = 255
         print(f"Reading {self._flyhostel_dataset}")
 
-        with sqlite3.connect(self._flyhostel_dataset, check_same_thread=False) as conn:
+        with sqlite3.connect(f"file:{self._flyhostel_dataset}?mode=ro", uri=True) as conn:
 
             cur = conn.cursor()
             cmd = "SELECT COUNT(frame_number) FROM ROI_0;"
