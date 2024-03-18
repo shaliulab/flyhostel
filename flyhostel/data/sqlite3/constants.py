@@ -4,6 +4,7 @@ Constants variables for the sqlite3 module
 
 import os
 import warnings
+from flyhostel.data.pose.constants import get_bodyparts
 
 TABLES = [
     "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0",
@@ -36,8 +37,8 @@ PRESETS = {
 }
 
 PRESETS["default_and_trajectory"] = PRESETS["default"] + PRESETS["trajectory"]
-# NODES=["proboscis", "head", "abdomen", "midLeg_right", "midLeg_left"]
-NODES=['proboscis', 'thorax', 'abdomen', 'foreLeft_Leg', 'midLeftLeg', 'rearLeftLeg', 'foreRightLeg', 'midRightLeg', 'rearRightLeg', 'head', 'leftWing', 'rightWing']
+
+NODES=get_bodyparts()
 
 
 RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True

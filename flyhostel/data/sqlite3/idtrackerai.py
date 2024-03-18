@@ -28,15 +28,13 @@ logger = logging.getLogger(__name__)
 
 class IdtrackeraiExporter(SQLiteExporter, QCExporter, SleapExporter, DeepethogramExporter, OrientationExporter):
 
-    def __init__(self, basedir, deepethogram_data, *args, framerate=None, **kwargs):
+    def __init__(self, basedir, *args, framerate=None, **kwargs):
         """
         Arguments:
             basedir (str): Path to flyhostel experiment folder with raw recordings
-            deepethogram_data (str): Path where the deg results are to be found
             framerate (int): Framerate of the output. For now, only None is supported
         """
         self._basedir = basedir
-        self._deepethogram_data = deepethogram_data
         self._data_framerate = framerate
         super(IdtrackeraiExporter, self).__init__(*args, **kwargs)
 
