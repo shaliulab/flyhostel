@@ -10,4 +10,4 @@ def get_parser():
 def main():
     ap=get_parser()
     args=ap.parse_args()
-    label_constructor(number_of_animals=args.number_of_animals, output_json=args.output)
+    label_constructor(number_of_animals=args.number_of_animals, tags=[("FMB", "#000000"), ("COPY", "#000000")], output_json=args.output)

@@ -34,10 +34,6 @@ def filter_experiment(experiment, identity, stride, min_time=MIN_TIME, max_time=
     pose=loader.pose_boxcar.copy()
     columns=bodyparts_xy
 
-    # pose=loader.pose_speed_boxcar.copy()
-    # columns=bodyparts_speed
-    
-
     pose=compute_distance_features_pairs(pose, [("head", "proboscis"),])
     loader.pose_interpolated=[]
     for id, df in pose.groupby("id"):
