@@ -1,30 +1,35 @@
 import numpy as np
 from flyhostel.data.pose.constants import chunksize
 
-def make_fragment_index(ident, roi0, include_crossings=False):
+def make_identity_tracks(ident, roi0, include_crossings=False):
     if include_crossings:
         pass
     else:
         ident=ident.loc[~(ident["is_a_crossing"]) ]
-    lid_fragment_index=ident[["frame_number", "in_frame_index", "local_identity", "is_a_crossing"]].merge(
+    identity_tracks=ident[["frame_number", "in_frame_index", "local_identity", "is_a_crossing"]].merge(
         roi0[["frame_number", "in_frame_index", "fragment"]],
         on=["frame_number", "in_frame_index"],
         how="left"
     )
-    lid_fragment_index["chunk"]=lid_fragment_index["frame_number"]//chunksize
-    lid_fragment_index["frame_idx"]=lid_fragment_index["frame_number"]%chunksize
-    lid_fragment_index["validated"]=True
-    lid_fragment_index.sort_values(["frame_number", "fragment"], inplace=True)
+    identity_tracks["chunk"]=identity_tracks["frame_number"]//chunksize
+    identity_tracks["frame_idx"]=identity_tracks["frame_number"]%chunksize
+    identity_tracks["validated"]=True
+    identity_tracks.sort_values(["frame_number", "fragment"], inplace=True)
     if include_crossings:
         pass
     else:
-        lid_fragment_index=lid_fragment_index.loc[~lid_fragment_index["fragment"].isna()]
-    return lid_fragment_index
+        identity_tracks=identity_tracks.loc[~identity_tracks["fragment"].isna()]
+    return identity_tracks
 
 
-def make_annotation_wo_fragment_index(ident, roi0):
-    df=make_fragment_index(ident, roi0, include_crossings=True)
-    df.loc[df["is_a_crossing"]==True, "fragment"]=np.nan
-    lid_fragment_index_nofragm=df.loc[df["fragment"].isna()]
-    lid_fragment_index_nofragm=lid_fragment_index_nofragm.merge(roi0[["in_frame_index", "frame_number", "x", "y"]], on=["in_frame_index", "frame_number"], how="left")
-    return lid_fragment_index_nofragm
+def make_identity_singletons(ident, roi0):
+    identity_singletons=make_identity_tracks(ident, roi0, include_crossings=True)
+    identity_singletons.loc[identity_singletons["is_a_crossing"]==True, "fragment"]=np.nan
+    identity_singletons=identity_singletons.loc[identity_singletons["fragment"].isna()]
+    identity_singletons=identity_singletons.merge(
+        roi0[["in_frame_index", "frame_number", "x", "y"]],
+        on=["in_frame_index", "frame_number"],
+        how="left"
+    )
+    identity_singletons["validated"]=2
+    return identity_singletons

@@ -119,37 +119,40 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
         if cache:
             df.reset_index(drop=True).to_feather(output_path_feather_df)
 
-    if os.path.exists(output_path_feather_bin) and cache and False:
+    if os.path.exists(output_path_feather_bin) and cache:
         df_bin=pd.read_feather(output_path_feather_bin)
-        qc_fail=pd.read_csv(output_path_csv)
+        # qc_fail=pd.read_csv(output_path_csv)
     else:
         
         logger.debug("Binning into %s second windows", time_window_length)
         df_bin=bin_windows(df, time_window_length=time_window_length)
 
-        logger.debug("Running QC of experiment %s", experiment)
-        qc, tests=analyze_video(df_bin.copy(), number_of_animals, n_jobs=n_jobs)
-        logger.info("%s %% of %s passes QC", round(100*qc["qc"].mean(), 2), experiment)
+    logger.debug("Running QC of experiment %s", experiment)
+    
+    qc, tests=analyze_video(df_bin.copy(), number_of_animals, n_jobs=n_jobs)
+    #qc, tests=analyze_video(df_bin.loc[df_bin["chunk"].isin([147, 148, 149])], number_of_animals, n_jobs=1)
+    logger.info("%s %% of %s passes QC", round(100*qc["qc"].mean(), 2), experiment)
 
-        df_bin=df_bin.drop(tests, axis=1, errors="ignore").merge(qc[["frame_number", "chunk"] + tests], on=["chunk", "frame_number"], how="left")
-   
-        qc_rle=pd.DataFrame.from_records(encode([str(e)[0] for e in qc["qc"].values]), columns=["status", "length"])
-        qc_rle["duration"]=qc_rle["length"]*time_window_length
-        qc_rle["experiment"]=experiment
+    df_bin=df_bin.drop(tests, axis=1, errors="ignore").merge(qc[["frame_number", "chunk"] + tests], on=["chunk", "frame_number"], how="left")
+
+    qc_rle=pd.DataFrame.from_records(encode([str(e)[0] for e in qc["qc"].values]), columns=["status", "length"])
+    qc_rle["duration"]=qc_rle["length"]*time_window_length
+    qc_rle["experiment"]=experiment
 
 
-        qc_rle["index"]=[0] + qc_rle["length"].cumsum().tolist()[:-1]
-        qc_rle["frame_number"]=qc["frame_number"].iloc[qc_rle["index"]].values
-        qc_rle["chunk"]=qc["chunk"].iloc[qc_rle["index"]].values
+    qc_rle["index"]=[0] + qc_rle["length"].cumsum().tolist()[:-1]
+    qc_rle["frame_number"]=qc["frame_number"].iloc[qc_rle["index"]].values
+    qc_rle["chunk"]=qc["chunk"].iloc[qc_rle["index"]].values
 
-        for qc_col in tests:
-            qc_rle[qc_col]=qc[qc_col].iloc[qc_rle["index"]].values
-            
-        qc_fail=qc_rle.loc[qc_rle["status"]=="F"]
+    for qc_col in tests:
+        qc_rle[qc_col]=qc[qc_col].iloc[qc_rle["index"]].values
         
-        if cache:
-            df_bin.to_feather(output_path_feather_bin)
-            qc_fail.to_csv(output_path_csv)
+    qc_fail=qc_rle.loc[qc_rle["status"]=="F"]
+    
+    if cache:
+        df_bin.to_feather(output_path_feather_bin)
+    
+    qc_fail.to_csv(output_path_csv)
 
     kwargs=[]
 

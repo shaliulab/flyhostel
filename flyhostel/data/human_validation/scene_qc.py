@@ -33,19 +33,24 @@ def all_id_expected_qc_scene(scene, number_of_animals):
 
 def scene_qc(scene, number_of_animals):
     """
-        min_distance (float): Minimum distance observed between any two animals in the same frame
-        gap_n_frames (int): Number of frames where the only broken fragment is broken.
-            if infinite, more than 1 fragment is broken, if -1, the scene spans >2 chunks
-        gap_distance (float): Pixels traveled by the animal in the frames where the only fragment is broken
-            if infinite, more than 1 fragment is broken, if -1, the scene spans >2 chunks
-        max_velocity (float): Maximum velocity observed by any animal between two consecutive frames
-            if infinite, the number of animals in eacah frame does not match the expectation for at least one frame
-        between_chunks (bool): If true, the scene spans >2 chunks
-        broken (int): Whether all animals are found in all frames (0) or not (1)
-        length (int): Number of frames making up the scene
-        maintains_id (int): In scene where only 1 fragment is broken (giving 2 fragments), whether the 2 fragments have the same id or not
-        n_failed_fragments (int): Number of fragments that dont span the whole scene,
-            which indicates they are broken due to some challenging behavior of the animal 
+        Arguments:
+            scene (pd.DataFrame): Dataset of animal positions (centroid_x and centroid_y) over time (frame_number) with identity annotation (id) and fragment annotation (fragment)
+            number_of_animals (int)
+
+        Returns:
+            min_distance (float): Minimum distance observed between any two animals in the same frame
+            gap_n_frames (int): Number of frames where the only broken fragment is broken.
+                if infinite, more than 1 fragment is broken, if -1, the scene spans >2 chunks
+            gap_distance (float): Pixels traveled by the animal in the frames where the only fragment is broken
+                if infinite, more than 1 fragment is broken, if -1, the scene spans >2 chunks
+            max_velocity (float): Maximum velocity observed by any animal between two consecutive frames
+                if infinite, the number of animals in eacah frame does not match the expectation for at least one frame
+            between_chunks (bool): If true, the scene spans >2 chunks
+            broken (int): Whether all animals are found in all frames (0) or not (1)
+            length (int): Number of frames making up the scene
+            maintains_id (int): In scene where only 1 fragment is broken (giving 2 fragments), whether the 2 fragments have the same id or not
+            n_failed_fragments (int): Number of fragments that dont span the whole scene,
+                which indicates they are broken due to some challenging behavior of the animal 
     """
 
     all_valid_ids=all_id_expected_qc_scene(scene, number_of_animals)
