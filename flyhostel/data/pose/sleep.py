@@ -31,7 +31,6 @@ wavelet_downsample=setRunParameters().wavelet_downsample
 RESOLUTION=1
 # max duration of the brief awakening in seconds
 MAX_GAP=5
-inactive_states=["inactive", "pe_inactive", "micromovement", "inactive+micromovement"]
 
 
 

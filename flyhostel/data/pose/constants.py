@@ -16,11 +16,30 @@ root_path=os.environ["POSE_DATA"]
 ZT0_HOUR=11
 
 # Bodyparts
-bodyparts = [
+bodyparts_wo_joints = [
     'thorax', 'abdomen', 'foreLeft_Leg', 'foreRightLeg', 'head', 'leftWing',
     'midLeftLeg', 'midRightLeg', 'proboscis', 'rearLeftLeg',
     'rearRightLeg', 'rightWing'
 ]
+
+WITH_JOINTS=True
+def get_bodyparts():
+    if WITH_JOINTS:
+        bodyparts=[
+            "thorax", "abdomen", "head", "proboscis",
+            "rW", "lW",
+            "fRL","mRL","rRL",
+            "fLL","mLL","rLL",
+            "fRLJ","mRLJ","rRLJ",
+            "fLLJ","mLLJ","rLLJ",       
+        ]
+        return bodyparts
+    else:
+        return bodyparts_wo_joints
+
+bodyparts=get_bodyparts()
+
+
 legs = [bp for bp in bodyparts if "leg" in bp.lower()]
 wings = [bp for bp in bodyparts if "wing" in bp.lower()]
 core = ["thorax", "abdomen", "head", "proboscis"]
@@ -71,3 +90,4 @@ DIST_MAX_MM=4
 SQUARE_HEIGHT=100
 SQUARE_WIDTH=100
 MIN_INTERACTION_DURATION=1 # seconds
+inactive_states=["inactive", "pe_inactive", "inactive+micromovement", "inactive+twitch"]

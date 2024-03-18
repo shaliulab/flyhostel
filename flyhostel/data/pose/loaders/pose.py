@@ -11,11 +11,12 @@ from flyhostel.data.pose.h5py import load_pose_data_compiled
 from flyhostel.utils import restore_cache, save_cache
 from flyhostel.data.pose.filters import filter_pose, arr2df
 from flyhostel.data.pose.gpu_filters import filter_pose_df
-from flyhostel.data.pose.constants import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import get_bodyparts
 from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.constants import PARTITION_SIZE
 
+BODYPARTS=get_bodyparts()
 
 logger=logging.getLogger(__name__)
 
@@ -51,7 +52,6 @@ class PoseLoader:
         self.pose_annotated=None
         self.pose_speed_boxcar=None
         self.pose_boxcar=None
-        self.meta_info=None
 
 
         self.window_size_seconds=0.5
@@ -77,7 +77,10 @@ class PoseLoader:
     
         if cache is not None:
             path = f"{cache}/{self.experiment}__{str(identity).zfill(2)}_{stride}_pose_data.pkl"
+            logger.debug("Cache: %s", path)
             ret, out=restore_cache(path)
+            if not ret:
+                logger.info("%s not found or not loadable", path)
 
             if ret:
                 (pose, meta_pose)=out
@@ -156,7 +159,7 @@ class PoseLoader:
         return pose
 
 
-    def boxcar_filter(self, pose, features, bodyparts=BODYPARTS, framerate=150):
+    def boxcar_filter(self, pose, features, bodyparts, framerate=150):
 
         filtered_pose_arr, _ = filter_pose(
             "nanmean", pose, bodyparts,
@@ -220,7 +223,7 @@ class PoseLoader:
             pose_annotated=pose.copy()
             pose_annotated["behavior"]="unknown"
         else:
-            pose_annotated=pose.merge(behaviors[["frame_number", "t", "id", "behavior"]], on=["frame_number", "t", "id"], how="left")
+            pose_annotated=pose.merge(behaviors[["frame_number", "id", "behavior"]], on=["frame_number", "id"], how="left")
             pose_annotated.loc[pd.isna(pose_annotated["behavior"]), "behavior"]="unknown"
         return pose_annotated
 

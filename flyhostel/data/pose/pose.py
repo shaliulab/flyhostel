@@ -25,6 +25,16 @@ from flyhostel.utils import restore_cache, save_cache
 from .gpu_filters import filter_and_interpolate_pose_single_animal_gpu_
 
 
+def full_interpolation(pose, columns, seconds=None, cache=None):
+    logger.debug("Running interpolation on dataset of shape %s on columns %s", pose.shape, columns)
+    logger.debug("Time limit = %s", seconds)
+    out=[]
+    for id, pose_dataset in pose.groupby("id"):
+        out.append(interpolate_pose(pose_dataset.copy(), columns, seconds=seconds, cache=cache))
+    pose=pd.concat(out, axis=0)
+    logger.debug("Done")
+    return pose
+
 
 class FilterPose(ABC):
     """
@@ -74,10 +84,13 @@ class FilterPose(ABC):
                 cache_file=f"{cache}/{identifier}_-inf_+inf_1_pose_filtered.pkl"
                 if os.path.exists(cache_file):
                     ret, pose=restore_cache(cache_file)
-                    self.filter_pose_by_time(pose=pose, min_time=min_time, max_time=max_time)
-                    if stride!=1:
-                        pose=pose.iloc[::stride]
-                    return pose
+                    if ret:
+                        self.filter_pose_by_time(pose=pose, min_time=min_time, max_time=max_time)
+                        if stride!=1:
+                            pose=pose.iloc[::stride]
+                        return pose
+                    else:
+                        pass
 
             else:
                 ret, pose=restore_cache(cache_file)
@@ -85,21 +98,21 @@ class FilterPose(ABC):
                     return pose
                 else:
                     logger.debug("Cannot find %s", cache_file)
-                
+
         pose=self.filter_and_interpolate_pose_single_animal_all_filters(pose, *args, **kwargs)["filters"]["nanmean"]
-        
+
         if cache is not None:
             save_cache(cache_file, pose)
-        
+
         return pose
 
 
     def filter_and_interpolate_pose_single_animal_all_filters(self, pose, *args, bodyparts=BODYPARTS, filters=None, min_score=MIN_SCORE, useGPU=-1, cache=None, **kwargs):
-        
+
         logger.debug("Removing low quality points")
         logger.debug(min_score)
         pose=self.ignore_low_q_points(pose, bodyparts, min_score=min_score)
-            
+
         if useGPU >= 0:
             out=self.filter_and_interpolate_pose_single_animal_gpu(pose, bodyparts, filters, *args, **kwargs)
         else:
@@ -133,14 +146,14 @@ class FilterPose(ABC):
                 score=min_score[bp]
             else:
                 raise ValueError("min_score must be a float or a dictionary of bodypart - float pairs")
-        
+
             bp_cols_ids=[pose.columns.tolist().index(c) for c in bp_cols]
             lk_cols_ids=[pose.columns.tolist().index(c) for c in [bp + "_likelihood"]]
             pose.iloc[pose[bp + "_likelihood"] < score, bp_cols_ids] = np.nan
             pose.iloc[pose[bp + "_likelihood"] < score, lk_cols_ids] = np.nan
-    
+
         return pose
-    
+
 
     @staticmethod
     def filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, framerate=POSE_FRAMERATE):
@@ -182,7 +195,7 @@ class FilterPose(ABC):
         logger.debug("Interpolating pose")
 
         bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
-        
+
         pose_jumps=interpolate_pose(pose, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
         logger.debug("Imputing proboscis to head")
         pose_jumps=impute_proboscis_to_head(pose_jumps)
@@ -197,7 +210,7 @@ class FilterPose(ABC):
             filter_f=filt
             window_size=filters[filt]["window_size"]
             min_window_size=filters[filt]["min_window_size"]
-            
+
             logger.debug("Applying %s filter to pose", filt)
             pose_filtered_arr, _ = filter_pose(
                 filter_f=filter_f, pose=pose_filtered, bodyparts=bodyparts,
@@ -209,10 +222,10 @@ class FilterPose(ABC):
             pose_filtered=impute_proboscis_to_head(arr2df(pose, pose_filtered_arr, bodyparts))
             del pose_filtered_arr
             pose_filters[filter_f]=pose_filtered
-            
+
         return {"jumps": pose_jumps, "filters": pose_filters}
-    
-    
+
+
     def filter_pose_by_time(self, min_time, max_time, pose):
         raise NotImplementedError()
 
@@ -242,19 +255,15 @@ class FilterPose(ABC):
             pose=self.filter_pose_by_time(min_time=min_time, max_time=max_time, pose=pose)
 
             all_poses.append(pose)
-        
- 
-        logger.debug("Concatenating dataset")
-        self.pose_boxcar=pd.concat(all_poses, axis=0)
-        logger.debug("Done")
+
+
+        if len(all_poses)==1:
+            self.pose_boxcar=all_poses[0]
+        else:
+            self.pose_boxcar=pd.concat(all_poses, axis=0)
+
 
     @staticmethod
-    def full_interpolation(pose, columns, seconds=None, cache=None):
-        logger.debug("Running interpolation on dataset of shape %s on columns %s", pose.shape, columns)
-        logger.debug("Time limit = %s", seconds)
-        out=[]
-        for id, pose_dataset in pose.groupby("id"):
-            out.append(interpolate_pose(pose_dataset.copy(), columns, seconds=seconds, cache=cache))
-        pose=pd.concat(out, axis=0)
-        logger.debug("Done")
-        return pose
+    def full_interpolation(*args, **kwargs):
+        return full_interpolation(*args, **kwargs)
+

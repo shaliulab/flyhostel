@@ -8,10 +8,13 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from tqdm.auto import tqdm
+from flyhostel.data.pose.constants import get_bodyparts
 
-from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
 from flyhostel.data.pose.main import FlyHostelLoader
-from flyhostel.data.pose.constants import chunksize, framerate
+from flyhostel.data.pose.ethogram_utils import annotate_bouts, annotate_bout_duration
+from flyhostel.data.pose.constants import chunksize, framerate, inactive_states
+from flyhostel.data.pose.distances import add_interdistance_features, add_speed_features
+from flyhostel.data.pose.ml_classifier import load_one_animal
 
 logger=logging.getLogger(__name__)
 try:
@@ -24,17 +27,17 @@ except ModuleNotFoundError:
     logger.error("Please install deepethogram without dependencies (pip install --no-deps deepethogram")
 
 
-MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
+# MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
 DEEPETHOGRAM_PROJECT_PATH=os.environ["DEEPETHOGRAM_PROJECT_PATH"]
 
 FLYHOSTEL_VIDEOS=os.environ["FLYHOSTEL_VIDEOS"]
-OUTPUT_FOLDER=os.path.join(MOTIONMAPPER_DATA, "output")
-MODELS_PATH=os.path.join(MOTIONMAPPER_DATA, "models")
+# OUTPUT_FOLDER=os.path.join(MOTIONMAPPER_DATA, "output")
+# MODELS_PATH=os.path.join(MOTIONMAPPER_DATA, "models")
 
 from motionmapperpy import setRunParameters
 STRIDE=setRunParameters().wavelet_downsample
 
-MODEL_PATH=os.path.join(MODELS_PATH, "2024-01-15_07-30-25_rf.pkl")
+# MODEL_PATH=os.path.join(MODELS_PATH, "2024-01-15_07-30-25_rf.pkl")
 RECOMPUTE=True
 
 def get_bout_length_percentile_from_project(project_path, percentile=1):
@@ -165,14 +168,14 @@ def one_hot_encoding(strings, unique_strings):
     return np.array(encoding_table)
 
 
-def join_strings_by_repeated_integers(integers, strings):
+def join_strings_by_repeated_integers(integers, strings, joiner="+"):
     """
     join_strings_by_repeated_integers(rows, prediction)
     """
     grouped_strings = {}
     for integer, string in zip(integers, strings):
         if integer in grouped_strings:
-            grouped_strings[integer] += "+" + string
+            grouped_strings[integer] += joiner + string
         else:
             grouped_strings[integer] = string
     return list(grouped_strings.values())
@@ -180,34 +183,92 @@ def join_strings_by_repeated_integers(integers, strings):
 
 def load_dataset(experiment, identity, wavelets=None, cache="/flyhostel_data/cache", **kwargs):
 
-    loader=FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
-    loader.load_and_process_data(
-        stride=STRIDE,
-        cache=cache,
-        filters=None,
-        useGPU=0,
-        **kwargs
-    )
-    out=loader.load_dataset(segregate=False, wavelets=wavelets, deg=loader.deg)
+    loader = FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
+    out=load_one_animal(experiment, identity, pose_key="pose_boxcar", behavior_key="behavior", segregate=False)
 
-    dataset, (frequencies, freq_names)=out
+    dataset, (frequencies, freq_names, features)=out
+    
+    logger.debug("Sorting dataset chronologically")
     dataset.sort_values(["id","frame_number"], inplace=True)
+
+    loader.load_store_index()
     loader.store_index["t"]=loader.store_index["frame_time"] + loader.meta_info["t_after_ref"]
     dataset=dataset.drop("t", axis=1, errors="ignore").merge(
         loader.store_index[["frame_number", "t"]],
         how="left",
         on="frame_number"
     )
-    return dataset, (frequencies, freq_names)
+    return dataset, (frequencies, freq_names, features)
+
+def downgrade_features(dataset, features):
+    """
+    Makes a new dataset compatible with a new model
+    """
+
+    if any(c.startswith("foreLeft_Leg") for c in dataset.columns):
+        out=[]
+        for feat in features:
+            feat=feat.replace(
+                "fLL", "foreLeft_Leg"
+            ).replace(
+                "mLL", "midLeftLeg",
+            ).replace(
+                "rLL", "rearLeftLeg",
+            ).replace(
+                "fRL", "foreRightLeg",
+            ).replace(
+                "rRL", "midRightLeg",
+            ).replace(
+                "rRL", "rearRightLeg",
+            ).replace(
+                "lW", "leftWing",
+            ).replace(
+                "rW", "rightWing",
+            )
+            out.append(feat)
+
+    else:
+        out=features
     
+    return out
+
+
+def upgrade_features(features):
+
+    out=[]
+    for feat in features:
+        feat=feat.replace(
+            "foreLeft_Leg", "fLL"
+        ).replace(
+             "midLeftLeg", "mLL"
+        ).replace(
+            "rearLeftLeg", "rLL"
+        ).replace(
+             "foreRightLeg", "fRL"
+        ).replace(
+            "midRightLeg", "rRL"
+        ).replace(
+            "rearRightLeg", "rRL"
+        ).replace(
+            "leftWing", "lW"
+        ).replace(
+            "rightWing", "rW",
+        )
+        out.append(feat)
+
+
+    return out
+
+
 def make_ethogram(
         experiment, identity, model_path, input=None, output="./",
         cache="/flyhostel_data/cache", frame_numbers=None, postprocess=True,
         t0=None,
         train=RECOMPUTE,
+        correct_by_all_inactive=True,
         **kwargs):
     """
-    Generate ethogram for a particular fly
+    Generate ethogram for a particular fly (inference)
 
     experiment
     identity
@@ -217,8 +278,7 @@ def make_ethogram(
     """
 
 
-    dataset, (frequencies, freq_names)=load_dataset(experiment=experiment, identity=identity, cache=cache, **kwargs)
-    features=freq_names
+    dataset, (frequencies, freq_names, features)=load_dataset(experiment=experiment, identity=identity, cache=cache, **kwargs)
 
     logger.debug("Read dataset of shape %s", dataset.shape)
     dataset["chunk"]=dataset["frame_number"]//chunksize
@@ -239,10 +299,13 @@ def make_ethogram(
         with open(model_path, "rb") as handle:
             classifier, features=pickle.load(handle)
     
-    behaviors=classifier.classes_    
+        if os.path.basename(model_path)=="2024-01-15_07-30-25_rf.pkl":
+            features=upgrade_features(features)
+
+    behaviors=classifier.classes_
     logger.debug("Predicting behavior of %s rows", dataset.shape[0])
     before=time.time()
-    probs=classifier.predict_proba(dataset[features].values)
+    probabilities=classifier.predict_proba(dataset[features].values)
     after=time.time()
     logger.debug(
         "Done in %s seconds (%s points/s or %s recording seconds / s)",
@@ -251,12 +314,18 @@ def make_ethogram(
         round((dataset.shape[0]/(framerate/STRIDE))/(after-before))
     )
 
-    dataset["behavior"]=behaviors[probs.argmax(axis=1)]
-    dataset["score"]=probs.max(axis=1)
+    dataset["behavior"]=behaviors[probabilities.argmax(axis=1)]
+    dataset["score"]=probabilities.max(axis=1)
     dataset["behavior_raw"]=dataset["behavior"].copy()
+    dataset=pd.concat([
+        dataset.reset_index(drop=True),
+        pd.DataFrame(probabilities, columns=behaviors)
+    ], axis=1)
 
+    output_cols=["id", "frame_number", "t", "behavior_raw","behavior", "score", "fluctuations"] + behaviors.tolist()
 
     if postprocess:
+
         logger.debug("Postprocessing predictions")
         unique_behaviors=dataset["behavior"].unique().tolist()
         if "background" in unique_behaviors:
@@ -282,17 +351,37 @@ def make_ethogram(
 
         rows,cols=np.where(predictions==1)
         prediction=[unique_behaviors[i] for i in cols]
-        prediction=join_strings_by_repeated_integers(rows, prediction)
+        prediction=join_strings_by_repeated_integers(rows, prediction, joiner="+")
         dataset["behavior"]=prediction
+
+    if correct_by_all_inactive:
+
+        dataset["all_inactive"]=np.stack([dataset[col].values for col in inactive_states], axis=1).sum(axis=1)
+
+        dataset.loc[
+            (dataset["all_inactive"] > dataset["score"]) & (~dataset["behavior"].isin(inactive_states)),
+            "behavior"
+        ] = "inactive+microm"
+        dataset["inactive+microm"]=dataset["all_inactive"]
+        output_cols+=["inactive+microm"]
+
 
     dataset=annotate_bouts(dataset, "behavior")
     dataset=annotate_bout_duration(dataset, fps=framerate/STRIDE)
-    # dataset=enforce_behavioral_context(dataset, modify="pe_inactive", context=["inactive", "background", "pe_inactive"], replacement="pe_unknown", framerate=1, seconds=3)
-    # dataset=annotate_bouts(dataset, "behavior")
-    # dataset=annotate_bout_duration(dataset)
 
     feather_out=os.path.join(output, "dataset.feather")
+    feather_input=os.path.join(output, "input.feather")
+
     logger.info("Saving to ---> %s", feather_out)
-    dataset[["id", "frame_number", "t", "behavior_raw","behavior", "score"]].reset_index(drop=True).to_feather(feather_out)
+    final_cols=[]
+    for col in output_cols:
+        if col in dataset.columns:
+            final_cols.append(col)
+        else:
+            logger.warning("Ignoring field %s", col)
 
+    dataset["chunk"]=dataset["frame_number"]//chunksize
+    dataset["frame_idx"]=dataset["frame_number"]%chunksize
 
+    dataset[final_cols].reset_index(drop=True).to_feather(feather_out)
+    dataset[["frame_number", "chunk", "frame_idx"] + features].reset_index(drop=True).to_feather(feather_input)

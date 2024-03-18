@@ -14,7 +14,7 @@ try:
     from sleap.io.visuals import resize_images, VideoMarkerThread
     from sleap.io.visuals import save_labeled_video
     cwd=os.getcwd()
-    ref_labels_file="/Users/FlySleepLab_Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/FlyBehaviors_6cm.v003.slp"
+    ref_labels_file="/Users/FlySleepLab_Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/labels.slp"
     os.chdir(os.path.dirname(ref_labels_file))
     skeleton=Labels.load_file(ref_labels_file).skeleton
     os.chdir(cwd)

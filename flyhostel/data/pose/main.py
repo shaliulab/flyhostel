@@ -79,7 +79,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
 
 
     # to load DEG human made labels (ground_truth)
-    
+
     # if identity is None, all available identities in the loader are loaded
     loader.load_deg_data(identity=None)
     # now loader.deg is populated
@@ -121,16 +121,16 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.stride=None
 
         self.roi_width = load_roi_width(self.dbfile)
-        
+
         # because the arena is circular
         self.roi_height = self.roi_width
-    
+
         self.framerate= int(float(load_metadata_prop(dbfile=self.dbfile, prop="framerate")))
         self.roi_width_mm=roi_width_mm
         self.px_per_mm=self.roi_width/roi_width_mm
 
         self.pose=None
-    
+
         self.dt=None
         self.neighbors_df=None
         self.dt_sleep=None
@@ -147,26 +147,31 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.analysis_data=None
         self.identity_table=identity_table
         self.roi_0_table=roi_0_table
-        self.meta_info=self.load_meta_info()
-    
+        self.load_meta_info()
+
     def load_meta_info(self):
+        self.meta_info={}
+        assert os.path.exists(self.dbfile), f"{self.dbfile} does not exist"
         with sqlite3.connect(self.dbfile) as conn:
             start_time=int(float(pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'date_time';", con=conn)["value"].values.item()))
             start_time=start_time-start_time%3600
             start_time=start_time%(24*3600)
             metadata_str=pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'ethoscope_metadata'", con=conn)["value"].values.tolist()[0]
-        
-        metadata=pd.read_csv(io.StringIO(metadata_str))
-        
+
+        metadata=pd.read_csv(io.StringIO(metadata_str)).iloc[:, 1:]
+
         try:
-            reference_hour=metadata.loc[metadata["identity"]==self.identity, "reference_hour"]*3600
-            if reference_hour.shape[0]==0:
+            metadata_single_animal=metadata.loc[metadata["identity"]==self.identity]
+            if metadata_single_animal.shape[0]==0:
                 raise KeyError
         except KeyError:
-            reference_hour=metadata["reference_hour"].iloc[0]*3600
-        
+            metadata_single_animal=metadata.loc[metadata["region_id"]==self.identity]
+
+        reference_hour=metadata_single_animal["reference_hour"]*3600
+
+        self.metadata=metadata_single_animal
         self.meta_info={"t_after_ref": start_time-reference_hour}
-        
+
 
     def __str__(self):
         return f"{self.experiment}__{str(self.identity).zfill(2)}"
@@ -215,7 +220,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
             return self.sleep_annotation_inactive(*args, **kwargs)
         elif source=="centroids":
             return flyhostel_sleep_annotation(*args, **kwargs)
-        
+
 
     def compile_analysis_data(self):
         data=self.dt.copy()
@@ -267,23 +272,34 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
             pass
 
     def load_and_process_data(self, *args, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, cache=None, files=None, **kwargs):
+        """
+        Loads centroid, pose, deg and behavior datasets of this fly
+        """
         if files is not None:
             self.datasetnames=[os.path.splitext(os.path.basename(file))[0] for file in files]
             self.ids=self.make_ids(self.datasetnames)
 
+        before=time.time()
         self.load_data(min_time=min_time, max_time=max_time, stride=stride, cache=cache, files=files)
+        after=time.time()
+        print(f"{after-before} seconds loading data")
+
         if self.dt is None:
             logger.warning("No centroid data for %s__%s", self.experiment, str(self.identity).zfill(2))
         if self.pose is None:
             logger.warning("No pose data for %s__%s", self.experiment, str(self.identity).zfill(2))
 
         # processing happens with stride = 1 and original framerate (150)
+        before=time.time()
         self.process_data(*args, min_time=min_time, max_time=max_time, stride=stride, cache=cache, **kwargs)
+        after=time.time()
+        print(f"{after-before} seconds processing data")
+
         self.apply_stride_all(stride=stride)
         self.stride=stride
-    
+
     def apply_stride_all(self, stride=1):
-        
+
         for df_name in ["pose", "pose_boxcar", "pose_speed", "pose_speed_boxcar"]:
             df=getattr(self, df_name)
             if df is None:
@@ -324,7 +340,11 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         logger.debug("Loading store index took %s seconds", after-before)
 
 
-    def load_data(self, *args, identity=None, min_time=-float('inf'), max_time=+float('inf'), stride=1, n_jobs=1, cache=None, files=None, **kwargs):
+    def load_data(
+        self, *args, identity=None, min_time=-float('inf'), max_time=+float('inf'), stride=1, n_jobs=1, cache=None, files=None,
+        load_behavior=True,
+        **kwargs
+    ):
         self.load_store_index(cache=cache)
         if identity is None:
             identities=[self.identity]
@@ -361,10 +381,11 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         for ident in identities:
             self.load_pose_data(*args, identity=ident, min_time=min_time, max_time=max_time, verbose=False, cache=cache, files=files, **kwargs)
         logger.info("Loading DEG data")
-        self.load_deg_data(*args, identity=identity, ground_truth=True, stride=stride, verbose=False, cache=None, **kwargs)
+        self.load_deg_data(*args, identity=identity, ground_truth=True, stride=stride, verbose=False, cache=cache, **kwargs)
 
-        logger.info("Loading behavior data")
-        self.load_behavior_data(self.experiment, identity, self.pose_boxcar, cache=cache)
+        if load_behavior:
+            logger.info("Loading behavior data")
+            self.load_behavior_data(self.experiment, identity, self.pose_boxcar, cache=cache)
 
     def load_fast(self, cache):
         try:
@@ -412,7 +433,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
             dt.reset_index(inplace=True)
             if stride != 1:
                 dt=dt.iloc[::stride]
-    
+
             dt["frame_number"]=dt["frame_number"].astype(np.int32)
             dt["id"]=pd.Categorical(dt["id"])
             self.dt=dt
@@ -420,7 +441,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         else:
             logger.warning("No centroid data database found for %s %s", self.experiment, identity)
 
-    
+
     def draw_videos(self, index):
         for i, row in index.iterrows():
             draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos")

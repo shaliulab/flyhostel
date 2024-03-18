@@ -83,7 +83,7 @@ def load_pose_data_processed(min_time, max_time, time_system, datasetnames, iden
     else:
         return pose_list, h5s_pandas, index_pandas
 
-def load_pose_data_compiled(datasetnames, ids, lq_thresh, stride=1, files=None):
+def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1):
     """
     Load dataset stored in POSE_DATA
     """
@@ -94,10 +94,7 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, stride=1, files=None):
     index_pandas=[]
 
     for animal_id, datasetname in enumerate(datasetnames):
-        if files is None:
-            h5_file = os.path.join(os.environ["POSE_DATA"], datasetname, datasetname + ".h5")
-        else:
-            h5_file=files[animal_id]
+        h5_file=files[animal_id]
         
         identity=int(os.path.splitext(os.path.basename(h5_file))[0].split("__")[1])
 

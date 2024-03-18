@@ -9,12 +9,28 @@ from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.utils import restore_cache, save_cache
 from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
-from flyhostel.data.pose.distances import compute_distance_features_pairs
+from flyhostel.data.pose.distances import add_interdistance_features
 try:
     from motionmapperpy import setRunParameters
     wavelet_downsample=setRunParameters().wavelet_downsample
 except ModuleNotFoundError:
     wavelet_downsample=5
+
+
+def get_behavior_feather_file(experiment, identity):
+    tokens=experiment.split("_")
+    feather_path=os.path.join(
+        os.environ["FLYHOSTEL_VIDEOS"],
+        tokens[0],
+        tokens[1],
+        "_".join(tokens[2:4]),
+        "motionmapper",
+        str(identity).zfill(2),
+        f"{experiment}__{str(identity).zfill(2)}.feather"
+    )
+    return feather_path
+
+
 
 class BehaviorLoader():
 
@@ -23,24 +39,24 @@ class BehaviorLoader():
         self.pose=None
         super(BehaviorLoader, self).__init__(*args, **kwargs)
 
+
+    @staticmethod
+    def get_behavior_feather_file(experiment, identity):
+        return get_behavior_feather_file(experiment, identity)
+
+
     def load_behavior_data(self, experiment, identity, pose=None, interpolate_frames=0, cache=None):
 
         if cache is not None:
             path = os.path.join(cache, f"{experiment}__{str(identity).zfill(2)}_behavior.pkl")
             ret, self.behavior = restore_cache(path)
+            ret=False
             if ret:
                 return
+            
+        feather_path=self.get_behavior_feather_file(experiment, identity)
 
-        tokens=experiment.split("_")
-        feather_path=os.path.join(
-            os.environ["FLYHOSTEL_VIDEOS"],
-            tokens[0],
-            tokens[1],
-            "_".join(tokens[2:4]),
-            "motionmapper",
-            str(identity).zfill(2),
-            f"{experiment}__{str(identity).zfill(2)}.feather"
-        )
+
         if os.path.exists(feather_path):
 
             dt=pd.read_feather(feather_path)[["id", "frame_number", "behavior", "score"]]
@@ -66,15 +82,16 @@ class BehaviorLoader():
                 logger.debug("Refining behavior")
                 pose["chunk"]=pose["frame_number"]//CHUNKSIZE
                 pose["frame_idx"]=pose["frame_number"]%CHUNKSIZE
-                
-                pose=compute_distance_features_pairs(pose, pairs=[("head", "proboscis"), ])
+                pose, _=add_interdistance_features(pose, [], ["head", "proboscis"], prefix="distance_")
+
+                # pose=compute_distance_features_pairs(pose, pairs=[("head", "proboscis"), ])
                 distances=[column for column in pose.columns if "distance" in column]
 
                 dt=pose[["id", "t", "frame_number", "chunk", "frame_idx", "identity"] + distances].merge(
                     dt[["id", "frame_number", "behavior", "score"]], how="right", on=["id", "frame_number"]
                 )
                 
-                dt.loc[(dt["head_proboscis_distance"] < 0.01) & (dt["behavior"]=="pe_inactive"), "behavior"]="inactive"
+                dt.loc[(dt["distance_head__proboscis"] < 0.01) & (dt["behavior"]=="pe_inactive"), "behavior"]="inactive"
                 after=time.time()
                 logger.debug("Refining behavior took %s seconds", after-before)
 
