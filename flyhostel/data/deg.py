@@ -1,7 +1,9 @@
+import time
 from abc import abstractmethod
 import logging
 import os.path
 
+from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
 from flyhostel.utils import restore_cache, save_cache
@@ -9,6 +11,7 @@ from flyhostel.utils import get_local_identities_from_experiment, get_sqlite_fil
 logger = logging.getLogger(__name__)
 
 DEG_DATA="/Users/FlySleepLab Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/DEG/FlyHostel_deepethogram/DATA"
+RESTORE_FROM_CACHE_ENABLED=False
 
 def parse_entry(data_entry, verbose=True):
     tokens = data_entry.split("_")
@@ -16,18 +19,18 @@ def parse_entry(data_entry, verbose=True):
         if verbose:
             logger.error(f"Invalid entry: {data_entry}")
         return False, None
-    
+
     return True, tokens
 
 
 class DEGLoader:
-
 
     def __init__(self, *args, **kwargs):
         self.experiment=None
         self.deg=None
         self.datasetnames=None
         self.store_index=None
+        self.meta_info={}
         super(DEGLoader, self).__init__(*args, **kwargs)
 
 
@@ -36,11 +39,16 @@ class DEGLoader:
         raise NotImplementedError()
 
     def load_deg_data(self, *args, min_time=-np.inf, max_time=+np.inf, stride=1, time_system="zt", ground_truth=True,  cache=None, **kwargs):
-        
-        if cache is not None:
+
+        if cache is not None and RESTORE_FROM_CACHE_ENABLED:
+
             path = os.path.join(cache, f"{self.experiment}_{min_time}_{max_time}_{stride}_deg_data.pkl")
+            before=time.time()
             ret, self.deg=restore_cache(path)
+            after=time.time()
+            logger.debug("Loading %s took %s seconds", path, after-before)
             if ret:
+                logger.debug("Loaded %s rows from cache", self.deg.shape[0])
                 return
 
         if ground_truth:
@@ -51,39 +59,41 @@ class DEGLoader:
         if self.deg is not None:
             self.load_store_index(cache=cache)
             t=self.store_index["frame_time"]+self.meta_info["t_after_ref"]
-            min_fn=self.store_index["frame_number"].iloc[
-                np.argmax(t>=min_time)
-            ]
-            max_fn=self.store_index["frame_number"].iloc[
-                -(np.argmax(t[::-1]<max_time)-1)
-            ]
+
+            if min_time==-np.inf:
+                min_fn=self.store_index["frame_number"].iloc[0]
+            else:
+                min_fn=self.store_index["frame_number"].iloc[
+                    np.argmax(t>=min_time)
+                ]
+
+            if max_time==np.inf:
+                max_fn=self.store_index["frame_number"].iloc[-1]+1
+            else:
+                max_fn=self.store_index["frame_number"].iloc[
+                    -(np.argmax(t[::-1]<max_time)-1)
+                ]
+
             self.deg=self.deg.loc[
                 (self.deg["frame_number"] >= min_fn) & (self.deg["frame_number"] < max_fn)
             ]
             self.deg["behavior"].loc[pd.isna(self.deg["behavior"])]="unknown"
-            self.deg=self.annotate_two_or_more_behavs_at_same_time(self.deg)
+            before=time.time()
+            self.deg=self.annotate_two_or_more_behavs_at_same_time_(self.deg)
+            after=time.time()
+            logger.debug("Took %s seconds to annotate two or more behaviors", after-before)
 
         if cache and self.deg is not None:
+            path = os.path.join(cache, f"{self.experiment}_{min_time}_{max_time}_{stride}_deg_data.pkl")
             save_cache(path, self.deg)
 
 
-    @staticmethod
-    def annotate_two_or_more_behavs_at_same_time(deg):
-        """
-        If more than 1 behavior is present in a given frame,
-        create a new behavioral label by chaining said behaviors with +
-        So for example, if the fly is walking and feeding at the same time,
-        make it the behavior feed+walk
-        """
 
-        # Group by frame_number and id, join behaviors with '+', and reset index
-        deg_group = deg.groupby(["id", "frame_number"])["behavior"].agg(lambda x: "+".join(sorted(list(set(x))))).reset_index()
-        deg=deg_group.merge(
-            deg.drop(["behavior"], axis=1).drop_duplicates(),
-            on=["id", "frame_number"]
-        )
-        deg.sort_values(["id", "frame_number"],  inplace=True)
-        return deg
+
+    @staticmethod
+    def annotate_two_or_more_behavs_at_same_time_(*args, **kwargs):
+        return annotate_two_or_more_behavs_at_same_time(*args, **kwargs)
+
 
 
     @staticmethod
@@ -112,7 +122,7 @@ class DEGLoader:
             return experiment
         else:
             return None
-    
+
     @staticmethod
     def parse_number_of_animals(data_entry):
         ret, tokens = parse_entry(data_entry)
@@ -131,7 +141,7 @@ class DEGLoader:
         if local_identity is None:
             logger.warning("%s is corrupt. No local_identity can be parsed", data_entry)
             return False, None
-        
+
         if chunk is None:
             logger.warning("%s is corrupt. No chunk can be parsed", data_entry)
             return False, None
@@ -139,7 +149,7 @@ class DEGLoader:
         if experiment_ is None:
             logger.warning("%s is corrupt. No experiment can be parsed", data_entry)
             return False, None
-        
+
 
         frame_number = chunk*chunksize
         table=get_local_identities_from_experiment(experiment_, int(frame_number))
@@ -148,14 +158,14 @@ class DEGLoader:
 
         if not (experiment_ == self.experiment and identity_ == identity):
             return False, None
-        
+
         labels_file=f"{DEG_DATA}/{data_entry}/{str(chunk).zfill(6)}_labels.csv"
 
         return True, labels_file
 
     def load_deg_data_prediction(self, identity, verbose=True):
         raise NotImplementedError()
-    
+
 
     def load_deg_data_gt(self, identity=None, verbose=True):
         if identity is not None:
@@ -179,34 +189,42 @@ class DEGLoader:
         counter=0
         ignored_suffixes=[".dvc"]
         ignored_prefixes=["."]
-        
+        entries=os.listdir(DEG_DATA)
 
-        for data_entry in os.listdir(DEG_DATA):
+        pb=tqdm(total=len(entries))
 
+
+        for data_entry in entries:
             if data_entry=="split.yaml":
+                pb.update(1)
                 continue
 
             if any((data_entry.startswith(pattern) for pattern in ignored_prefixes)):
+                pb.update(1)
                 continue
 
             if any((data_entry.endswith(pattern) for pattern in ignored_suffixes)):
+                pb.update(1)
                 continue
 
             ret, labels_file = self.filter_by_id(data_entry, identity, chunksize=chunksize, verbose=verbose)
             local_identity=self.parse_local_identity(data_entry)
             chunk=self.parse_chunk(data_entry)
-            
+
             if not ret or labels_file is None:
+                pb.update(1)
                 continue
 
             if not os.path.exists(labels_file):
                 if verbose:
                     print(f"{labels_file} not found")
+                pb.update(1)
                 continue
-            
+
             labels=read_label_file(data_entry, labels_file, verbose=verbose)
             if labels is None:
                 print(f"{labels_file} cannot be read")
+                pb.update(1)
                 continue
 
             labels["chunk"]=chunk
@@ -218,6 +236,7 @@ class DEGLoader:
             all_labels.append(labels)
             del labels
             counter+=1
+            pb.update(1)
 
 
         if len(all_labels) == 0:
@@ -233,16 +252,14 @@ class DEGLoader:
                 self.deg = pd.concat([self.deg, labels], axis=0)
 
 
-
-
 def read_label_file(data_entry, labels_file, verbose=False):
 
     labels=pd.read_csv(labels_file, index_col=0)
 
     # if pe and inactive ae true, then it's a separate behavior
     labels["pe_inactive"]=((labels["pe"]==1) & (labels["inactive"]==1))*1
-    labels["pe"].loc[labels["pe_inactive"]==1]=0
-    labels["inactive"].loc[labels["pe_inactive"]==1]=0
+    labels.loc[labels["pe_inactive"]==1, "pe"]=0
+    labels.loc[labels["pe_inactive"]==1, "inactive"]=0
     behaviors=labels.columns
 
     behavr_count_per_frame = labels.values.sum(axis=1)
@@ -256,11 +273,42 @@ def read_label_file(data_entry, labels_file, verbose=False):
     for frame, behav_id in zip(frames, behav_ids):
         behav_sequence.append((frame, behaviors[behav_id]))
     labels=pd.DataFrame.from_records(behav_sequence)
+
     try:
         labels.columns=["frame_idx", "behavior"]
+        # labels.loc[labels["behavior"]=="turn", "behavior"]="twitch"
     except ValueError:
         logger.warning("%s cannot be loaded. Is it empty? The number of rows is %s", labels_file, labels.shape[0])
         return None
     return labels
 
 
+def annotate_two_or_more_behavs_at_same_time(deg):
+    """
+    If more than 1 behavior is present in a given frame,
+    create a new behavioral label by chaining said behaviors with +
+    So for example, if the fly is walking and feeding at the same time,
+    make it the behavior feed+walk
+    """
+
+    # Group by frame_number and id, join behaviors with '+', and reset index
+    counts=deg.groupby("frame_number").size().reset_index()
+    counts.columns=["frame_number", "counts"]
+
+    deg.set_index(["frame_number"], inplace=True)
+
+    deg_single=deg.loc[
+        counts.loc[counts["counts"]==1, "frame_number"].values
+    ].reset_index()
+    deg_multi=deg.loc[
+        counts.loc[counts["counts"]>1, "frame_number"].values
+    ].reset_index()
+
+
+    deg_group = deg_multi.groupby(["frame_number"])["behavior"].agg(lambda x: "+".join(sorted(list(set(x))))).reset_index()
+    deg_multi=deg_group.merge(
+        deg_multi.drop(["behavior"], axis=1).drop_duplicates(),
+        on=["frame_number"]
+    )
+    deg=pd.concat([deg_single, deg_multi], axis=0)
+    return deg
