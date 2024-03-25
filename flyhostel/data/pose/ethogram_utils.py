@@ -52,7 +52,6 @@ def identify_fluctuating_events(probabilities):
     return changes
 
 
-
 def find_window_winner(df, behaviors, time_window_length=1, other_cols=[], behavior_col="behavior"):
     # Adjust time to the nearest time_window_length
     df['t'] = (df['t'] // time_window_length) * time_window_length
@@ -63,8 +62,8 @@ def find_window_winner(df, behaviors, time_window_length=1, other_cols=[], behav
         if behavior in df.columns:
             behaviors_used.append(behavior)
 
-    fluctuations=df[["id", "t"] + behaviors_used].groupby(["id", "t"]).apply(identify_fluctuating_events).reset_index(name="fluctuations")
-
+    fluctuations=df[["id", "t"] + behaviors_used].groupby(["id", "t"]).apply(identify_fluctuating_events).reset_index()
+    fluctuations.columns=["id", "t", "fluctuations"]
 
     # Group by 'id' and 't', and get the most common behavior
     most_common_behavior = df.groupby(['id', 't', behavior_col]).size()
@@ -82,8 +81,10 @@ def find_window_winner(df, behaviors, time_window_length=1, other_cols=[], behav
     # Select the required columns
     most_common_behavior = most_common_behavior[['id', 't', behavior_col, 'fraction']]
 
-    most_common_behavior=most_common_behavior.merge(index, on=["id", "t"]).merge(fluctuations, on=["id", "t"])
+    most_common_behavior=most_common_behavior.merge(index, on=["id", "t"])
+    most_common_behavior=most_common_behavior.merge(fluctuations, on=["id", "t"])
     return most_common_behavior
+
 
 
 def most_common_behavior_vectorized(df, time_window_length=1, other_cols=[], behavior_col="behavior"):
