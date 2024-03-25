@@ -87,7 +87,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
     """
 
     def __init__(self, experiment, identity, *args, lq_thresh=1, roi_width_mm=ROI_WIDTH_MM, n_jobs=1, chunks=None,
-                 roi_0_table="ROI_0", identity_table="IDENTITY", **kwargs
+                 roi_0_table=None, identity_table=None, **kwargs
         ):
         super(FlyHostelLoader, self).__init__(*args, **kwargs)
 
@@ -145,9 +145,27 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.rejections=None
         self.dt_sleep_2fps=None
         self.analysis_data=None
-        self.identity_table=identity_table
-        self.roi_0_table=roi_0_table
+
+
         self.load_meta_info()
+        if identity_table is None:
+            if self.number_of_animals==1:
+                self.identity_table="IDENTITY"
+            else:
+                self.identity_table="IDENTITY_VAL"
+        else:
+            self.identity_table=identity_table
+
+        if roi_0_table is None:
+            if self.number_of_animals==1:
+                self.roi_0_table="ROI_0"
+            else:
+                self.roi_0_table="ROI_0_VAL"
+        else:
+            self.roi_0_table=roi_0_table
+
+
+        self.roi_0_table=roi_0_table
 
     def load_meta_info(self):
         self.meta_info={}
@@ -170,6 +188,8 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         reference_hour=metadata_single_animal["reference_hour"]*3600
 
         self.metadata=metadata_single_animal
+        self.number_of_animals=int(self.metadata["number_of_animals"].iloc[0])
+
         self.meta_info={"t_after_ref": start_time-reference_hour}
 
 
@@ -354,7 +374,6 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
                 identities=[int(id.split("|")[1]) for id in self.ids]
         else:
             identities=[identity]
-
 
         logger.info("Loading centroid data")
         try:
