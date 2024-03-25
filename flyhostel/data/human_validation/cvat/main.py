@@ -243,8 +243,6 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
     flies_lid_0=list_flies_with_lid_0(new_data)
     flies_lid_0.to_csv(os.path.join(folder, "flies_lid_0.csv"))
 
-    import ipdb; ipdb.set_trace()
-
     # roi_0_table.loc[~roi_0_table["class_name"].isna()]
     # Annotate whether the prediction is made by YOLOv7 or pixel segmentation, and if it is, then what YOLOv7 class it has
     #out=new_data.merge(roi_0_machine[["in_frame_index", "frame_number", "class_name"]], on=["frame_number", "in_frame_index"], how="left")
@@ -254,6 +252,8 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
         out=annotate_identity(new_data, number_of_animals)
     except:
         import ipdb; ipdb.set_trace()
+
+    print(out.groupby("identity").last())
 
     # Save result!
     out_file=os.path.join(folder, f"{experiment}.feather")
