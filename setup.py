@@ -62,7 +62,8 @@ setup(
             "integrate-human-annotations=flyhostel.data.bin.human_validation.integrate:main",
             "save-human-annotations=flyhostel.data.bin.human_validation.integrate:save",
             "cvat-label-constructor=flyhostel.data.bin.human_validation.label_constructor:main",
-            "fh-make-video=flyhostel.data.bin.video:main"
+            "fh-make-video=flyhostel.data.bin.video:main",
+            "find-chunk-interval=flyhostel.data.bin.find_chunk_interval:main",
             ]
     },
 )
