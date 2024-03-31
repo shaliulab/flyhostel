@@ -22,7 +22,7 @@ def main():
 
     experiment2="_".join(basedir.split(os.path.sep)[-3:])
 
-    with sqlite3.connect(flyhostel_db) as conn:
+    with sqlite3.connect(f'file:{flyhostel_db}?mode=ro', uri=True) as conn:
         cur=conn.cursor()
         number_of_animals=parse_number_of_animals(cur)
     identities=[number_of_animals-1]
@@ -42,7 +42,7 @@ def main():
     else:
         concatenation_table_name="CONCATENATION_VAL"
 
-    with sqlite3.connect(flyhostel_db) as conn:
+    with sqlite3.connect(f'file:{flyhostel_db}?mode=ro', uri=True) as conn:
         cur=conn.cursor()
         concatenation_table=load_concatenation_table(cur, basedir, concatenation_table=concatenation_table_name)
         start_chunk=concatenation_table["chunk"].iloc[0]
