@@ -1,5 +1,5 @@
 import argparse
-from flyhostel.data.pose.ethogram import make_ethogram, MODEL_PATH
+from flyhostel.data.pose.ethogram import make_ethogram
 from flyhostel.data.pose.ethogram.plot import main as draw_ethogram
 
 def get_parser():
@@ -14,7 +14,7 @@ def get_parser():
     # group.add_argument("--input", required=False, type=str, default=None,
     #                    help="path to input video on which annotations will be drawn. If ")
     ap.add_argument("--output", required=False, type=str, default=".")
-    ap.add_argument("--model-path", default=MODEL_PATH, required=False)
+    ap.add_argument("--model-path")
     ap.add_argument("--frame-number", type=int, nargs="+", default=None)
     ap.add_argument("--t0", type=int, default=None)
     ap.add_argument("--postprocess", action="store_true", default=False)

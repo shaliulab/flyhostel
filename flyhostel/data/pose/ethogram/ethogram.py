@@ -37,7 +37,6 @@ FLYHOSTEL_VIDEOS=os.environ["FLYHOSTEL_VIDEOS"]
 from motionmapperpy import setRunParameters
 STRIDE=setRunParameters().wavelet_downsample
 
-# MODEL_PATH=os.path.join(MODELS_PATH, "2024-01-15_07-30-25_rf.pkl")
 RECOMPUTE=True
 
 def get_bout_length_percentile_from_project(project_path, percentile=1):
