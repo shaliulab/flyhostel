@@ -110,6 +110,8 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
     if os.path.exists(output_path_feather_df) and cache:
         logger.debug("Loading %s", output_path_feather_df)
         df=pd.read_feather(output_path_feather_df)
+        if interval is not None:
+            df=df.loc[(df["frame_number"] >= interval[0]) & (df["frame_number"] < interval[1])]
     else:
         os.makedirs(output_folder, exist_ok=True)
         df=load_data(dbfile, tracking_fields, interval=interval)
@@ -121,7 +123,9 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
 
     if os.path.exists(output_path_feather_bin) and cache:
         df_bin=pd.read_feather(output_path_feather_bin)
-        # qc_fail=pd.read_csv(output_path_csv)
+        if interval is not None:
+            df_bin=df_bin.loc[(df_bin["frame_number"] >= interval[0]) & (df_bin["frame_number"] < interval[1])]
+
     else:
         
         logger.debug("Binning into %s second windows", time_window_length)
@@ -130,7 +134,6 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
     logger.debug("Running QC of experiment %s", experiment)
     
     qc, tests=analyze_video(df_bin.copy(), number_of_animals, n_jobs=n_jobs)
-    #qc, tests=analyze_video(df_bin.loc[df_bin["chunk"].isin([147, 148, 149])], number_of_animals, n_jobs=1)
     logger.info("%s %% of %s passes QC", round(100*qc["qc"].mean(), 2), experiment)
 
     df_bin=df_bin.drop(tests, axis=1, errors="ignore").merge(qc[["frame_number", "chunk"] + tests], on=["chunk", "frame_number"], how="left")
@@ -149,7 +152,7 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
         
     qc_fail=qc_rle.loc[qc_rle["status"]=="F"]
     
-    if cache:
+    if cache and not os.path.exists(output_path_feather_bin):
         df_bin.to_feather(output_path_feather_bin)
     
     qc_fail.to_csv(output_path_csv)
@@ -165,7 +168,8 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
             (df["frame_number"]>=frame_number_0) &
             (df["frame_number"]<=frame_number_last)
         ]
-        kwargs.append({"row": row, "tracking_data": tracking_data})
+        if df.shape[0]>0:
+            kwargs.append({"row": row, "tracking_data": tracking_data})
 
     logger.debug("Will generate %s videos", len(kwargs))
 

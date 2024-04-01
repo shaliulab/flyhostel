@@ -268,7 +268,7 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
     )
     impure_tracks=qc2(identity_tracks)
     if impure_tracks.shape[0] > 0:
-        logger.error("%s fragments have more than 1 identity %s", impure_tracks.shape[0])
+        logger.error("%s fragments have more than 1 identity", impure_tracks.shape[0])
         logger.error("Fragments:")
         for _, row in impure_tracks.iterrows():
             logger.error(row)

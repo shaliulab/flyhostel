@@ -112,7 +112,15 @@ def make_space_time_images(folder, experiment, n_jobs):
     manifest_files=glob.glob(os.path.join(folder, "movies", "*.jsonl"))
 
     assert len(mp4_videos)!=0, f"No .mp4 videos found, did you run the make_videos.sh script?"
-    assert len(mp4_videos)==len(manifest_files)
+    video_keys=set([os.path.splitext(path)[0] for path in mp4_videos])
+    manifest_keys=set([os.path.splitext(path)[0] for path in manifest_files])
+
+    if len(mp4_videos)!=len(manifest_files):
+        print("Videos without manifest")
+        for video in list(video_keys.difference(manifest_keys)):
+            print(video)
+        raise Exception(f"{len(mp4_videos)}!={len(manifest_files)}")
+
 
     logger.info("Generating space time images for %s scenes", complex_qc.shape[0])
 

@@ -26,6 +26,14 @@ from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG, ANALYSIS_FOLDER
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
 logger = logging.getLogger(__name__)
 
+def get_dbfile(basedir):
+    dbfile=os.path.join(
+        basedir,
+        "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:]) + ".db"
+    )
+    assert os.path.exists(dbfile), f"{dbfile} not found"
+    return dbfile
+
 def add_suffix(filename, suffix=""):
 
     if suffix != "":

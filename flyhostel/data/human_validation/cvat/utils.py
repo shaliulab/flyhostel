@@ -1,18 +1,13 @@
 import logging
 import os.path
 import sqlite3
-
 import pandas as pd
+
+from flyhostel.utils.utils import get_dbfile
 
 logger=logging.getLogger(__name__)
 
-def get_dbfile(basedir):
-    dbfile=os.path.join(
-        basedir,
-        "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:]) + ".db"
-    )
-    assert os.path.exists(dbfile), f"{dbfile} not found"
-    return dbfile
+
 
 def get_basedir(experiment):
     tokens = experiment.split("_")

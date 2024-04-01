@@ -24,7 +24,6 @@ def main():
 def save():
 
     ap=get_parser()
-    ap.add_argument("--tasks", required=False)
     args=ap.parse_args()
     save_human_annotations(
         args.experiment, args.folder
