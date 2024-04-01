@@ -306,8 +306,16 @@ class MP4Reader:
             print(f"Reading frame number {frame_number}")
 
         img, (fn, ft) = self._cap.get_image(frame_number)
-        self._frame_number = fn
+        if fn != frame_number:
+            img, (fn, ft) = self._cap.get_image(frame_number)
+
+
         assert fn == frame_number
+        assert img is not None
+        assert img.shape[0] > 0
+
+        self._frame_number = fn
+
         if self._cap._chunk_n != self._chunk:
             self.close()
             return None
