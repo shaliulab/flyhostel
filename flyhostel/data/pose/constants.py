@@ -72,8 +72,18 @@ assert len(body_parts_chosen) == len(criteria) == len(score_filter) == len(label
 interpolate_seconds={bp: 3 for bp in bodyparts}
 interpolate_seconds["proboscis"]=0.5
 
-min_score={bp: 0.5 for bp in bodyparts}
-min_score["proboscis"]=0.8
+# min_score={bp: 0.5 for bp in bodyparts}
+# min_score["proboscis"]=0.8
+min_score={
+    "head":0,"thorax":0,"abdomen":0,"proboscis":0.6,
+    "lW":0.5,"rW":0.5,
+    "fLL":0.9,"fRL":0.9,
+    "mLL":0.9,"mRL":0.9,
+    "rLL":0.8,"rRL":0.8,
+    "fLLJ":0.4,"fRLJ":0.4,
+    "mLLJ":0.8,"mRLJ":0.8,
+    "rLLJ":0.6,"rRLJ":0.6
+}
 
 bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
 bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in bodyparts]))

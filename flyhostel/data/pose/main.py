@@ -27,6 +27,7 @@ from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
 from motionmapperpy import setRunParameters
 wavelet_downsample=setRunParameters().wavelet_downsample
+pd.set_option("display.max_columns", 100)
 
 def dunder_to_slash(experiment):
     tokens = experiment.split("_")
