@@ -10,7 +10,7 @@ from flyhostel.utils import restore_cache, save_cache
 from flyhostel.utils import get_local_identities_from_experiment, get_sqlite_file, get_chunksize
 logger = logging.getLogger(__name__)
 
-DEG_DATA="/Users/FlySleepLab Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/DEG/FlyHostel_deepethogram/DATA"
+DEG_DATA=os.path.join(os.environ["DEEPETHOGRAM_PROJECT_PATH"], "DATA")
 RESTORE_FROM_CACHE_ENABLED=False
 
 def parse_entry(data_entry, verbose=True):
