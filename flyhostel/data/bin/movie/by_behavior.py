@@ -13,8 +13,8 @@ from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.video_crosser import cross_with_video_data
 from flyhostel.data.pose.movie.movie import annotate_behavior_in_video
-from flyhostel.data.pose.ethogram_utils import most_common_behavior_vectorized
-from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
+from flyhostel.data.pose.ethogram.utils import most_common_behavior_vectorized
+from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
 from motionmapperpy import setRunParameters
 wavelet_downsample=setRunParameters().wavelet_downsample
 

@@ -305,15 +305,28 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
     # prepare validation tables of sqlite3 file
 
     df_identity=out[["frame_number", "in_frame_index", "local_identity", "identity", "validated"]].reset_index(drop=True)
+    
+    groupby=df_identity.groupby("local_identity")
+    logger.debug("Number of frames seen")
+    logger.debug(groupby.size())
+    logger.debug("First frame seen")
+    logger.debug(groupby.first())
+    logger.debug("Last frame seen")
+    logger.debug(groupby.last())
+
+    if df_identity["identity"].isna().any():
+        logger.error("NaN identities:")
+        nan_rows=df_identity["identity"].isna()
+        logger.error(df_identity.loc[nan_rows])
+        df_identity=df_identity.loc[~nan_rows]
+
+
     df_identity["identity"]=df_identity["identity"].astype(np.int32)
     df_identity["local_identity"]=df_identity["local_identity"].astype(np.int32)
 
     df_roi0=out[["frame_number", "in_frame_index", "x", "y", "fragment", "modified", "class_name", "validated"]].reset_index(drop=True)
     df_roi0["chunk"]=df_roi0["frame_number"]//chunksize
     df_roi0["frame_idx"]=df_roi0["frame_number"]%chunksize
-
-    # df_roi0["fragment"]=df_roi0["fragment"].astype(np.int32)
-
 
     df_concatenation=df_identity[["frame_number", "local_identity", "identity"]]
     df_concatenation["chunk"]=df_concatenation["frame_number"]//chunksize
@@ -326,10 +339,12 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
             )
         )
 
-
     groupby=df_identity.groupby("identity")
+    logger.debug("Number of frames seen")
     logger.debug(groupby.size())
+    logger.debug("First frame seen")
     logger.debug(groupby.first())
+    logger.debug("Last frame seen")
     logger.debug(groupby.last())
 
 

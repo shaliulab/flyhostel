@@ -94,7 +94,7 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
     basedir=f"/flyhostel_data/videos/{suffix}"
     store_path=os.path.join(basedir, "metadata.yaml")
     dbfile=os.path.join(basedir, experiment + ".db")
-    assert os.path.exists(dbfile)
+    assert os.path.exists(dbfile), f"{dbfile} not found"
 
     tracking_fields=["modified", "fragment", "x", "y"]
     field="local_identity"

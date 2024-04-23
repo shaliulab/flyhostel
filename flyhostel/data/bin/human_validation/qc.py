@@ -16,5 +16,3 @@ def main():
     ap=get_parser()
     args=ap.parse_args()
     annotate_scene_quality(args.experiment, args.folder, args.n_jobs, sample_size=args.sample_size)
-
-

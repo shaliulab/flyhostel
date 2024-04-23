@@ -9,6 +9,7 @@ import joblib
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
+RESOLUTION=(1000, 1000)
 
 from flyhostel.data.pose.constants import chunksize
 
@@ -28,14 +29,17 @@ def generate_space_time_image(scene_number, folder, number_of_rows=4, number_of_
     scene_name=os.path.splitext(os.path.basename(video))[0]
 
     frames=[]
-    empty_frame=np.zeros((500, 500, 3), dtype=np.uint8)
+    empty_frame=np.zeros((*RESOLUTION[::-1], 3), dtype=np.uint8)
     assert os.path.exists(video)
+    logger.debug("Opening %s", video)
     cap=cv2.VideoCapture(video)
     count=0
     while True:
         ret, frame=cap.read()
+        if count==0:
+            logger.debug("Reading %s", video)
         if ret:
-            frame=cv2.resize(frame, (500, 500))
+            frame=cv2.resize(frame, RESOLUTION)
             frames.append(frame)
         else:
             frames.append(empty_frame.copy())
@@ -62,6 +66,7 @@ def generate_space_time_image(scene_number, folder, number_of_rows=4, number_of_
 
 
 def generate_space_time_image_all(scenes, folder, n_jobs):
+    logger.debug("Running generate_space_time_image in %s jobs", n_jobs)
     joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             generate_space_time_image
@@ -126,8 +131,10 @@ def make_space_time_images(folder, experiment, n_jobs):
 
     generate_space_time_image_all(complex_qc["scene"].values.tolist(), folder=folder, n_jobs=n_jobs)
 
+    feather_file=f"{folder}/{experiment}_machine-validation-index-0.013-s.feather"
+    logger.debug("Reading %s", feather_file)
+    df_bin=pd.read_feather(feather_file)
 
-    df_bin=pd.read_feather(f"{folder}/{experiment}_machine-validation-index-0.013-s.feather")
     chunk_time=df_bin.groupby("chunk").first()["t_round"].reset_index().rename({"t_round": "t"}, axis=1)
     chunk_time["zt"]=np.round(chunk_time["t"]/3600, 2)
     chunk_time["t"]=np.round(chunk_time["t"], 2)
@@ -138,6 +145,7 @@ def make_space_time_images(folder, experiment, n_jobs):
     complex_qc=complex_qc.merge(chunk_time, on=["chunk"])
     mean_length_per_chunk=mean_length_per_chunk.merge(chunk_time, on=["chunk"])
     
+    logger.debug("Saving graphics")
     plt.bar(mean_length_per_chunk["t"]/3600, mean_length_per_chunk["length"])
     plt.savefig(os.path.join(folder, f"{experiment}_scene_len_per_chunk.png"))
     plt.clf()

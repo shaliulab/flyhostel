@@ -1,3 +1,4 @@
+import sqlite3
 import logging
 import joblib
 
@@ -6,12 +7,10 @@ import pandas as pd
 import cudf
 
 from flyhostel.data.interactions.detector import InteractionDetector
-from flyhostel.data.pose.constants import interpolate_seconds
-from flyhostel.data.pose.constants import bodyparts_xy as BODYPARTS_XY
-from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.synchrony.main import correlation_synchrony, DEFAULT_LAGS
 from flyhostel.data.hostpy import load_hostel
+from flyhostel.utils.utils import get_dbfile
 
 logger=logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ class FlyHostelGroup(InteractionDetector):
 
     """
 
-    def __init__(self, flies, *args, protocol="full", min_time=12*3600, max_time=24*3600, stride=1, **kwargs):
+    def __init__(self, flies, *args, protocol="full", min_time=-float("inf"), max_time=float("inf"), stride=1, load_deg=True, load_behavior=True, **kwargs):
         self.flies=flies
         for fly in flies.values():
             if protocol=="full":
@@ -40,11 +39,12 @@ class FlyHostelGroup(InteractionDetector):
                         cache="/flyhostel_data/cache",
                         min_time=min_time, max_time=max_time,
                         filters=None,
-                        useGPU=0
+                        useGPU=0,
+                        load_deg=load_deg,
+                        load_behavior=load_behavior,
                     )
                     fly.compile_analysis_data()
             elif protocol=="centroids":
-                # import ipdb; ipdb.set_trace()
                 logger.debug("Loading %s centroids", fly)
                 fly.load_centroid_data(
                     stride=stride,
@@ -148,26 +148,56 @@ class FlyHostelGroup(InteractionDetector):
         pose_df=pd.concat(dfs, axis=0)
         return pose_df
 
-    def load_centroid_data(self, framerate=30):
+
+    def load_centroid_data(self, framerate=30, useGPU=True):
         skip=FRAMERATE//framerate
+        if useGPU:
+            xf=cudf
+        else:
+            xf=pd
+        
         dfs=[]
         for fly in self.flies.values():
-            df=pd.DataFrame(fly.dt)
-            df=cudf.DataFrame(df)
+            df=xf.DataFrame(fly.dt)
             df=df.loc[df["frame_number"]%skip==0]
             dfs.append(df)
-        dt=cudf.concat(dfs, axis=0)
+        dt=xf.concat(dfs, axis=0)
         return dt
         
     
-    def load_pose_data(self, pose="pose_boxcar", framerate=30):
+    def load_pose_data(self, pose="pose_boxcar", framerate=30, useGPU=True):
         skip=FRAMERATE//framerate
+        if useGPU:
+            xf=cudf
+        else:
+            xf=pd
 
         dfs=[]
         for fly in self.flies.values():
-            df=pd.DataFrame(getattr(fly, pose))
-            df=cudf.DataFrame(df)
+            df=xf.DataFrame(getattr(fly, pose))            
             df=df.loc[(df["frame_number"]%skip)==0]
             dfs.append(df)
-        pose=cudf.concat(dfs, axis=0)
+        pose=xf.concat(dfs, axis=0)
         return pose
+    
+    def load_behavior_data(self, framerate=30, useGPU=True):
+        skip=FRAMERATE//framerate
+        if useGPU:
+            xf=cudf
+        else:
+            xf=pd
+        
+        dfs=[]
+        for fly in self.flies.values():
+            df=xf.DataFrame(getattr(fly, "behavior"))
+            df=df.loc[(df["frame_number"]%skip)==0]
+            dfs.append(df)
+        behavior=xf.concat(dfs, axis=0)
+        return behavior
+    
+    def load_concatenation_table(self):
+        dbfile=get_dbfile(self.basedir)
+        concatenation=None
+        with sqlite3.connect(dbfile) as conn:
+            concatenation=pd.read_sql(con=conn, sql="SELECT * FROM CONCATENATION_VAL;")
+        return concatenation

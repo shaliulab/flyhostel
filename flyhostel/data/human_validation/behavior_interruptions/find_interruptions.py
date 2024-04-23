@@ -2,10 +2,10 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 from flyhostel.data.pose.ethogram.plot import bin_behavior_table
-from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
+from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 
-def find_brief_interruptions(behavior, framerate, window_size=60, time_window_length=1, target_states=["inactive"], noise_states=None):
+def find_brief_interruptions(behavior, framerate, window_size=60, time_window_length=1, target_states=["inactive"], noise_states=None, fps=150):
     """
     Mark bouts of interruptions in the target_states and compute how much time was spent in the target states
     window_size seconds in the future and the past.
@@ -36,7 +36,7 @@ def find_brief_interruptions(behavior, framerate, window_size=60, time_window_le
     if noise_states is None:
         noise_states=[behavior for behavior in behaviors if behavior not in target_states]
     
-    behavior, _=bin_behavior_table(behavior, time_window_length=time_window_length)
+    # behavior, _=bin_behavior_table(behavior, time_window_length=time_window_length)
     behavior["bout_interrupt"]=False
     behavior.loc[
         behavior["behavior"].isin(target_states),
@@ -48,9 +48,9 @@ def find_brief_interruptions(behavior, framerate, window_size=60, time_window_le
     ]=True
 
 
-
+    import ipdb; ipdb.set_trace()
     behavior=annotate_bouts(behavior, "bout_interrupt")
-    behavior=annotate_bout_duration(behavior, fps=1)
+    behavior=annotate_bout_duration(behavior, fps=fps)
     
     bout_start=behavior.loc[(behavior["bout_interrupt"]) & (behavior["bout_in"]==1)]
     bout_end=behavior.loc[(behavior["bout_interrupt"]) & (behavior["bout_out"]==1)]

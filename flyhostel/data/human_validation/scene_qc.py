@@ -58,13 +58,17 @@ def scene_qc(scene, number_of_animals):
     gap_n_frames, gap_distance, between_chunks, maintains_id, n_failed_fragments=fragment_gap_qc(scene)
     scene_length=len(scene["frame_number"].unique())
     counts=scene.value_counts("id")
-    if (counts==scene_length).all():
-        broken=0
-        max_velocity=max_velocity_qc_ideal(scene, number_of_animals=number_of_animals)
-    else:
-        broken=1
-        max_velocity=max_velocity_qc_not_ideal(scene)
-    
+    try:
+        if (counts==scene_length).all():
+            broken=0
+            max_velocity=max_velocity_qc_ideal(scene, number_of_animals=number_of_animals)
+        else:
+            broken=1
+            max_velocity=max_velocity_qc_not_ideal(scene)
+    except Exception as error:
+        print(scene)
+        raise error
+        
     return {
         "all_valid_ids": all_valid_ids,
         "min_distance": min_distance, "max_velocity": max_velocity,
