@@ -29,6 +29,7 @@ def main():
     group.add_argument("--dbfile", type=str, help="Path to .db file")
     ap.add_argument("--chunks", type=int, nargs="+", required=False, default=None)
     ap.add_argument("--n-jobs", type=int, default=1)
+    ap.add_argument("--write-only", action="store_true", default=False, help="If passed, detected cache files are ignored, the computation is performed and the cache file is overwritten")
     ap.add_argument("--output", default=None, required=True, type=str)
     args=ap.parse_args()
 
@@ -77,7 +78,7 @@ def main():
         joblib.delayed(
             pipeline
         )(
-            experiment_name, identity, concatenation, args.chunks, output=args.output
+            experiment_name, identity, concatenation, args.chunks, output=args.output#, write_only=args.write_only
         )
         for identity in identities
     )

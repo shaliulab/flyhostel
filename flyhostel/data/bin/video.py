@@ -1,4 +1,5 @@
 import argparse
+import os.path
 from flyhostel.data.video import SingleVideoMaker
 from flyhostel.data.pose.constants import SQUARE_HEIGHT,SQUARE_WIDTH
 
@@ -40,3 +41,13 @@ def main(args=None, ap=None):
             n_jobs=args.n_jobs, output=args.output, frame_size=(args.width, args.height),
             resolution=resolution, chunks=args.chunks, chunksize=args.chunksize,
         )
+
+
+def save_csv(args=None, ap=None):
+    if args is None:
+        ap = get_parser(ap)
+        args = ap.parse_args()
+
+    video_maker=SingleVideoMaker(flyhostel_dataset=args.dataset, value=args.frame_number, stacked=args.stacked, identifiers=args.identifiers)
+    output=args.output
+    video_maker.save_coords_to_csv(output=output, chunks=args.chunks)
