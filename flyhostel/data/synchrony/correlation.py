@@ -28,7 +28,7 @@ def cross_correlation(df, col1, col2, lag=0):
     - df: pandas DataFrame.
     - col1: The name of the first column.
     - col2: The name of the second column.
-    - lag: The lag introduced. Positive values will lag col2.
+    - lag: The lag introduced. Positive values will lag col2. Lag unit is not time, but data point
 
     Returns:
     - Cross-correlation value.
