@@ -259,4 +259,9 @@ def impute_proboscis_to_head(pose, selection=None):
         selection=np.bitwise_and(pose["proboscis_likelihood"].isna(), ~pose["head_likelihood"].isna())
     for coord in ["x", "y"]:
         pose.loc[selection, f"proboscis_{coord}"]=pose.loc[selection, f"head_{coord}"]
+
+    assert np.bitwise_and(
+        pose["proboscis_x"].isna(),
+        ~pose["head_x"].isna()
+    ).sum() == 0, f"Proboscis interpolation to head position failed"
     return pose

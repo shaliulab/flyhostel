@@ -42,10 +42,8 @@ def filter_pose_df(data, *args, columns=None, download=False, nx=cp, n_jobs=1, *
     if nx is np:
         if isinstance(cudf_df, cudf.DataFrame):
             cudf_df=cudf_df.to_pandas()
-
     
         arr=cudf_df.values
-        import ipdb; ipdb.set_trace()
 
         data[data.columns]=filter_pose_partitioned(arr, *args, **kwargs, nx=nx, n_jobs=n_jobs)
 
@@ -165,7 +163,6 @@ def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window
     return pose
 
 
-
 def filter_and_interpolate_pose_single_animal_gpu_(
         pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5,
         download=True, framerate=150, n_jobs=1, filters_order=None,
@@ -175,40 +172,32 @@ def filter_and_interpolate_pose_single_animal_gpu_(
     pose=pose.sort_values("t")
     if filters_order is None:
         filters_order=DEFAULT_FILTERS
-
+ 
     filters=[]
-    
-    # use cpu   
-    # n_jobs=n_jobs
-    # use gpu
-    # nx=cp
-    # n_jobs=1
+    nx=np
 
-    before=time.time()
-    # NOTE for some reason
-    # pose_cudf=cudf.from_pandas(pose[bodyparts_xy])
-    # does not work well, because
-    # pose_cudf.values
-    # throws an error
+    missing_data_mask=pose[bodyparts_xy].isna()
     pose_cudf=pd.DataFrame(np.array(pose[bodyparts_xy].values), columns=bodyparts_xy)
     other_columns=pose.drop(bodyparts_xy, axis=1).reset_index(drop=True)
-    after=time.time()
+
 
     # RLE filter
+    # Overwrites bouts of one value surrounded by bouts of the same other value so that a single value is present
+    # https://github.com/talmolab/sleap/discussions/1739
     if "rle" in filters_order:
+        logger.debug("Applying rle filter")
         pose_cudf_arr=one_pass_filter_all(pose_cudf.values, n_jobs=n_jobs)
         before=time.time()
         pose_cudf=pd.DataFrame(pose_cudf_arr, columns=pose_cudf.columns)
         after=time.time()
         logger.debug("Upload data to GPU in %s seconds", round(after-before, 1))
         filters.append("rle")
-
-    missing_data_mask=pose[bodyparts_xy].isna()
-
-    
-    logger.debug("Filtering jumps deviating from median")
-    
+   
+    # Jump from median filter
+    # Sets data to nan if it deviates more than a given distance from the median of a local temporal window
+    # because it is likely to be a spurious detection (an impossible jump of a body part)
     if "jump" in filters_order:
+        logger.debug("Filtering jumps deviating from median")
         pose_cudf=filter_pose_far_from_median_gpu(
             pose_cudf, bodyparts,
             window_size_seconds=window_size_seconds,
@@ -217,22 +206,54 @@ def filter_and_interpolate_pose_single_animal_gpu_(
             n_jobs=n_jobs,
         )
         filters.append(f"jump(max_jump_mm={max_jump_mm})")
-
-    import ipdb; ipdb.set_trace()
     
+
+    # Apply linear filters: mean and median, if contained in filters_order
+    pose_cudf, filters=apply_linear_filters(pose_cudf, filters, interpolate_seconds, filters_order=filters_order, bodyparts_xy=bodyparts_xy, n_jobs=n_jobs)
+    # Set the data that was originally missing to missing
+    # The previous interpolation were only done because the filters needed to have no missing data
+    # however, we want to reflect the missing data in the output
+    pose_cudf, other_columns=reset_interpolation(pose_cudf, other_columns, missing_data_mask, bodyparts, nx)
+    logger.debug("Imputing proboscis to head")
+    selection=np.bitwise_and(~pose_cudf["head_x"].isna(), pose_cudf["proboscis_x"].isna())
+    pose_cudf=impute_proboscis_to_head(pose_cudf, selection=selection)
+
+    if download:
+        out = download_from_gpu(pose_cudf)
+    else:
+        out=pose_cudf
+        logger.warning("Only columns in bodyparts_xy are available in output. Please set download=True if you need other columns present in the input")
+
+    out=pd.concat([out, other_columns], axis=1)[pose.columns]
+    return out, filters
+
+
+def download_from_gpu(pose_cudf):
+    before=time.time()
+    try:
+        out=pose_cudf.to_pandas()
+        del pose_cudf
+    except:
+        out=pose_cudf.copy()            
+    after=time.time()
+    logger.debug("Download pose from GPU in %s seconds", round(after-before, 1))
+    return out
+    
+
+def apply_linear_filters(pose_cudf, filters, interpolate_seconds, filters_order, bodyparts_xy, n_jobs):
     logger.debug("Interpolating pose")
     pose_cudf=interpolate_pose(pose_cudf, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=FRAMERATE)
     # NOTE be aware this interpolation is not necessarily complete
     # only up to a given amount of seconds are interpolated!
     logger.debug("Imputing proboscis to head")
-    pose_cudf=impute_proboscis_to_head(pose=pose_cudf, selection=np.bitwise_and(~pose["head_x"].isna(), pose["proboscis_x"].isna()))
+    pose_cudf=impute_proboscis_to_head(pose=pose_cudf, selection=np.bitwise_and(~pose_cudf["head_x"].isna(), pose_cudf["proboscis_x"].isna()))
 
     extra_filters=[filter_FUN for filter_FUN in filters_order if filter_FUN in ["mean", "median"]]
     nx=np
     for filter_FUN in extra_filters:
         window_size=int(0.2*FRAMERATE)
         before=time.time()
-
+        logger.debug("Applying %s filter on pose (%s)", filter_FUN, nx)
         pose_cudf=filter_pose_df(
             pose_cudf, columns=pose_cudf.columns,
             f=getattr(nx, filter_FUN),
@@ -242,7 +263,18 @@ def filter_and_interpolate_pose_single_animal_gpu_(
         after=time.time()
         logger.debug("Apply %s filter on pose in %s seconds (%s)", filter_FUN, round(after-before, 1), nx)
         filters.append(f"{filter_FUN}(window_size={window_size})")
+    
+    return pose_cudf, filters
 
+
+def reset_interpolation(pose_cudf, other_columns, missing_data_mask, bodyparts, nx):
+    """
+    pose_cudf: Pose dataset (bp_x, bp_y, ...)
+    other_columns: Interpolation annotation (bp_is_interpolated, ...)
+    missing_data_mask: Boolean array with same shape as pose_cudf and True in the i,j cell if the i,j cell of the pose dataset
+    contained missing data originally
+    """
+    missing_data_mask.index=pose_cudf.index
 
     # reset missing data but still impute proboscis
     for bp in bodyparts:
@@ -251,6 +283,7 @@ def filter_and_interpolate_pose_single_animal_gpu_(
             rows=missing_data_mask[bp_feat]
             if rows.sum()==0:
                 continue
+            # position=np.where(rows)[0]
             
             try:
                 pose_cudf.loc[rows, bp_feat]=nx.nan
@@ -261,29 +294,4 @@ def filter_and_interpolate_pose_single_animal_gpu_(
         if rows.sum()!=0:
             other_columns.loc[rows.values, bp + "_is_interpolated"]=True
     
-    logger.debug("Imputing proboscis to head")
-
-    selection=np.bitwise_and(~other_columns["head_is_interpolated"], other_columns["proboscis_is_interpolated"])
-    pose_cudf=impute_proboscis_to_head(pose_cudf, selection=selection)
-    assert np.bitwise_and(
-        pose_cudf["proboscis_x"].isna(),
-        ~pose_cudf["head_x"].isna()
-    ).sum() == 0, f"Proboscis interpolation to head position failed"
-    
-    out=pose_cudf
-    if download:
-        before=time.time()
-        try:
-            out=pose_cudf.to_pandas()
-            del pose_cudf
-        except:
-            out=pose_cudf.copy()            
-        after=time.time()
-        out=pd.concat([out, other_columns], axis=1)[pose.columns]
-
-        logger.debug("Download pose from GPU in %s seconds", round(after-before, 1))
-    else:
-
-        logger.warning("Only columns in bodyparts_xy are available in output. Please set download=True if you need other columns present in the input")
-
-    return out, filters
+    return pose_cudf, other_columns
