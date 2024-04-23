@@ -26,6 +26,30 @@ class MP4VideoMaker(ABC):
     @staticmethod
     def fetch_frame_time(cur, frame_number):
         return
+    
+    def save_coords_to_csv(self, chunks, output):
+        store_path=os.path.join(self._basedir, "metadata.yaml")
+
+        with sqlite3.connect(f"file:{self._flyhostel_dataset}?mode=ro", uri=True) as conn:
+            for chunk in chunks:
+                with MP4Reader(
+                        "flyhostel", connection=conn, store_path=store_path,
+                        number_of_animals=self._number_of_animals,
+                        width=100, height=100, resolution=(100, 100),
+                        background_color=255, chunks=[chunk]
+                    ) as mp4_reader:
+                    data=mp4_reader._data.reset_index()
+
+                    for i, identifier in enumerate(self._identifiers):
+                        output_folder=os.path.join(FLYHOSTEL_SINGLE_VIDEOS, str(identifier).zfill(3))
+                        csv = os.path.join(output_folder, f"{str(chunk).zfill(6)}.csv")
+                        df=data.loc[data[mp4_reader.IDENTIFIER_COLUMN]==identifier].set_index([
+                            "frame_number",
+                            mp4_reader.IDENTIFIER_COLUMN
+                        ])
+                        os.makedirs(output_folder, exist_ok=True)
+                        df.to_csv(csv)
+
 
     def _make_single_video(self, chunks, output, frame_size, resolution, background_color=255, **kwargs):
         width, height = frame_size

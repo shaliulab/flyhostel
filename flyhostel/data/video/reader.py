@@ -11,7 +11,7 @@ import numpy as np
 from imgstore.interface import VideoCapture
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from flyhostel.data.yolov7 import letterbox
-
+from flyhostel.utils.filters import one_pass_filter_1d
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,7 @@ class MP4Reader:
         self.identity_table=None
         
         self.load_data()
+        self.filter_data()
 
     def check_validation_tables(self):
         self._cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='IDENTITY_VAL';")
@@ -128,6 +129,23 @@ class MP4Reader:
         else:
             print("MP4 reader failed initializing due to warnings displayed above")
     
+    def filter_data(self):
+        # self.no_filter()
+        self._data=self.rle_filter()
+    
+    def rle_filter(self):
+        out=[]
+        for identity, df in self._data.reset_index().groupby(self.IDENTIFIER_COLUMN):
+            logger.debug("Filtering %s: %s", self.IDENTIFIER_COLUMN, identity)
+            df["x"]=one_pass_filter_1d(df["x"].values.tolist())
+            df["y"]=one_pass_filter_1d(df["y"].values.tolist())
+            out.append(df)
+        
+        df=pd.concat(out, axis=0).set_index(["frame_number", self.IDENTIFIER_COLUMN])
+        return df
+
+    def no_filter(self):
+        pass
 
     @property
     def sqlite_query(self):
