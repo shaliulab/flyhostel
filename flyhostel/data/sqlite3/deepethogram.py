@@ -7,7 +7,7 @@ from tqdm.auto import tqdm
 from flyhostel.data.deepethogram import H5Reader
 from flyhostel.data.sqlite3.utils import parse_experiment_properties
 from flyhostel.data.deepethogram.video import build_key
-DEEPETHOGRAM_DATA=os.environ["DEEPETHOGRAM_DATA"]
+DEEPETHOGRAM_PROJECT_PATH=os.path.join(os.environ["DEEPETHOGRAM_PROJECT_PATH"], "DATA")
 
 class DeepethogramExporter(ABC):
 

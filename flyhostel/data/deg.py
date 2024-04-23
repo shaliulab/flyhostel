@@ -10,6 +10,7 @@ from flyhostel.utils import restore_cache, save_cache
 from flyhostel.utils import get_local_identities_from_experiment, get_sqlite_file, get_chunksize
 logger = logging.getLogger(__name__)
 
+SOCIAL_BEHAVIORS=["rejection", "touch", "interactor", "interactee"]
 DEG_DATA=os.path.join(os.environ["DEEPETHOGRAM_PROJECT_PATH"], "DATA")
 RESTORE_FROM_CACHE_ENABLED=False
 
@@ -28,6 +29,7 @@ class DEGLoader:
     def __init__(self, *args, **kwargs):
         self.experiment=None
         self.deg=None
+        self.social_deg=None
         self.datasetnames=None
         self.store_index=None
         self.meta_info={}
@@ -79,6 +81,7 @@ class DEGLoader:
             ]
             self.deg["behavior"].loc[pd.isna(self.deg["behavior"])]="unknown"
             before=time.time()
+            self.social_deg=self.deg.loc[self.deg["behavior"].isin(SOCIAL_BEHAVIORS)]
             self.deg=self.annotate_two_or_more_behavs_at_same_time_(self.deg)
             after=time.time()
             logger.debug("Took %s seconds to annotate two or more behaviors", after-before)
@@ -86,9 +89,6 @@ class DEGLoader:
         if cache and self.deg is not None:
             path = os.path.join(cache, f"{self.experiment}_{min_time}_{max_time}_{stride}_deg_data.pkl")
             save_cache(path, self.deg)
-
-
-
 
     @staticmethod
     def annotate_two_or_more_behavs_at_same_time_(*args, **kwargs):
@@ -257,9 +257,9 @@ def read_label_file(data_entry, labels_file, verbose=False):
     labels=pd.read_csv(labels_file, index_col=0)
 
     # if pe and inactive ae true, then it's a separate behavior
-    labels["pe_inactive"]=((labels["pe"]==1) & (labels["inactive"]==1))*1
-    labels.loc[labels["pe_inactive"]==1, "pe"]=0
-    labels.loc[labels["pe_inactive"]==1, "inactive"]=0
+    # labels["pe_inactive"]=((labels["pe"]==1) & (labels["inactive"]==1))*1
+    # labels.loc[labels["pe_inactive"]==1, "pe"]=0
+    # labels.loc[labels["pe_inactive"]==1, "inactive"]=0
     behaviors=labels.columns
 
     behavr_count_per_frame = labels.values.sum(axis=1)
