@@ -229,7 +229,7 @@ def interpolate_pose(pose, columns=None, seconds: Union[None, Dict, float, int]=
 
     if isinstance(seconds, float) or isinstance(seconds, int):
         interpolation_limit=max(1, int(seconds*pose_framerate))
-        pose[columns]=pose[columns].interpolate(method="linear", limit_direction="both", inplace=True, limit=interpolation_limit)
+        pose[columns].interpolate(method="linear", limit_direction="both", inplace=True, limit=interpolation_limit)
 
     elif seconds is None:
         before=time.time()
