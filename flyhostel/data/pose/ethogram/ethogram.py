@@ -5,6 +5,7 @@ import os.path
 import pickle
 
 import pandas as pd
+import h5py
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from tqdm.auto import tqdm
@@ -15,6 +16,7 @@ from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_dur
 from flyhostel.data.pose.constants import chunksize, framerate, inactive_states
 from flyhostel.data.pose.distances import add_interdistance_features, add_speed_features
 from flyhostel.data.pose.ml_classifier import load_one_animal
+PURE_BEHAVIORS=[]
 
 logger=logging.getLogger(__name__)
 try:
@@ -364,7 +366,7 @@ def make_ethogram(
 
 
     dataset=annotate_bouts(dataset, "behavior")
-    dataset=annotate_bout_duration(dataset, fps=framerate/STRIDE)   
+    dataset=annotate_bout_duration(dataset, fps=framerate/STRIDE)
 
     feather_out=os.path.join(output, "dataset.feather")
     feather_input=os.path.join(output, "input.feather")
@@ -382,3 +384,35 @@ def make_ethogram(
 
     dataset[final_cols].reset_index(drop=True).to_feather(feather_out)
     dataset[["frame_number", "chunk", "frame_idx"] + features].reset_index(drop=True).to_feather(feather_input)
+
+    save_deg_prediction_file(dataset, PURE_BEHAVIORS)
+
+
+def save_deg_prediction_file(dataset, behaviors):
+    """
+    Save the prediction in the same format as Deepethogram, so that it can be rendered in the GUI
+    """
+    
+    chunk_ids=dataset[["chunk", "local_identity"]].drop_duplicates().sort_values("chunk").values.tolist()
+    experiment=dataset["experiment"].iloc[0]
+
+    for chunk, local_identity in chunk_ids:
+        output_folder=f"{experiment}_{str(chunk).zfill(6)}_{str(local_identity).zfill(3)}"
+        filename=f"{str(chunk).zfill(6)}_ouputs.h5"
+        os.makedirs(output_folder, exist_ok=True)
+        output_path=os.path.join(output_folder, filename)
+
+        P=dataset[behaviors].loc[(dataset["chunk"]==chunk) & (dataset["local_identity"]==local_identity)].values
+        assert P.shape[0] == chunksize
+        logger.debug("Writing %s", output_path)
+
+        with h5py.File(filename, "w") as f:
+            group=f.create_group("flyhostel")
+            P_d=group.create_dataset("P", dtype=np.float32)
+            P_d[:]=P
+
+            class_names=group.create_dataset("class_names", (len(behaviors), ), dtype="|S12")
+            class_names[:]=np.array([e.encode() for e in behaviors])
+
+            thresholds=group.create_dataset("thresholds", (len(behaviors), ), dtype=np.float32)
+            thresholds[:]=np.array([1, ] * len(behaviors))

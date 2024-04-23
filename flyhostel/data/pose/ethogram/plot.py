@@ -89,7 +89,7 @@ def bin_behavior_table(df, time_window_length=1, x_var="seconds", t0=None, behav
     df["frame_idx"]=df["frame_number"]%chunksize
     if time_window_length is not None:
         logger.debug("Setting time resolution to %s second(s)", time_window_length)
-        df=find_window_winner(df, time_window_length, other_cols=["zt", "zt_", "score", "chunk", "frame_idx"], behavior_col=behavior_col)
+        df=find_window_winner(df, time_window_length=time_window_length, other_cols=["zt", "zt_", "score", "chunk", "frame_idx"], behavior_col=behavior_col)
 
     return df, x_var
 

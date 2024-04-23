@@ -19,7 +19,7 @@ def count_bout_position(df, variable, counter):
     df['bout_count'] = bout_start_mask.cumsum()
     
     # Calculate the rank within each bout
-    df[counter] = df.groupby('bout_count').cumcount() + 1
+    df[counter] = df[["bout_count"]].groupby("bout_count").cumcount() + 1
 
     return df
 
