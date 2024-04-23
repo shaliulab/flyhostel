@@ -21,7 +21,12 @@ try:
 except:
     logger.warning("cupy not installed")
 
-def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=100, min_supporting_points=3, features=["x", "y"], useGPU=-1):
+def filter_pose(
+        filter_f, pose, bodyparts,
+        window_size=0.5, min_window_size=100,
+        min_supporting_points=3, features=["x", "y"],
+        useGPU=-1
+    ):
     """
     Arguments:
         pose (pd.DataFrame): contains columns t (seconds), frame_number and bp_x, bp_y

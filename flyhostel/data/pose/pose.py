@@ -77,34 +77,39 @@ class FilterPose(ABC):
         super(FilterPose, self).__init__(*args, **kwargs)
 
 
-    def filter_and_interpolate_pose_single_animal(self, pose, min_time, max_time, stride, identifier, *args, cache=None, **kwargs):
+    def filter_and_interpolate_pose_single_animal(self, pose, min_time, max_time, stride, identifier, *args, cache=None, write_only=False, **kwargs):
         if cache is not None:
             cache_file=f"{cache}/{identifier}_{min_time}_{max_time}_{stride}_pose_filtered.pkl"
-            if not os.path.exists(cache_file):
-                cache_file=f"{cache}/{identifier}_-inf_+inf_1_pose_filtered.pkl"
-                if os.path.exists(cache_file):
+            if write_only:
+                pass
+            else:
+
+                if not os.path.exists(cache_file):
+                    cache_file=f"{cache}/{identifier}_-inf_+inf_1_pose_filtered.pkl"
+                    if os.path.exists(cache_file):
+                        ret, pose=restore_cache(cache_file)
+                        if ret:
+                            self.filter_pose_by_time(pose=pose, min_time=min_time, max_time=max_time)
+                            if stride!=1:
+                                pose=pose.iloc[::stride]
+                            return pose
+                        else:
+                            pass
+
+                else:
                     ret, pose=restore_cache(cache_file)
                     if ret:
-                        self.filter_pose_by_time(pose=pose, min_time=min_time, max_time=max_time)
-                        if stride!=1:
-                            pose=pose.iloc[::stride]
                         return pose
                     else:
-                        pass
+                        logger.debug("Cannot find %s", cache_file)
 
-            else:
-                ret, pose=restore_cache(cache_file)
-                if ret:
-                    return pose
-                else:
-                    logger.debug("Cannot find %s", cache_file)
+        pose, filters=self.filter_and_interpolate_pose_single_animal_all_filters(pose, *args, **kwargs)
 
-        pose=self.filter_and_interpolate_pose_single_animal_all_filters(pose, *args, **kwargs)["filters"]["nanmean"]
 
         if cache is not None:
             save_cache(cache_file, pose)
 
-        return pose
+        return pose, filters
 
 
     def filter_and_interpolate_pose_single_animal_all_filters(self, pose, *args, bodyparts=BODYPARTS, filters=None, min_score=MIN_SCORE, useGPU=-1, cache=None, **kwargs):
@@ -116,9 +121,8 @@ class FilterPose(ABC):
         if useGPU >= 0:
             out=self.filter_and_interpolate_pose_single_animal_gpu(pose, bodyparts, filters, *args, **kwargs)
         else:
+            raise NotImplementedError()
             out=self.filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, *args, **kwargs)
-
-
 
         return out
 
@@ -239,6 +243,8 @@ class FilterPose(ABC):
 
         pose_datasets=self.pose.groupby("id")
         all_poses=[]
+        if len(pose_datasets)>1:
+            logger.warning("Some functions will not work well if >1 dataset is provided")
 
         for id, pose in pose_datasets:
 
@@ -251,12 +257,12 @@ class FilterPose(ABC):
                 continue
             identity=pose["identity"].iloc[0].item()
             identifier=self.experiment + "__" + str(identity).zfill(2)
-            pose = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, min_time=min_time, max_time=max_time, identifier=identifier, **kwargs)
+            pose, filters = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, min_time=min_time, max_time=max_time, identifier=identifier, **kwargs)
             pose=self.filter_pose_by_time(min_time=min_time, max_time=max_time, pose=pose)
 
             all_poses.append(pose)
 
-
+        self.filters=filters
         if len(all_poses)==1:
             self.pose_boxcar=all_poses[0]
         else:

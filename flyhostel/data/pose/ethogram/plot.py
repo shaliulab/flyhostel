@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objs as go
 import webcolors
 
-from flyhostel.data.pose.ethogram_utils import most_common_behavior_vectorized, find_window_winner
+from flyhostel.data.pose.ethogram.utils import find_window_winner, find_window_winner, postprocessing
 from flyhostel.data.pose.constants import chunksize, framerate
 
 
@@ -89,7 +89,7 @@ def bin_behavior_table(df, time_window_length=1, x_var="seconds", t0=None, behav
     df["frame_idx"]=df["frame_number"]%chunksize
     if time_window_length is not None:
         logger.debug("Setting time resolution to %s second(s)", time_window_length)
-        df=most_common_behavior_vectorized(df, time_window_length, other_cols=["zt", "zt_", "score", "chunk", "frame_idx"], behavior_col=behavior_col)
+        df=find_window_winner(df, time_window_length, other_cols=["zt", "zt_", "score", "chunk", "frame_idx"], behavior_col=behavior_col)
 
     return df, x_var
 
@@ -202,10 +202,13 @@ def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info
     df=df.copy()
     id = df["id"].iloc[0]
     df, x_var, bin_columns=bin_behavior_table_v2(df, time_window_length=time_window_length, x_var=x_var, t0=t0)
+    
 
+    df=postprocessing(df, time_window_length=time_window_length)
+    df["behavior_30fps"]=df["behavior"].copy()
+
+    
     palette_rgb_=palette_to_rgb_(palette)
-
-
     # Get unique behaviors
     found_behaviors = list(set(list(palette.keys()) + df["behavior"].unique().tolist()))
     for behav in found_behaviors:
@@ -221,8 +224,8 @@ def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info
     fig = go.Figure()
     # Plot a thin black line for all behaviors throughout the plot
     for behavior in behaviors:
-        fig=add_track_black_line(fig, df, x_var,behavior)
-        fig=add_track_markers(fig, df, behavior, palette=palette_rgb_, meta_columns=meta_columns)
+        fig=add_track_black_line(fig, df, x_var, behavior=behavior)
+        fig=add_track_markers(fig, df, x_var, behavior=behavior, palette_rgb_=palette_rgb_, meta_columns=meta_columns)
 
     date_time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 

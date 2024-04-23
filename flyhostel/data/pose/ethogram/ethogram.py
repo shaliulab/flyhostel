@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 from flyhostel.data.pose.constants import get_bodyparts
 
 from flyhostel.data.pose.main import FlyHostelLoader
-from flyhostel.data.pose.ethogram_utils import annotate_bouts, annotate_bout_duration
+from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
 from flyhostel.data.pose.constants import chunksize, framerate, inactive_states
 from flyhostel.data.pose.distances import add_interdistance_features, add_speed_features
 from flyhostel.data.pose.ml_classifier import load_one_animal
@@ -27,12 +27,9 @@ except ModuleNotFoundError:
     logger.error("Please install deepethogram without dependencies (pip install --no-deps deepethogram")
 
 
-# MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
 DEEPETHOGRAM_PROJECT_PATH=os.environ["DEEPETHOGRAM_PROJECT_PATH"]
 
 FLYHOSTEL_VIDEOS=os.environ["FLYHOSTEL_VIDEOS"]
-# OUTPUT_FOLDER=os.path.join(MOTIONMAPPER_DATA, "output")
-# MODELS_PATH=os.path.join(MOTIONMAPPER_DATA, "models")
 
 from motionmapperpy import setRunParameters
 STRIDE=setRunParameters().wavelet_downsample
@@ -183,7 +180,7 @@ def join_strings_by_repeated_integers(integers, strings, joiner="+"):
 def load_dataset(experiment, identity, wavelets=None, cache="/flyhostel_data/cache", **kwargs):
 
     loader = FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
-    out=load_one_animal(experiment, identity, pose_key="pose_boxcar", behavior_key="behavior", segregate=False)
+    out=load_one_animal(experiment, identity, feature_types=["speed", "distance", "centroid_speed", "wavelets"], pose_key="pose_boxcar", behavior_key="behavior", segregate=False)
 
     dataset, (frequencies, freq_names, features)=out
     
@@ -264,7 +261,7 @@ def make_ethogram(
         cache="/flyhostel_data/cache", frame_numbers=None, postprocess=True,
         t0=None,
         train=RECOMPUTE,
-        correct_by_all_inactive=True,
+        correct_by_all_inactive=False,
         **kwargs):
     """
     Generate ethogram for a particular fly (inference)
@@ -304,7 +301,8 @@ def make_ethogram(
     behaviors=classifier.classes_
     logger.debug("Predicting behavior of %s rows", dataset.shape[0])
     before=time.time()
-    probabilities=classifier.predict_proba(dataset[features].values)
+    values=dataset[features].values
+    probabilities=classifier.predict_proba(values)
     after=time.time()
     logger.debug(
         "Done in %s seconds (%s points/s or %s recording seconds / s)",
@@ -366,7 +364,7 @@ def make_ethogram(
 
 
     dataset=annotate_bouts(dataset, "behavior")
-    dataset=annotate_bout_duration(dataset, fps=framerate/STRIDE)
+    dataset=annotate_bout_duration(dataset, fps=framerate/STRIDE)   
 
     feather_out=os.path.join(output, "dataset.feather")
     feather_input=os.path.join(output, "input.feather")

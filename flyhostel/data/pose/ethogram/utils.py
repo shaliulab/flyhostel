@@ -62,6 +62,8 @@ def find_window_winner(df, behaviors, time_window_length=1, other_cols=[], behav
         if behavior in df.columns:
             behaviors_used.append(behavior)
 
+    assert len(behaviors_used)>1, f"No behavior has its probability saved"
+
     fluctuations=df[["id", "t"] + behaviors_used].groupby(["id", "t"]).apply(identify_fluctuating_events).reset_index()
     fluctuations.columns=["id", "t", "fluctuations"]
 
@@ -143,3 +145,15 @@ def remove_bout_ends_from_dataset(dataset, n_points, fps):
     return dataset
 
 
+def postprocessing(df, time_window_length):
+    df=annotate_bout_duration(
+        annotate_bouts(df, variable="behavior"),
+        fps=1/time_window_length,
+        on=["bout_count"]
+    )
+
+    df.loc[(df["behavior"].isin(["groom"])) & (df["fluctuations"]>0), "behavior"]="background"
+    df.loc[(df["behavior"].isin(["groom"])) & (df["duration"]<5), "behavior"]="background"
+    df.loc[(df["behavior"].isin(["pe_inactive"])) & (df["duration"]>3), "behavior"]="feed"
+
+    return df

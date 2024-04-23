@@ -7,6 +7,7 @@ import numpy as np
 import joblib
 import pandas as pd
 import h5py
+from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 
 MINS=.5
 
@@ -124,7 +125,7 @@ def load_files(files, n_jobs=1):
     template_score = None
 
     dataset_count = 0
-    for node_names, dataset, score, file in Output:
+    for i, (node_names, dataset, score, file) in enumerate(Output):
         if dataset is not None:
             dataset_count += 1
             if template_dataset is None:
@@ -132,6 +133,9 @@ def load_files(files, n_jobs=1):
                 template_dataset[:]=np.nan
                 template_score = score.copy()
                 template_score[:] = np.nan
+
+        assert dataset.shape[3]==CHUNKSIZE, f"{files[i]} is missing pose estimates"
+              
             
         datasets.append(dataset)
         point_scores.append(score)
@@ -166,6 +170,7 @@ def generate_single_file(node_names, datasets, point_scores, files, dest_file):
     dataset = np.concatenate(datasets, axis=3)
     point_scores = np.concatenate(point_scores, axis=2)
 
+    track_names=["individual_0"]
     with h5py.File(dest_file, 'w') as file:
         node_names_d=file.create_dataset("node_names", (len(node_names), ), dtype='|S12')
         node_names_d[:]=node_names_bytes
@@ -174,6 +179,10 @@ def generate_single_file(node_names, datasets, point_scores, files, dest_file):
         
         tracks_d=file.create_dataset("tracks", dataset.shape)
         tracks_d[:]=dataset
+        
+
+        i=file.create_dataset("track_names", (len(track_names),), dtype="|S12")
+        i[:]=np.array([e.encode() for e in track_names])
 
         point_scores_d=file.create_dataset("point_scores", point_scores.shape)
         point_scores_d[:]=point_scores

@@ -21,10 +21,6 @@ from motionmapperpy import setRunParameters
 from sklearn.metrics import confusion_matrix, roc_curve, auc
 
 
-# LTA_DATA=os.environ["LTA_DATA"]
-# MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
-# OUTPUT_FOLDER=os.path.join(MOTIONMAPPER_DATA, "output")
-# MODELS_FOLDER=os.path.join(MOTIONMAPPER_DATA, "models")
 OUTPUT_FOLDER="output"
 
 logger=logging.getLogger(__name__)

@@ -4,7 +4,6 @@ import pickle
 from .utils import load_animals
 from .bsoid_interpolation import bsoid_interpolation
 from .median_filter import median_filter
-DATASETS=os.environ["MOTIONMAPPER_DATA"]
 
 def preprocess(experiment, chunks, n_jobs):
     """
@@ -13,6 +12,7 @@ def preprocess(experiment, chunks, n_jobs):
     
     TODO explain
     """
+    raise NotImplementedError
     h5s_pandas, indices, params=bsoid_interpolation(experiment, chunks, n_jobs=n_jobs)
     h5s_pandas=median_filter(h5s_pandas)
 

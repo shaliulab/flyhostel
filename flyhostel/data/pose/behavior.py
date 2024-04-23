@@ -67,7 +67,6 @@ def predict_behavior(experiment, model_path, identity=None, wavelets=None, outpu
 
     model = load_model(model_path)
 
-    
     dataset.sort_values(["id", "frame_number"], inplace=True)
     
     # yes, I want to downsample again

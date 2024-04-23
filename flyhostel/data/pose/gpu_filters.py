@@ -2,12 +2,12 @@ import logging
 import time
 import itertools
 from tqdm import tqdm
-
+import joblib
 import numpy as np
 import pandas as pd
 logger=logging.getLogger(__name__)
-
-
+from flyhostel.utils.filters import one_pass_filter_all
+from flyhostel.data.pose.constants import DEFAULT_FILTERS
 try:
     import cudf
     import cupy as cp
@@ -25,29 +25,33 @@ from .filters import (
 
 # upload to GPU batches of 1 hour long data
 
-from flyhostel.data.pose.constants import MAX_JUMP_MM, JUMP_WINDOW_SIZE_SECONDS, PARTITION_SIZE, min_score, PX_PER_CM, APPLY_MEDIAN_FILTER
+from flyhostel.data.pose.constants import MAX_JUMP_MM, JUMP_WINDOW_SIZE_SECONDS, PARTITION_SIZE, min_score, PX_PER_CM
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 
-def filter_pose_df(data, *args, columns=None, download=False, nx=cp, **kwargs):
+def filter_pose_df(data, *args, columns=None, download=False, nx=cp, n_jobs=1, **kwargs):
     original_columns=data.columns
-    if isinstance(data, pd.DataFrame):
+    
+    if isinstance(data, pd.DataFrame) and nx is cp:
         assert columns is not None
         cudf_df=cudf.DataFrame(cp.array(data[columns].values), columns=columns)
-        other_columns=data.drop(columns, axis=1).reset_index(drop=True)
     else:
         cudf_df=data
 
-    # cudf_df.interpolate(method="linear", axis=0, limit_direction="both", inplace=True)
-    # cudf_df=cudf_df.fillna(method="bfill", axis=0)
+    other_columns=data.drop(columns, axis=1).reset_index(drop=True)
     if nx is np:
-        data=cudf_df.to_pandas()
-        arr=data.values
+        if isinstance(cudf_df, cudf.DataFrame):
+            cudf_df=cudf_df.to_pandas()
 
-        data[data.columns]=filter_pose_partitioned(arr, *args, **kwargs, nx=nx)
+    
+        arr=cudf_df.values
+        import ipdb; ipdb.set_trace()
+
+        data[data.columns]=filter_pose_partitioned(arr, *args, **kwargs, nx=nx, n_jobs=n_jobs)
+
     elif nx is cp:
         arr=cp.from_dlpack(cudf_df.interpolate(method="linear", axis=0, limit_direction="both").fillna(method="bfill", axis=0).to_dlpack())
-        cudf_df[cudf_df.columns]=filter_pose_partitioned(arr, *args, **kwargs, nx=nx)
+        cudf_df[cudf_df.columns]=filter_pose_partitioned(arr, *args, **kwargs, nx=nx, n_jobs=n_jobs)
             
 
         if download:
@@ -60,9 +64,12 @@ def filter_pose_df(data, *args, columns=None, download=False, nx=cp, **kwargs):
     return data
         
 
-def filter_pose_partitioned(data, f, window_size, partition_size, pad=False, nx=np):
+def filter_pose_partitioned(data, f, window_size, partition_size, pad=False, nx=np, n_jobs=-2):
 
-    def process_partition(partition):
+    def process_partition(i, partition):
+        with open("partition_index.txt", "w") as handle:
+            handle.write(f"Working on partition {i}\n")
+
         shape = (partition.shape[0] - window_size + 1, partition.shape[1], window_size)
         strides = (partition.strides[0], partition.strides[1], partition.strides[0])
         strided_partition=nx.lib.stride_tricks.as_strided(partition, shape=shape, strides=strides)
@@ -71,11 +78,23 @@ def filter_pose_partitioned(data, f, window_size, partition_size, pad=False, nx=
     n_rows = data.shape[0]
     results = []
 
-    for start in tqdm(range(0, n_rows, partition_size), desc="Filtering pose"):
-        end = start + partition_size + window_size - 1
-        end = min(end, n_rows)  # Ensure we don't go beyond the array
-        partition = data[start:end]
-        results.append(process_partition(partition))
+    if nx is cp:
+        for i, start in tqdm(enumerate(range(0, n_rows, partition_size)), desc="Filtering pose"):
+            end = start + partition_size + window_size - 1
+            end = min(end, n_rows)  # Ensure we don't go beyond the array
+            partition = data[start:end]
+            results.append(process_partition(i, partition))
+    elif nx is np:
+        results=joblib.Parallel(
+            n_jobs=n_jobs
+        )(
+            joblib.delayed(process_partition)(
+                i,
+                data[start:min(n_rows, start+partition_size+window_size-1)]
+            )
+            for i, start in enumerate(range(0, n_rows, partition_size))
+        )
+    
     concatenated = nx.concatenate(results, axis=0)
 
     # Pad the end of the array with the last value if pad_end is True
@@ -102,20 +121,26 @@ def split_xy(arr, nx=cp):
     ], axis=2)
 
 
-def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window_size_seconds=JUMP_WINDOW_SIZE_SECONDS, max_jump_mm=MAX_JUMP_MM, framerate=FRAMERATE, nx=np):
+def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window_size_seconds=JUMP_WINDOW_SIZE_SECONDS, max_jump_mm=MAX_JUMP_MM, framerate=FRAMERATE, n_jobs=1):
     """
     Ignore points that deviate from the median
 
     Points deviating from the median are those farther than `max_jump_mm` mm of the median computed on a window around them, of `window_size_seconds` seconds
     framerate tells the program how many points make one second and px_per_cm how many pixels are 1 cm
     """
+
     window_size=int(window_size_seconds*framerate)
 
 
-    arr=pose.to_pandas().values
+    if isinstance(pose, cudf.DataFrame):
+        arr=pose.to_pandas().values
+    else:
+        arr=pose.values
+
+    nx=np
     # arr=cp.from_dlpack(pose.interpolate(method="linear", axis=0, limit_direction="both").fillna(method="bfill", axis=0).to_dlpack())
 
-    median_arr=filter_pose_partitioned(arr, nx.median, window_size, PARTITION_SIZE, pad=True, nx=nx)
+    median_arr=filter_pose_partitioned(arr, nx.median, window_size, PARTITION_SIZE, pad=True, nx=nx, n_jobs=n_jobs)
 
     # we make the split after computing the median
     # because only 2D arrays are supported (time x features is supported, but not time x features x XY_dimensions)
@@ -140,15 +165,24 @@ def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window
     return pose
 
 
-def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, download=True, framerate=150):
+
+def filter_and_interpolate_pose_single_animal_gpu_(
+        pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5,
+        download=True, framerate=150, n_jobs=1, filters_order=None,
+    ):
 
     bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
     pose=pose.sort_values("t")
+    if filters_order is None:
+        filters_order=DEFAULT_FILTERS
 
-    # use cpu
-    nx=np
+    filters=[]
+    
+    # use cpu   
+    # n_jobs=n_jobs
     # use gpu
     # nx=cp
+    # n_jobs=1
 
     before=time.time()
     # NOTE for some reason
@@ -156,49 +190,77 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, win
     # does not work well, because
     # pose_cudf.values
     # throws an error
-    pose_cudf=cudf.DataFrame(cp.array(pose[bodyparts_xy].values), columns=bodyparts_xy)
+    pose_cudf=pd.DataFrame(np.array(pose[bodyparts_xy].values), columns=bodyparts_xy)
     other_columns=pose.drop(bodyparts_xy, axis=1).reset_index(drop=True)
-
     after=time.time()
-    logger.debug("Upload data to GPU in %s seconds", round(after-before, 1))
-    logger.debug("Filtering jumps deviating from median")
-    missing_data_mask=pose[bodyparts_xy].isna()
-    pose_cudf=filter_pose_far_from_median_gpu(
-        pose_cudf, bodyparts,
-        window_size_seconds=window_size_seconds,
-        max_jump_mm=max_jump_mm,
-        framerate=framerate,
-        nx=nx
-    )
 
+    # RLE filter
+    if "rle" in filters_order:
+        pose_cudf_arr=one_pass_filter_all(pose_cudf.values, n_jobs=n_jobs)
+        before=time.time()
+        pose_cudf=pd.DataFrame(pose_cudf_arr, columns=pose_cudf.columns)
+        after=time.time()
+        logger.debug("Upload data to GPU in %s seconds", round(after-before, 1))
+        filters.append("rle")
+
+    missing_data_mask=pose[bodyparts_xy].isna()
+
+    
+    logger.debug("Filtering jumps deviating from median")
+    
+    if "jump" in filters_order:
+        pose_cudf=filter_pose_far_from_median_gpu(
+            pose_cudf, bodyparts,
+            window_size_seconds=window_size_seconds,
+            max_jump_mm=max_jump_mm,
+            framerate=framerate,
+            n_jobs=n_jobs,
+        )
+        filters.append(f"jump(max_jump_mm={max_jump_mm})")
+
+    import ipdb; ipdb.set_trace()
+    
     logger.debug("Interpolating pose")
     pose_cudf=interpolate_pose(pose_cudf, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=FRAMERATE)
     # NOTE be aware this interpolation is not necessarily complete
     # only up to a given amount of seconds are interpolated!
     logger.debug("Imputing proboscis to head")
-    pose_cudf=impute_proboscis_to_head(
-        pose=pose_cudf,
-        selection=np.bitwise_and(~pose["head_x"].isna(), pose["proboscis_x"].isna())
-    )
+    pose_cudf=impute_proboscis_to_head(pose=pose_cudf, selection=np.bitwise_and(~pose["head_x"].isna(), pose["proboscis_x"].isna()))
 
-    if APPLY_MEDIAN_FILTER:
+    extra_filters=[filter_FUN for filter_FUN in filters_order if filter_FUN in ["mean", "median"]]
+    nx=np
+    for filter_FUN in extra_filters:
+        window_size=int(0.2*FRAMERATE)
         before=time.time()
-        pose_cudf=filter_pose_df(pose_cudf, f=nx.median, window_size=int(0.2*FRAMERATE), partition_size=PARTITION_SIZE, pad=True, nx=nx)
-        after=time.time()
-        logger.debug("Apply median filter on pose in %s seconds (%s)", round(after-before, 1), nx)
 
-    before=time.time()
-    pose_cudf=filter_pose_df(pose_cudf, f=nx.mean, window_size=int(0.2*FRAMERATE), partition_size=PARTITION_SIZE, pad=True, nx=nx)
-    after=time.time()
-    logger.debug("Apply mean filter on pose in %s seconds (%s)", round(after-before, 1), nx)
+        pose_cudf=filter_pose_df(
+            pose_cudf, columns=pose_cudf.columns,
+            f=getattr(nx, filter_FUN),
+            window_size=window_size, partition_size=PARTITION_SIZE,
+            pad=True, nx=nx, n_jobs=n_jobs
+        )
+        after=time.time()
+        logger.debug("Apply %s filter on pose in %s seconds (%s)", filter_FUN, round(after-before, 1), nx)
+        filters.append(f"{filter_FUN}(window_size={window_size})")
+
 
     # reset missing data but still impute proboscis
     for bp in bodyparts:
         for feat in ["x", "y"]:
             bp_feat=bp+"_"+feat
-            pose_cudf.loc[missing_data_mask[bp_feat], bp_feat]=nx.nan
-        # missing_data_mask[bp_x] is the same as missing_data_mask[bp_y]
-        other_columns.loc[missing_data_mask[bp_feat].values, bp + "_is_interpolated"]=True
+            rows=missing_data_mask[bp_feat]
+            if rows.sum()==0:
+                continue
+            
+            try:
+                pose_cudf.loc[rows, bp_feat]=nx.nan
+            except Exception:
+                import ipdb; ipdb.set_trace()
+                raise error
+        
+        if rows.sum()!=0:
+            other_columns.loc[rows.values, bp + "_is_interpolated"]=True
+    
     logger.debug("Imputing proboscis to head")
 
     selection=np.bitwise_and(~other_columns["head_is_interpolated"], other_columns["proboscis_is_interpolated"])
@@ -206,7 +268,7 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, win
     assert np.bitwise_and(
         pose_cudf["proboscis_x"].isna(),
         ~pose_cudf["head_x"].isna()
-    ).sum() == 0
+    ).sum() == 0, f"Proboscis interpolation to head position failed"
     
     out=pose_cudf
     if download:
@@ -224,4 +286,4 @@ def filter_and_interpolate_pose_single_animal_gpu_(pose, bodyparts, filters, win
 
         logger.warning("Only columns in bodyparts_xy are available in output. Please set download=True if you need other columns present in the input")
 
-    return {"jumps": None, "filters": {"nanmean": out}}
+    return out, filters

@@ -1,5 +1,5 @@
 import argparse
-from flyhostel.data.pose.ethogram import make_ethogram
+from flyhostel.data.pose.ethogram.ethogram import make_ethogram
 from flyhostel.data.pose.ethogram.plot import main as draw_ethogram
 
 def get_parser():

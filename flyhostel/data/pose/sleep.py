@@ -15,12 +15,13 @@ import pandas as pd
 import numpy as np
 
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
-from flyhostel.data.pose.constants import framerate as FRAMERATE
-from flyhostel.data.pose.ethogram_utils import (
+from flyhostel.data.pose.constants import inactive_states
+from flyhostel.data.pose.ethogram.utils import (
     annotate_bout_duration,
     annotate_bouts
 )
-from flyhostel.data.pose.ethogram_utils import most_common_behavior_vectorized
+from flyhostel.data.pose.ethogram.utils import postprocessing
+from flyhostel.data.pose.ethogram.plot import bin_behavior_table_v2
 from deepethogram.postprocessing import find_bout_indices
 from motionmapperpy import setRunParameters
 from zeitgeber.rle import encode, decode
@@ -80,7 +81,9 @@ class SleepAnnotator(ABC):
 
     def sleep_annotation_inactive(self, data, min_time_immobile=300, time_window_length=1):
         
-        dt=most_common_behavior_vectorized(data, time_window_length)
+        dt, _, _=bin_behavior_table_v2(data, time_window_length=time_window_length, x_var="t")
+        dt=postprocessing(dt, time_window_length=time_window_length)
+
         
         behavior=dt["behavior"].copy()
         behavior.loc[behavior.isin(inactive_states)]="all_inactive"

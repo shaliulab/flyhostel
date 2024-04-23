@@ -11,16 +11,13 @@ import plotly.express as px
 from sklearn.model_selection import train_test_split
 from umap import UMAP
 
-from flyhostel.data.pose.ethogram_utils import annotate_bouts, remove_bout_ends_from_dataset
+from flyhostel.data.pose.ethogram.utils import annotate_bouts, remove_bout_ends_from_dataset
 from flyhostel.data.pose.main import FlyHostelLoader
 from motionmapperpy import setRunParameters
 
 
-
+raise NotImplementedError()
 LTA_DATA=os.environ["LTA_DATA"]
-MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
-OUTPUT_FOLDER=os.path.join(MOTIONMAPPER_DATA, "output")
-MODELS_FOLDER=os.path.join(MOTIONMAPPER_DATA, "models")
 
 logger=logging.getLogger(__name__)
 

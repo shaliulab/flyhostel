@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 
 logger = logging.getLogger(__name__)
 
@@ -43,55 +44,16 @@ def simplify_columns(index, pose, id):
     return pose
 
 
-def load_pose_data_processed(min_time, max_time, time_system, datasetnames, identities, lq_thresh):
-    """
-    Load dataset stored in MOTIONMAPPER_DATA
-    """
-
-    pose_list=[]
-    h5s_pandas=[]
-    index_pandas=[]
-
-    for animal_id, d in enumerate(datasetnames):
-        h5_file = '%s/%s_positions.h5' % (os.environ["MOTIONMAPPER_DATA"], d)
-
-        if not os.path.exists(h5_file):
-            print(f"{h5_file} not found")
-            continue
-
-        index = pd.read_hdf(h5_file, key="index")
-        index["t"] = index["zt"]*3600
-
-        keep_rows=np.where((index["t"] >= min_time) & (index["t"] < max_time))[0]
-        first_row=keep_rows[0]
-        last_row=keep_rows[-1]+1
-        
-        index=index.iloc[first_row:last_row]
-        pose=pd.read_hdf(h5_file, key="pose", start=first_row, stop=last_row)
-        pose=clean_bad_proboscis([pose], lq_thresh)[0]
-        index["animal"]=d
-        index["index"]=index["frame_number"]
-        index.set_index("index", inplace=True)
-
-        h5s_pandas.append(pose)
-
-        pose_list.append(simplify_columns(index, pose, identities[animal_id]))
-        index_pandas.append(index)
-    
-    if len(pose_list) == 0:
-        return None
-    else:
-        return pose_list, h5s_pandas, index_pandas
-
 def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1):
     """
-    Load dataset stored in POSE_DATA
+    Load dataset TODO
     """
     before_out=time.time()
 
     pose_list=[]
     h5s_pandas=[]
     index_pandas=[]
+    chunksize=CHUNKSIZE
 
     for animal_id, datasetname in enumerate(datasetnames):
         h5_file=files[animal_id]
@@ -102,11 +64,15 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1):
             print(f"{h5_file} not found")
             continue
 
-
         logger.debug("Opening %s", h5_file)
         with h5py.File(h5_file) as filehandle:
-            chunksize=int(filehandle["tracks"].shape[3] / filehandle["files"].shape[0])
+            
             before=time.time()
+            n_files=filehandle["files"].shape[0]
+            n_chunks=filehandle["tracks"].shape[3]/chunksize
+            if n_files > n_chunks:
+                raise Exception(f"{n_files} files should contain {round(n_chunks, 5)} of data. Some chunk may be incomplete")
+
             pose=filehandle["tracks"][0, :, :, ::stride]
             after=time.time()
             logger.debug("Load pose coordinates in %s seconds", round(after-before, 1))

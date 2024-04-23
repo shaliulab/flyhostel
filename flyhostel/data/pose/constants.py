@@ -7,12 +7,10 @@ import numpy as np
 chunksize=45000
 framerate=150        # framerate of input videos
 centroid_framerate=2
-DATASETS=os.environ["MOTIONMAPPER_DATA"]
 # "/Users/FlySleepLab Dropbox/Antonio/FSLLab/Projects/FlyHostel4/notebooks/datasets/"
 
 palette="rainbow"
 prefix="2023-07-19"
-root_path=os.environ["POSE_DATA"]
 ZT0_HOUR=11
 
 # Bodyparts
@@ -72,17 +70,17 @@ assert len(body_parts_chosen) == len(criteria) == len(score_filter) == len(label
 interpolate_seconds={bp: 3 for bp in bodyparts}
 interpolate_seconds["proboscis"]=0.5
 
-# min_score={bp: 0.5 for bp in bodyparts}
-# min_score["proboscis"]=0.8
+
 min_score={
-    "head":0,"thorax":0,"abdomen":0,"proboscis":0.6,
-    "lW":0.5,"rW":0.5,
-    "fLL":0.9,"fRL":0.9,
-    "mLL":0.9,"mRL":0.9,
-    "rLL":0.8,"rRL":0.8,
-    "fLLJ":0.4,"fRLJ":0.4,
-    "mLLJ":0.8,"mRLJ":0.8,
-    "rLLJ":0.6,"rRLJ":0.6
+    "head":0,"thorax":0,
+    "abdomen":0,"proboscis":0.6,
+    "lW":0.1,"rW":0.1,
+    "fLL":0.6,"fRL":0.6,
+    "mLL":0.75,"mRL":0.75,
+    "rLL":0.75,"rRL":0.75,
+    "fLLJ":0.5,"fRLJ":0.5,
+    "mLLJ":0.75,"mRLJ":0.75,
+    "rLLJ":0.75,"rRLJ":0.75
 }
 
 bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
@@ -100,4 +98,5 @@ DIST_MAX_MM=4
 SQUARE_HEIGHT=100
 SQUARE_WIDTH=100
 MIN_INTERACTION_DURATION=1 # seconds
-inactive_states=["inactive", "pe_inactive", "inactive+micromovement", "inactive+twitch"]
+inactive_states=["inactive", "pe_inactive", "inactive+micromovement", "inactive+twitch", "background"]
+DEFAULT_FILTERS=["rle", "jump", "mean"]
