@@ -11,8 +11,8 @@ from flyhostel.data.interactions.load_data import load_animal_dataset
 from flyhostel.data.movies.pose import draw_pose_on_axis
 from flyhostel.data.interactions.centroid_detector import centroid_interaction_detector
 from flyhostel.data.interactions.sleap_ import generate_sleap_files
-
-DATA_PATH=os.environ["MOTIONMAPPER_DATA"]
+raise NotImplementedError()
+DATA_PATH=None
 SLEAP_DATA=os.environ["SLEAP_DATA"]
 SLEAP_PROJECT_PATH=os.environ["SLEAP_PROJECT_PATH"]
 

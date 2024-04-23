@@ -6,6 +6,8 @@ from tqdm.auto import tqdm
 
 import cudf
 import cupy as cp
+import pandas as pd
+import numpy as np
 
 logger=logging.getLogger(__name__)
 
@@ -115,11 +117,22 @@ def find_neighbors(dt, dist_max_px):
     """
 
     logger.debug("Downloading identities from GPU")
-    identities=sorted(dt["id"].to_pandas().unique())
+    ids=dt["id"]
+    
+    if isinstance(ids, cudf.Series):
+        ids=ids.to_pandas()
+        dt=dt.to_pandas()
+        nx=cp
+        xf=cudf
+    else:
+        nx=np
+        xf=pd
+
+    identities=sorted(ids.unique())
     logger.debug("Done")
     distance_matrix = compute_distance_between_ids(dt, identities=identities)
     # ids x neighbors x t
-    frame_number=cp.arange(dt["frame_number"].min(), dt["frame_number"].max()+1)
+    frame_number=nx.arange(dt["frame_number"].min(), dt["frame_number"].max()+1)
     assert len(frame_number)==distance_matrix.shape[2]
 
     neighbor_matrix=distance_matrix<dist_max_px
@@ -130,13 +143,13 @@ def find_neighbors(dt, dist_max_px):
     for i, this_identity in tqdm(enumerate(focal_identities), desc="Finding nearest neighbors"):
         neighbors=identities.copy()
         neighbors.pop(neighbors.index(this_identity))
-        neighbor_idx, frame_pos=cp.where(neighbor_matrix[i,...])
+        neighbor_idx, frame_pos=nx.where(neighbor_matrix[i,...])
 
 
         this_distance=distance_matrix[i, neighbor_idx, frame_pos]
-        nearest_neighbors = cudf.Series(index=cp.arange(len(neighbors)), data=neighbors).loc[neighbor_idx.astype(int)]
+        nearest_neighbors = xf.Series(index=nx.arange(len(neighbors)), data=neighbors).loc[neighbor_idx.astype(int)]
 
-        out = cudf.DataFrame({
+        out = xf.DataFrame({
             "id": this_identity,
             "nn": nearest_neighbors,
             "distance": this_distance,
@@ -145,7 +158,7 @@ def find_neighbors(dt, dist_max_px):
         if nns is None:
             nns=out
         else:
-            nns=cudf.concat([nns, out], axis=0)
+            nns=xf.concat([nns, out], axis=0)
 
     logger.debug("merging")
     dt_annotated = dt.merge(nns, on=["id", "frame_number"])

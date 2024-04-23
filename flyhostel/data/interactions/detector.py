@@ -3,6 +3,7 @@ import codetiming
 import logging
 
 import pandas as pd
+import numpy as np
 import cupy as cp
 import cudf
 
@@ -43,7 +44,13 @@ class InteractionDetector(FilesystemInterface):
         super(InteractionDetector, self).__init__(*args, **kwargs)
 
 
-    def find_interactions(self, dt, pose, bodyparts, framerate=FRAMERATE, using_bodyparts=True):
+    def find_interactions(self, dt, pose, bodyparts, framerate=FRAMERATE, using_bodyparts=True, useGPU=True):
+        if useGPU:
+            xf=cudf
+            nx=cp
+        else:
+            xf=pd
+            nx=np
         
         if not isinstance(dt, cudf.DataFrame) and not pd.api.types.is_categorical_dtype(dt["id"]):
             dt["id"]=pd.Categorical(dt["id"])
@@ -51,14 +58,14 @@ class InteractionDetector(FilesystemInterface):
         if not isinstance(pose, cudf.DataFrame) and not pd.api.types.is_categorical_dtype(pose["id"]):
             pose["id"]=pd.Categorical(pose["id"])
         
-        dt_gpu=cudf.DataFrame(dt[["id", "frame_number", "x", "y", "identity"]])
+        dt_gpu=xf.DataFrame(dt[["id", "frame_number", "x", "y", "identity"]])
 
         if "thorax" not in bodyparts:
             # thorax is required in any case
             bodyparts=["thorax"] + bodyparts
 
         bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
-        pose_gpu=cudf.DataFrame(pose[["id", "frame_number"] + bodyparts_xy])
+        pose_gpu=xf.DataFrame(pose[["id", "frame_number"] + bodyparts_xy])
         pose_and_centroid=pose_gpu.merge(dt_gpu, on=["id", "frame_number"], how="left")
         
         logger.debug("Projecting to absolute coordinates")
@@ -85,7 +92,7 @@ class InteractionDetector(FilesystemInterface):
             neighbors=neighbors.loc[neighbors["distance_bodypart_mm"] < self.dist_max_mm]
             neighbors=neighbors.sort_values(["id", "nn", "frame_number"])
 
-            neighbors["scene_start"]=[True] + (cp.diff(neighbors["frame_number"])!=FRAMERATE//framerate).tolist()
+            neighbors["scene_start"]=[True] + (nx.diff(neighbors["frame_number"])!=FRAMERATE//framerate).tolist()
             neighbors["interaction"]=neighbors["scene_start"].cumsum()
 
             neighbors=neighbors.merge(
