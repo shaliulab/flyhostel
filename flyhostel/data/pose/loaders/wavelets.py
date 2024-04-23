@@ -57,7 +57,6 @@ class WaveletLoader(ABC):
         freq_names=[f.decode() for f in data["freq_names"]]
 
         wavelets_single_animal=pd.DataFrame(data["wavelets"], columns=freq_names)
-        # wavelets_single_animal["indices"]=data["indices"]
 
         if previous_freq_names is None:
             previous_freq_names=freq_names
@@ -93,15 +92,16 @@ class WaveletLoader(ABC):
             pose=pose.copy()
         
         if feature_types is None or "centroid_speed" in feature_types:
-            dt=self.dt[["frame_number", "x", "y"]].iloc[::framerate]
+            dt=self.dt[["frame_number", "x", "y"]]
+            dt=dt.loc[(dt["frame_number"]%framerate)==0]
             dt["diff_x"]=[0]+dt["x"].diff().values[1:].tolist()
             dt["diff_y"]=[0]+dt["y"].diff().values[1:].tolist()
             dt["centroid_speed"]=np.sqrt((dt["diff_x"]**2+dt["diff_y"]**2))
-            pose=pose.merge(dt[["frame_number", "centroid_speed"]], how="left", on="frame_number")
+            pose["frame_number_round"]=framerate*(pose["frame_number"]//framerate)
+            pose=pose.merge(dt[["frame_number", "centroid_speed"]].rename({"frame_number": "frame_number_round"}, axis=1), how="left", on="frame_number_round")
             pose.sort_values("frame_number", inplace=True)
             pose["centroid_speed"].ffill(inplace=True)
-
-
+            pose.drop("frame_number_round", axis=1)
 
         pose=self.annotate_pose(pose, deg)
         pose["frame_idx"]=pose["frame_number"]%chunksize

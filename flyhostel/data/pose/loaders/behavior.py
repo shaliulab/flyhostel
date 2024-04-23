@@ -8,7 +8,7 @@ logger=logging.getLogger(__name__)
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.utils import restore_cache, save_cache
-from flyhostel.data.pose.ethogram_utils import annotate_bout_duration, annotate_bouts
+from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
 from flyhostel.data.pose.distances import add_interdistance_features
 try:
     from motionmapperpy import setRunParameters
@@ -59,7 +59,11 @@ class BehaviorLoader():
 
         if os.path.exists(feather_path):
 
-            dt=pd.read_feather(feather_path)[["id", "frame_number", "behavior", "score"]]
+            dt=pd.read_feather(feather_path)
+            i=list(dt.columns).index("score")
+            behaviors=list(dt.columns[i+1:])
+            
+            dt=dt[["id", "frame_number", "behavior", "score"] + behaviors]
     
             if interpolate_frames>0:
                 dt_t_complete=[]
