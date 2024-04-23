@@ -177,33 +177,44 @@ def load_metadata_prop(prop, animal=None, dbfile=None):
     if dbfile is None:
         dbfile = get_sqlite_file(animal)
 
-    with sqlite3.connect(dbfile) as connection:
-        cursor = connection.cursor()
-        cursor.execute(f"SELECT value FROM METADATA WHERE field = '{prop}';")
-        prop = cursor.fetchone()[0]
-    return prop
+    try:
+        with sqlite3.connect(dbfile) as connection:
+            cursor = connection.cursor()
+            cursor.execute(f"SELECT value FROM METADATA WHERE field = '{prop}';")
+            prop = cursor.fetchone()[0]
+    except sqlite3.OperationalError as error:
+        logger.error("%s METADATA table cannot be read". dbfile)
+        raise error
+    else:
+        return prop
 
 def load_roi_width(dbfile):
-    with sqlite3.connect(dbfile) as conn:
-        cursor=conn.cursor()
+    try:
+        with sqlite3.connect(dbfile) as conn:
+            cursor=conn.cursor()
 
-        cursor.execute(
+            cursor.execute(
+                """
+            SELECT w FROM ROI_MAP;
             """
-        SELECT w FROM ROI_MAP;
-        """
-        )
-        [(roi_width,)] = cursor.fetchall()
-        cursor.execute(
+            )
+            [(roi_width,)] = cursor.fetchall()
+            cursor.execute(
+                """
+            SELECT h FROM ROI_MAP;
             """
-        SELECT h FROM ROI_MAP;
-        """
-        )
-        [(roi_height,)] = cursor.fetchall()
+            )
+            [(roi_height,)] = cursor.fetchall()
 
-    roi_width=int(roi_width)
-    roi_height=int(roi_height)
-    roi_width=max(roi_width, roi_height)
-    return roi_width
+        roi_width=int(roi_width)
+        roi_height=int(roi_height)
+        roi_width=max(roi_width, roi_height)
+    except sqlite3.OperationalError as error:
+        logger.error("%s ROI_MAP table cannot be read", dbfile)
+        raise error
+    
+    else:
+        return roi_width
 
 def parse_identity(id):
     return int(id.split("|")[1])
@@ -252,6 +263,9 @@ def get_local_identities_v2(dbfile, frame_numbers, identity_table=None):
         table = cursor.fetchall()
     
     table=pd.DataFrame.from_records(table, columns=["id", "chunk", "identity", "local_identity"])
+    table["local_identity"]=table["local_identity"].astype(np.int32)
+    table["identity"]=table["identity"].astype(np.int32)
+    
     table=table.loc[table["chunk"].isin(chunks)]
     table["frame_number"]=table["chunk"]*chunksize
 
