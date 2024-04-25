@@ -84,7 +84,6 @@ def load_one_animal(experiment, identity, feature_types, pose_key="pose", behavi
     loader = FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
     
     if cache is not None:
-        # path=os.path.join(cache, experiment + "__" + str(identity).zfill(2) + "_centroid_speed-distance-sp    eed-wavelets_classifier_data.pkl")
         path=os.path.join(cache, experiment + "__" + str(identity).zfill(2) + "_" + "-".join(sorted(feature_types)) + "_" + str(segregate) + "_classifier_data.pkl")
         ret, val=restore_cache(path)
         if ret:

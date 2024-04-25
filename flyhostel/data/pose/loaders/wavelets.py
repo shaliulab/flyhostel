@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import logging
 import os.path
-import hdf5storage
+import h5py
 import numpy as np
 
 import pandas as pd
@@ -36,7 +36,7 @@ class WaveletLoader(ABC):
         )
 
 
-    def load_wavelets(self, matfile=None):
+    def load_wavelets(self, matfile=None, frames=None):
         """
         Load pre-computed wavelet transform of pose
         """
@@ -53,15 +53,20 @@ class WaveletLoader(ABC):
             return None, (None, None)
 
         logger.debug("Loading %s", matfile)
-        data=hdf5storage.loadmat(matfile)
-        freq_names=[f.decode() for f in data["freq_names"]]
+        with h5py.File(matfile, "r") as data:
+        # data=hdf5storage.loadmat(matfile)
+            freq_names=[f.decode() for f in data["freq_names"][:]]
 
-        wavelets_single_animal=pd.DataFrame(data["wavelets"], columns=freq_names)
+            if frames is None:
+                wavelets_single_animal=pd.DataFrame(data["wavelets"][:], columns=freq_names)
+            else:
+                wavelets_single_animal=pd.DataFrame(data["wavelets"][frames, ...], columns=freq_names)
 
-        if previous_freq_names is None:
-            previous_freq_names=freq_names
-        assert all([a == b for a, b in zip(freq_names, previous_freq_names)])
-        frequencies=data["f"]
+
+            if previous_freq_names is None:
+                previous_freq_names=freq_names
+            assert all([a == b for a, b in zip(freq_names, previous_freq_names)])
+            frequencies=data["f"][:]
 
 
         wavelets_single_animal["id"]=self.ids[0]

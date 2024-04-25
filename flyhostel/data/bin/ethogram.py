@@ -43,5 +43,4 @@ def main():
     )
 
     return None
-
-draw_ethogram
+]

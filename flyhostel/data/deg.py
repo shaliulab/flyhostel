@@ -217,13 +217,13 @@ class DEGLoader:
 
             if not os.path.exists(labels_file):
                 if verbose:
-                    print(f"{labels_file} not found")
+                    logger.debug(f"{labels_file} not found")
                 pb.update(1)
                 continue
 
             labels=read_label_file(data_entry, labels_file, verbose=verbose)
             if labels is None:
-                print(f"{labels_file} cannot be read")
+                logger.debug(f"{labels_file} cannot be read")
                 pb.update(1)
                 continue
 
