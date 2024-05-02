@@ -276,7 +276,7 @@ class PoseLoader:
 
         assert len(frame_number) == reshaped_array.shape[3]
 
-        files=sorted(self.meta_pose[id]["files"])
+        files=sorted(self.meta_pose[id]["files"], key=lambda x: os.path.basename(x))
         
         key=f"{self.experiment}__{str(identity).zfill(2)}"
 
