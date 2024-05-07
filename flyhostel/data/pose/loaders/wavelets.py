@@ -11,16 +11,21 @@ from flyhostel.data.pose.constants import chunksize, framerate
 
 logger=logging.getLogger(__name__)
 
-class WaveletLoader(ABC):
+class WaveletLoader():
 
-    datasetnames=[]
-    identities=[]
-    identity=None
-    basedir=None
-    experiment=None
-    pose_boxcar=None
-    deg=None
-    dt=None
+
+
+    def __init__(self, *args, **kwargs):
+        self.datasetnames=[]
+        self.identities=[]
+        self.identity=None
+        self.basedir=None
+        self.experiment=None
+        self.pose_boxcar=None
+        self.deg=None
+        self.dt=None
+        self.wavelets=None
+        super(WaveletLoader, self).__init__(*args, **kwargs)
 
     @abstractmethod
     def annotate_pose(self, pose, behaviors):
@@ -58,8 +63,10 @@ class WaveletLoader(ABC):
             freq_names=[f.decode() for f in data["freq_names"][:]]
 
             if frames is None:
+                logger.debug("Loading wavelets in all frames")
                 wavelets_single_animal=pd.DataFrame(data["wavelets"][:], columns=freq_names)
             else:
+                logger.debug("Loading wavelets in %s frames", len(frames))
                 wavelets_single_animal=pd.DataFrame(data["wavelets"][frames, ...], columns=freq_names)
 
 

@@ -9,7 +9,7 @@ logger=logging.getLogger(__name__)
 COLORS={
     "walk": "red",
     "groom": "green",
-    "pe_inactive": "yellow",
+    "inactive+pe": "yellow",
     "pe_unknown": "yellow",
     "pe_hidden": "purple",
     "inactive": "purple",

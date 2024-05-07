@@ -95,7 +95,7 @@ class BehaviorLoader():
                     dt[["id", "frame_number", "behavior", "score"]], how="right", on=["id", "frame_number"]
                 )
                 
-                dt.loc[(dt["distance_head__proboscis"] < 0.01) & (dt["behavior"]=="pe_inactive"), "behavior"]="inactive"
+                dt.loc[(dt["distance_head__proboscis"] < 0.01) & (dt["behavior"]=="inactive+pe"), "behavior"]="inactive"
                 after=time.time()
                 logger.debug("Refining behavior took %s seconds", after-before)
 
