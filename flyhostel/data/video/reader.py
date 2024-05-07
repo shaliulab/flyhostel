@@ -32,7 +32,7 @@ class MP4Reader:
         ):
 
         """
-            consumer (str): Either flyhostel or yolov7. If in flyhostel consumer,
+            consumer (str): Either "flyhostel" or "yolov7". If in flyhostel consumer,
                frames are read and returned one frame number at a time,
                with a constant resolution
 
@@ -81,9 +81,13 @@ class MP4Reader:
         self.success=None
         self.roi_0_table=None
         self.identity_table=None
-        
-        self.load_data()
-        self.filter_data()
+
+        self._last_frame_indices=[]        
+        if self.connection is not None:
+            self.load_data()
+            self.filter_data()
+        else:
+            self._data=None
 
     def check_validation_tables(self):
         self._cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='IDENTITY_VAL';")
@@ -109,7 +113,6 @@ class MP4Reader:
 
         self._cur.execute(self.sqlite_query,(self._chunk,))
         self._data = pd.DataFrame(self._cur.fetchall())
-        self._last_frame_indices=[]
 
         if self._data.shape[0] == 0:
             self.success=False
@@ -341,11 +344,14 @@ class MP4Reader:
         arr = []
         for identifier in identifiers:
             identifier=identifier
-            centroid = self.get_centroid(frame_number, identifier=identifier)
-            if centroid is None:
-                img_=self._NULL.copy()
+            if self._data is None:
+                img_=img.copy()
             else:
-                img_=self.crop_image(img, centroid)
+                centroid = self.get_centroid(frame_number, identifier=identifier)
+                if centroid is None:
+                    img_=self._NULL.copy()
+                else:
+                    img_=self.crop_image(img, centroid)
             arr.append(img_)
             self._last_frame_indices.append(identifier)
 
