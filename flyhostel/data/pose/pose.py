@@ -92,14 +92,17 @@ class FilterPose(ABC):
                             self.filter_pose_by_time(pose=pose, min_time=min_time, max_time=max_time)
                             if stride!=1:
                                 pose=pose.iloc[::stride]
-                            return pose
+                            filters="rle-jump"                           
+                            return pose, filters
                         else:
                             pass
 
                 else:
                     ret, pose=restore_cache(cache_file)
                     if ret:
-                        return pose
+                        filters="rle-jump"
+
+                        return pose, filters
                     else:
                         logger.debug("Cannot find %s", cache_file)
 

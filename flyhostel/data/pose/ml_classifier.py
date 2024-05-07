@@ -35,18 +35,18 @@ def sample_informative_behaviors(pose_annotated_with_wavelets):
 
     # generate a dataset of wavelets and the ground truth for all behaviors
     ##########################################################################
-    pe_inactive=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="pe_inactive"]
+    inactive_pe=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="inactive+pe"]
     behaviors=np.unique(pose_annotated_with_wavelets["behavior"]).tolist()
-    for behav in ["unknown", "pe_inactive"]:
+    for behav in ["unknown", "inactive+pe"]:
         if behav in behaviors:
             behaviors.pop(behaviors.index(behav))
 
 
-    dfs=[pe_inactive]
+    dfs=[inactive_pe]
     for behav in behaviors:
         d=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]==behav].sample(frac=1).reset_index(drop=True)
         samples_available=d.shape[0]
-        if behav=="pe_inactive":
+        if behav=="inactive+pe":
             n_max=samples_available
         else:
             max_seconds=60

@@ -15,7 +15,6 @@ logger=logging.getLogger(__name__)
 CHUNK_SECONDS=30*60
 CHUNK_FRAMES=CHUNK_SECONDS*FRAMERATE
 
-
 try:
     import cupy as cp
 except:

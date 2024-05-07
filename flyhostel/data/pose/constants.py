@@ -73,7 +73,7 @@ interpolate_seconds["proboscis"]=0.5
 
 min_score={
     "head":0,"thorax":0,
-    "abdomen":0,"proboscis":0.6,
+    "abdomen":0,"proboscis":0.75,
     "lW":0.1,"rW":0.1,
     "fLL":0.6,"fRL":0.6,
     "mLL":0.75,"mRL":0.75,
@@ -98,5 +98,7 @@ DIST_MAX_MM=4
 SQUARE_HEIGHT=100
 SQUARE_WIDTH=100
 MIN_INTERACTION_DURATION=1 # seconds
-inactive_states=["inactive", "pe_inactive", "inactive+micromovement", "inactive+twitch", "background"]
-DEFAULT_FILTERS=["rle", "jump", "mean"]
+inactive_states=["inactive", "inactive+pe", "inactive+micromovement", "inactive+twitch", "background"]
+DEFAULT_FILTERS=["rle", "jump"]
+
+DEG_DATA=os.path.join(os.environ["DEEPETHOGRAM_PROJECT_PATH"], "DATA")

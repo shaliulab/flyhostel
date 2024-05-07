@@ -33,18 +33,18 @@ def sample_informative_behaviors(pose_annotated_with_wavelets):
 
     # generate a dataset of wavelets and the ground truth for all behaviors
     ##########################################################################
-    pe_inactive=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="pe_inactive"]
+    inactive_pe=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="inactive+pe"]
     behaviors=np.unique(pose_annotated_with_wavelets["behavior"]).tolist()
-    for behav in ["unknown", "pe_inactive"]:
+    for behav in ["unknown", "inactive+pe"]:
         if behav in behaviors:
             behaviors.pop(behaviors.index(behav))
 
 
-    dfs=[pe_inactive]
+    dfs=[inactive_pe]
     for behav in behaviors:
         d=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]==behav].sample(frac=1).reset_index(drop=True)
         samples_available=d.shape[0]
-        if behav=="pe_inactive":
+        if behav=="inactive+pe":
             n_max=samples_available
         else:
             max_seconds=60
@@ -160,7 +160,7 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
     all_labeled_datasets.reset_index().to_feather(os.path.join(output, f"{timestamp}_all_dataset.feather"))
 
     color_mapping = {
-        "pe_inactive": "yellow",
+        "inactive+pe": "yellow",
         "feed": "orange",
         "groom": "green",
         "inactive": "blue",
@@ -169,7 +169,7 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
 
     logger.debug("Generating visualization")
     fig=px.scatter(
-        training_set.loc[training_set["behavior"].isin(["pe_inactive", "feed", "groom", "inactive", "walk"])], x="C_1", y="C_2", color="behavior",
+        training_set.loc[training_set["behavior"].isin(["inactive+pe", "feed", "groom", "inactive", "walk"])], x="C_1", y="C_2", color="behavior",
         hover_data=["id", "chunk", "frame_idx", "frame_number", "behavior"],
         color_discrete_map=color_mapping,
     )
@@ -196,7 +196,7 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
 
 def generate_umap_dataset(pose_annotated, groupby="behavior", min_per_group=1000):
     
-    behavior_target_count="pe_inactive"
+    behavior_target_count="inactive+pe"
     target_count=(pose_annotated[groupby]==behavior_target_count).sum()
     target_count=max(min_per_group, target_count)
     logger.debug("Keeping %s points per %s", target_count, groupby)

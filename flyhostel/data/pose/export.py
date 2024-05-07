@@ -38,7 +38,6 @@ def make_link(analysis_file, directory, dry_run=False):
         return
 
     assert os.path.isdir(directory)
-    # videos/FlyHostel2/1X/2023-05-23_14-00-00/flyhostel/single_animal/000/000260.mp4.predictions.h5
     tokens = analysis_file.split(os.path.sep)
     flyhostel_id, number_of_animals, date_time, _, _, local_identity, filename = tokens[-7:]
     new_link = os.path.join(directory, f"{flyhostel_id}_{number_of_animals}_{date_time}_{local_identity}", filename)
