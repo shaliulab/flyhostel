@@ -138,7 +138,7 @@ def remove_bout_ends_from_dataset(dataset, n_points, fps):
     """
     dataset=annotate_bouts(dataset, variable="behavior")
     dataset=annotate_bout_duration(dataset, fps=fps)
-    short_behaviors=["pe_inactive"]
+    short_behaviors=["inactive+pe"]
     dataset.loc[((dataset["bout_in"] <= n_points) & (dataset["bout_out"] <= n_points)) | np.bitwise_not(dataset["behavior"].isin(short_behaviors)), "behavior"]="background"
     del dataset["bout_in"]
     del dataset["bout_out"]
@@ -154,6 +154,6 @@ def postprocessing(df, time_window_length):
 
     df.loc[(df["behavior"].isin(["groom"])) & (df["fluctuations"]>0), "behavior"]="background"
     df.loc[(df["behavior"].isin(["groom"])) & (df["duration"]<5), "behavior"]="background"
-    df.loc[(df["behavior"].isin(["pe_inactive"])) & (df["duration"]>3), "behavior"]="feed"
+    df.loc[(df["behavior"].isin(["inactive+pe"])) & (df["duration"]>3), "behavior"]="feed"
 
     return df

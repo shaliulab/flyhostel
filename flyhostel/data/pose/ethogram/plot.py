@@ -20,7 +20,7 @@ behaviors=[
     "inactive+microm",
     "inactive+micromovement",
     "inactive+twitch",
-    "pe_inactive",
+    "inactive+pe",
     "feed+inactive",
     "feed",
     "feed+groom",
@@ -34,7 +34,7 @@ behaviors=[
 # list of colors is taken from https://www.w3.org/TR/SVG11/types.html#ColorKeywords
 # in English
 PALETTE = {
-    "pe_inactive": "gold",
+    "inactive+pe": "gold",
     "feed": "orange",
     "groom": "green",
     "inactive": "blue",

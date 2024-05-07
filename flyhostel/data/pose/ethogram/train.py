@@ -1,46 +1,75 @@
-import glob
-import yaml
+import shutil
 import os.path
-import datetime
+import traceback
 import itertools
 import logging
-import h5py
 import pickle
-import joblib
 
-logger=logging.getLogger(__name__)
+from textwrap import wrap
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import plotly.express as px
-import sklearn
+import yaml
+
+from xgboost import XGBClassifier
+from interpret.glassbox import ExplainableBoostingClassifier
 from sklearn.ensemble import RandomForestClassifier
 
-pd.set_option("display.max_rows", 1200)
-from motionmapperpy.motionmapper import setRunParameters, generate_frequencies
+MODELS={"RandomForestClassifier": RandomForestClassifier, "XGBClassifier": XGBClassifier, "ExplainableBoostingClassifier": ExplainableBoostingClassifier}
 
-from flyhostel.data.pose.constants import chunksize, framerate, bodyparts_xy, bodyparts
-from sklearn.metrics import ConfusionMatrixDisplay
-from flyhostel.data.pose.distances import compute_distance_features_pairs
+from sklearn.metrics import ConfusionMatrixDisplay, balanced_accuracy_score, top_k_accuracy_score, accuracy_score
 from sklearn.utils.class_weight import compute_class_weight
-from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
 from sklearn.preprocessing import StandardScaler
 
-from flyhostel.data.pose.ethogram.loader import load_animals
+from motionmapperpy.motionmapper import setRunParameters, generate_frequencies
+from flyhostel.data.pose.constants import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import bodyparts_xy as BODYPARTS_XY
+
+from flyhostel.data.pose.constants import DEFAULT_FILTERS
+DEFAULT_FILTERS="-".join(DEFAULT_FILTERS)
+
+from flyhostel.data.pose.ethogram.loader import load_animals, DISTANCE_FEATURES_PAIRS, document_provenance
+
+PARAMS=setRunParameters()
+wavelet_downsample=PARAMS.wavelet_downsample
 
 
-filters="rle-jump"
-params=setRunParameters()
-wavelet_downsample=params.wavelet_downsample
-freqs=np.round(generate_frequencies(params.minF, params.maxF, params.numPeriods), 4)
-freq_names=[f"{e0}_{e1}" for e0, e1 in itertools.product(bodyparts_xy, freqs) if not e0.startswith("thorax") and not e0.startswith("head")]
+def get_frequencies(params):
+    return np.round(generate_frequencies(params.minF, params.maxF, params.numPeriods), 4)
 
-features=freq_names + ["head_proboscis_distance"]
 
-def train(train_set_animals, test_set_animals, norm=True, output_folder=".", label="label", n_jobs_load=1, n_jobs_model=1, **kwargs):
-    """
-    Train a RandomForest classifier to predict a behavior using the WT features and the head-proboscis distance
+def get_frequencies_bps(params=PARAMS, freqs=None, bodyparts_xy=BODYPARTS_XY):
+    if freqs is None:
+        freqs=get_frequencies(params)
+
+    freq_names=[f"{e0}_{e1}" for e0, e1 in itertools.product(bodyparts_xy, freqs) if not e0.startswith("thorax") and not e0.startswith("head")]
+    return freq_names
+
+
+def get_features(freqs=None, bodyparts_xy=BODYPARTS_XY, distance_features_pairs=DISTANCE_FEATURES_PAIRS):
+    freq_names=get_frequencies_bps(freqs=freqs, bodyparts_xy=bodyparts_xy)
+    features=freq_names + [f"{p0}_{p1}_distance" for p0, p1 in distance_features_pairs]
+    return features
+
+logger=logging.getLogger(__name__)
+
+
+
+def get_sample_weights(y):
+    # Compute class weights
+    classes=np.unique(y)
+    class_weights = compute_class_weight(class_weight='balanced', classes=classes, y=y)
+    weight_dict = {classes[i]: class_weights[i] for i in range(len(class_weights))}
+    sample_weights = np.array([weight_dict[cls] for cls in y])
+    return sample_weights
+
+
+def train(
+        train_set_animals, test_set_animals, norm=True, output_folder=".", label="label", n_jobs_load=1, model_arch="RandomForestClassifier",
+        eval_params={}, cache=None, refresh_cache=True, on_fail="raise", **kwargs):
+    f"""
+    Train a multiclass classifier to predict a behavior using the WT features and the head-proboscis distance
 
     Arguments:
        train_set_animals (list): Animals in experiment__identity format used for training
@@ -49,29 +78,82 @@ def train(train_set_animals, test_set_animals, norm=True, output_folder=".", lab
        output_folder (str): Where to save outputs
        label (str): If behavior, the original behavior is the target, if label, several behaviors are grouped into micromovement
        n_jobs_load (int): How many animals can be loaded in parallel?
-       n_jobs_model (int): How many jobs can the model use for predictions?
+       model_arch (str): One of the models in {MODELS}. The model objects must implement fit(X, y), predict_proba(X) and the attribute classes_
+
+       eval_params (dict): Parameters used to evaluate the efficiency of this routine (not used in the final run)
+           * downsample_train (int): How many times less data should be used in the train set. 1 means all, 2 means half and so on
+           * downsample_test (int): How many times less data should be used in the test set. 1 means all, 2 means half and so on
+           * distance_features_pairs (list): List of body part pairs whose distance in every frame will be used as feature for the model
+           * bodyparts (list): Bodyparts whose wavelets will be used
+           * freqs (list): Frequencies whose wavelet will be used
+       
        **kwargs: extra arguments to the model
 
     Returns:
        Saves to output folder
-           1. test_confusion_matrix.png
+            1. test_confusion_matrix.png
                visualization of the specificity and sensitivity of the model in the test set
-           2. test_predictions.feather
+            2. test_predictions.feather
                test set data annotated by the model
-           3. random_forest.pkl
-                contains the tuple (model, scaler, features) 
+            3. model.pkl
+                contains the tuple (model, scaler, features)
+            4. split.yaml
+                the train-test split used during this training run
+            5. metrics.yaml
+                some of the metrics mentioned here https://scikit-learn.org/stable/modules/classes.html#module-sklearn.metrics
+                achieved by the model on the test set
     """
-    train_data=load_animals(train_set_animals, n_jobs=n_jobs_load)
-    test_data=load_animals(test_set_animals, n_jobs=n_jobs_load)
+
+    if model_arch not in MODELS:
+        raise ValueError(f"Please pass a model arch which is one of {MODELS.keys()}")
+
+
+    os.makedirs(output_folder)
+    shutil.copyfile("split.yaml", os.path.join(output_folder, "split.yaml"))
+
+    provenance=document_provenance()
+    eval_params["downsample_train"]=eval_params.get("downsample_train", 1)
+    eval_params["downsample_test"]=eval_params.get("downsample_test", 1)
+    eval_params["bodyparts"]=eval_params.get("bodyparts", BODYPARTS)
+    eval_params["freqs"]=eval_params.get("freqs", [None])
+    eval_params["distance_features_pairs"]=eval_params.get("distance_features_pairs", DISTANCE_FEATURES_PAIRS)
+    bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in eval_params["bodyparts"]]))
+    provenance.update(eval_params)
+
+    provenance["freqs"]=[float(np.round(freq, 4)) for freq in provenance["freqs"]]
+
+    with open(os.path.join(output_folder, "provenance.yaml"), "w") as handle:
+        yaml.safe_dump(provenance, handle)
+
+    features=get_features(
+        freqs=eval_params["freqs"],
+        bodyparts_xy=bodyparts_xy,
+        distance_features_pairs=eval_params["distance_features_pairs"],
+    )
+
+
+    train_data=load_animals(train_set_animals, load_deg_data=True, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
+    test_data=load_animals(test_set_animals, load_deg_data=True, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
+
+    train_data=downsample_dataset(train_data, eval_params["downsample_train"])
+    test_data=downsample_dataset(test_data, eval_params["downsample_test"])
+
 
     # check all behaviors in the training set are also present in the test set
     trained_behaviors=train_data[label].unique()
     for behavior in test_data[label].unique():
         assert behavior in trained_behaviors, f"{behavior} is present in test but not train set"
         
+
     # check all frequencies have been computed and present in the train data
     missing_freqs=[feat for feat in features if not feat in train_data.columns]
-    assert len(missing_freqs)==0, f"Some of the frequencies produced by LTA are not present in the data ({missing_freqs})"
+    
+    if len(missing_freqs)>0:
+        logger.warning("Some of the frequencies produced by LTA are not present in the data")
+        import ipdb; ipdb.set_trace()
+        logger.warning("Missing frequencies %s", missing_freqs)
+        logger.warning("Available frequecies: %s", train_data.columns)
+        
 
     # Downsample so that least abundant classes are not so underrepresented
     n_samples_inactive_pe=train_data.loc[train_data["behavior"]=="inactive+pe"].shape[0]
@@ -81,11 +163,6 @@ def train(train_set_animals, test_set_animals, norm=True, output_folder=".", lab
     y_train=train_data_downsampled[label].values
 
     # Compute class weights
-    classes=np.unique(y_train)
-    class_weights = compute_class_weight(class_weight='balanced', classes=classes, y=y_train)
-    weight_dict = {classes[i]: class_weights[i] for i in range(len(class_weights))}
-    sample_weights = np.array([weight_dict[cls] for cls in y_train])
-
     x_train=train_data_downsampled[features].values
 
     # check there is no missing data
@@ -96,10 +173,17 @@ def train(train_set_animals, test_set_animals, norm=True, output_folder=".", lab
         z_train=scaler.fit_transform(x_train)
     else:
         z_train=x_train
+        scaler.mean_ = np.zeros(x_train.shape[1])  # Zeros mean
+        scaler.scale_ = np.ones(x_train.shape[1])  # Ones scale
+
 
     # train
-    model=RandomForestClassifier(n_jobs=n_jobs_model, **kwargs)
+    model=MODELS[model_arch](**kwargs)
+    logger.info("Training %s on dataset of size %s", model, z_train.shape)
+    sample_weights=get_sample_weights(y_train)
     model.fit(z_train, y_train, sample_weight=sample_weights)
+    with open(os.path.join(output_folder, f"{model_arch}.pkl"), "wb") as handle:
+        pickle.dump((model, features, scaler), handle)
 
     x_test=test_data[features].values
     z_test=scaler.transform(x_test)
@@ -129,12 +213,82 @@ def train(train_set_animals, test_set_animals, norm=True, output_folder=".", lab
     preds.index=index
 
     ground_truth=preds[label].values
-    ConfusionMatrixDisplay.from_predictions(y_true=ground_truth, y_pred=predictions, normalize="true", xticks_rotation=45)
+    disp=ConfusionMatrixDisplay.from_predictions(y_true=ground_truth, y_pred=predictions, normalize="true", xticks_rotation=45)
+    np.savetxt(
+        os.path.join(output_folder, "test_confusion_matrix.csv"),
+        disp.confusion_matrix, delimiter=",", fmt="%.4e"
+    )
+
+    title=[]
+    for k, v in eval_params.items():
+        if k == "freqs":
+            v=", ".join([str(e) for e in v])
+        
+        title.append(f"{k}: {v}")
+    title="\n".join(title)
+    
+    # Create a larger figure to accommodate the long title
+    fig, ax = plt.subplots(figsize=(10, 8))  # Adjust the figure size as needed
+    # Display the confusion matrix
+    disp.plot(ax=ax)
+    # Set a long title and wrap it
+    plt.title("\n".join(wrap(title, 60)))  # Wrap text after 60 characters
+    # Adjust layout
+    plt.tight_layout()
     plt.savefig(os.path.join(output_folder, "test_confusion_matrix.png"))
     preds.reset_index().to_feather(os.path.join(output_folder, "test_predictions.feather"))
-    with open(os.path.join(output_folder, "random_forest.pkl"), "wb") as handle:
-        pickle.dump((model, features, scaler), handle)
-        
+
+    y_true=preds[label].values
+    y_pred=preds["prediction"].values
+    columns=[f"{behavior}_prob" for behavior in np.unique(y_true)]
+    y_score=preds[columns].values
+    sample_weights=get_sample_weights(y_true)
+    
+    try:
+        metrics = {
+            "accuracy_score": accuracy_score                         (y_true=y_true, y_pred=y_pred),
+            "balanced_accuracy_score": balanced_accuracy_score       (y_true=y_true, y_pred=y_pred, sample_weight=sample_weights),
+            "balanced_accuracy_score_adj": balanced_accuracy_score   (y_true=y_true, y_pred=y_pred, sample_weight=sample_weights, adjusted=True),
+            "top_2_accuracy_score": top_k_accuracy_score             (y_true=y_true, y_score=y_score, sample_weight=sample_weights, k=2),
+            "top_3_accuracy_score": top_k_accuracy_score             (y_true=y_true, y_score=y_score, sample_weight=sample_weights, k=3),
+        }
+    except Exception as error:
+        print(error)
+        print(traceback.print_exc())
+        import ipdb; ipdb.set_trace()
+    metrics={
+        k: str(np.round(v, 2)) for k, v in metrics.items()
+    }
+
+    with open(os.path.join(output_folder, "metrics.yaml"), "w") as handle:
+        yaml.safe_dump(metrics, handle)
+
+
+def downsample_dataset(data, downsample):
+    """
+    Keeps 1/downsample of the chunk-ids
+
+    Removes at random some of the rows in the dataset,
+    in blocks of data from the same chunk and animal.
+    The probability of keeping a block is 1/downsample
+    So if downsample=1, all data is kept (p=1) and the higher downsample,
+    the lower the p
+    """
+    
+    p_keep = 1 / downsample
+
+    data["chunk_lid"]=data["chunk"]+data["local_identity"]
+    chunk_lids=data["chunk_lid"].drop_duplicates().values.tolist()
+    kept=[]
+
+    for chunk_lid in chunk_lids:
+        if np.random.uniform(0, 1) < p_keep:
+            kept.append(chunk_lid)
+
+    data=data.loc[data["chunk_lid"].isin(kept)]
+    return data
+
+
 
 def load_train_test_split():
     with open("split.yaml", "r") as handle:

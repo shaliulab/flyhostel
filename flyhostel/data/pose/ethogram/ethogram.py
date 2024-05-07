@@ -4,19 +4,17 @@ import logging
 import os.path
 import pickle
 
+from scipy.stats import rankdata
 import pandas as pd
 import h5py
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
 from tqdm.auto import tqdm
-from flyhostel.data.pose.constants import get_bodyparts
 
 from flyhostel.data.pose.main import FlyHostelLoader
+from flyhostel.data.pose.ethogram.loader import process_animal
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
 from flyhostel.data.pose.constants import chunksize, framerate, inactive_states
-from flyhostel.data.pose.distances import add_interdistance_features, add_speed_features
 from flyhostel.data.pose.ml_classifier import load_one_animal
-PURE_BEHAVIORS=[]
 
 logger=logging.getLogger(__name__)
 try:
@@ -34,9 +32,8 @@ DEEPETHOGRAM_PROJECT_PATH=os.environ["DEEPETHOGRAM_PROJECT_PATH"]
 FLYHOSTEL_VIDEOS=os.environ["FLYHOSTEL_VIDEOS"]
 
 from motionmapperpy import setRunParameters
-STRIDE=setRunParameters().wavelet_downsample
+wavelet_downsample=setRunParameters().wavelet_downsample
 
-RECOMPUTE=True
 
 def get_bout_length_percentile_from_project(project_path, percentile=1):
     records = projects.get_records_from_datadir(os.path.join(project_path, "DATA"))
@@ -97,10 +94,10 @@ def enforce_behavioral_context(dataset, modify, context, replacement, seconds=5,
     """
     Makes sure the behavior surrounding another behavior for n seconds is fixed to the behaviors provided in context
 
-    This is useful to for example, correct spurious bouts of pe_inactive which are not surrounded by pe_inactive
+    This is useful to for example, correct spurious bouts of inactive+pe which are not surrounded by inactive+pe
     (although the animal might correctly be presumed to be inactive _during_ the bout)
 
-    dataset=enforce_behavioral_context(dataset, modify="pe_inactive", context=["inactive"], replacement="pe", seconds=5, framerate=1)
+    dataset=enforce_behavioral_context(dataset, modify="inactive+pe", context=["inactive"], replacement="pe", seconds=5, framerate=1)
     """
     
     n = int(seconds * framerate) # Number of rows to consider before first and after last 'foo'
@@ -198,71 +195,11 @@ def load_dataset(experiment, identity, wavelets=None, cache="/flyhostel_data/cac
     )
     return dataset, (frequencies, freq_names, features)
 
-def downgrade_features(dataset, features):
-    """
-    Makes a new dataset compatible with a new model
-    """
-
-    if any(c.startswith("foreLeft_Leg") for c in dataset.columns):
-        out=[]
-        for feat in features:
-            feat=feat.replace(
-                "fLL", "foreLeft_Leg"
-            ).replace(
-                "mLL", "midLeftLeg",
-            ).replace(
-                "rLL", "rearLeftLeg",
-            ).replace(
-                "fRL", "foreRightLeg",
-            ).replace(
-                "rRL", "midRightLeg",
-            ).replace(
-                "rRL", "rearRightLeg",
-            ).replace(
-                "lW", "leftWing",
-            ).replace(
-                "rW", "rightWing",
-            )
-            out.append(feat)
-
-    else:
-        out=features
-    
-    return out
-
-
-def upgrade_features(features):
-
-    out=[]
-    for feat in features:
-        feat=feat.replace(
-            "foreLeft_Leg", "fLL"
-        ).replace(
-             "midLeftLeg", "mLL"
-        ).replace(
-            "rearLeftLeg", "rLL"
-        ).replace(
-             "foreRightLeg", "fRL"
-        ).replace(
-            "midRightLeg", "rRL"
-        ).replace(
-            "rearRightLeg", "rRL"
-        ).replace(
-            "leftWing", "lW"
-        ).replace(
-            "rightWing", "rW",
-        )
-        out.append(feat)
-
-
-    return out
 
 
 def make_ethogram(
-        experiment, identity, model_path, input=None, output="./",
-        cache="/flyhostel_data/cache", frame_numbers=None, postprocess=True,
-        t0=None,
-        train=RECOMPUTE,
+        experiment, identity, model_path, output="./",
+        frame_numbers=None, postprocess=True,
         correct_by_all_inactive=False,
         **kwargs):
     """
@@ -276,7 +213,9 @@ def make_ethogram(
     """
 
 
-    dataset, (frequencies, freq_names, features)=load_dataset(experiment=experiment, identity=identity, cache=cache, **kwargs)
+    # dataset, (frequencies, freq_names, features)=load_dataset(experiment=experiment, identity=identity, cache=cache, **kwargs)
+    loader=FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
+    dataset=process_animal(loader=loader, **kwargs, load_deg_data=False).reset_index()
 
     logger.debug("Read dataset of shape %s", dataset.shape)
     dataset["chunk"]=dataset["frame_number"]//chunksize
@@ -287,30 +226,22 @@ def make_ethogram(
             dataset["frame_number"].isin(frame_numbers)
         ]
 
-    if train:
-        classifier=RandomForestClassifier(n_estimators=100, random_state=42)
-        X_train=dataset[features].values
-        y_train=dataset["behavior"].values
-        classifier.fit(X_train, y_train)
 
-    else:
-        with open(model_path, "rb") as handle:
-            classifier, features=pickle.load(handle)
-    
-        if os.path.basename(model_path)=="2024-01-15_07-30-25_rf.pkl":
-            features=upgrade_features(features)
+    with open(model_path, "rb") as handle:
+        classifier, features, scaler=pickle.load(handle)
 
     behaviors=classifier.classes_
     logger.debug("Predicting behavior of %s rows", dataset.shape[0])
     before=time.time()
     values=dataset[features].values
-    probabilities=classifier.predict_proba(values)
+    z_values=scaler.transform(values)
+    probabilities=classifier.predict_proba(z_values)
     after=time.time()
     logger.debug(
         "Done in %s seconds (%s points/s or %s recording seconds / s)",
         round(after-before, 2),
         round(dataset.shape[0]/(after-before)),
-        round((dataset.shape[0]/(framerate/STRIDE))/(after-before))
+        round((dataset.shape[0]/(framerate/wavelet_downsample))/(after-before))
     )
 
     dataset["behavior"]=behaviors[probabilities.argmax(axis=1)]
@@ -324,35 +255,10 @@ def make_ethogram(
     output_cols=["id", "frame_number", "t", "behavior_raw","behavior", "score", "fluctuations"] + behaviors.tolist()
 
     if postprocess:
-
         logger.debug("Postprocessing predictions")
-        unique_behaviors=dataset["behavior"].unique().tolist()
-        if "background" in unique_behaviors:
-            unique_behaviors.pop(unique_behaviors.index("background"))
-        unique_behaviors=["background"] + unique_behaviors
-        predictions=one_hot_encoding(dataset["behavior"], unique_behaviors)
-
-        bout_length_dict=get_bout_length_percentile_from_project(DEEPETHOGRAM_PROJECT_PATH, percentile=1)
-        bout_length_dict["pe_inactive"]=1
-        bout_length_dict["inactive"]=6
-        logger.debug("Bout length cutoff %s", bout_length_dict)
+        dataset=postprocess_behaviors(dataset)
+    
         
-        bout_lengths=[int(bout_length_dict.get(behav, 1)) for behav in unique_behaviors]
-        predictions_smoothed = []
-        T, K = predictions.shape
-        for i in range(K):
-            trace = predictions[:, i]
-            trace = remove_short_bouts_from_trace(trace, bout_lengths[i])
-            predictions_smoothed.append(trace)
-        predictions = np.stack(predictions_smoothed, axis=1)
-
-        predictions = compute_background(predictions)
-
-        rows,cols=np.where(predictions==1)
-        prediction=[unique_behaviors[i] for i in cols]
-        prediction=join_strings_by_repeated_integers(rows, prediction, joiner="+")
-        dataset["behavior"]=prediction
-
     if correct_by_all_inactive:
 
         dataset["all_inactive"]=np.stack([dataset[col].values for col in inactive_states], axis=1).sum(axis=1)
@@ -366,10 +272,10 @@ def make_ethogram(
 
 
     dataset=annotate_bouts(dataset, "behavior")
-    dataset=annotate_bout_duration(dataset, fps=framerate/STRIDE)
+    dataset=annotate_bout_duration(dataset, fps=framerate/wavelet_downsample)
 
     feather_out=os.path.join(output, "dataset.feather")
-    feather_input=os.path.join(output, "input.feather")
+    # feather_input=os.path.join(output, "input.feather")
 
     logger.info("Saving to ---> %s", feather_out)
     final_cols=[]
@@ -383,36 +289,115 @@ def make_ethogram(
     dataset["frame_idx"]=dataset["frame_number"]%chunksize
 
     dataset[final_cols].reset_index(drop=True).to_feather(feather_out)
-    dataset[["frame_number", "chunk", "frame_idx"] + features].reset_index(drop=True).to_feather(feather_input)
+    # dataset[["frame_number", "chunk", "frame_idx"] + features].reset_index(drop=True).to_feather(feather_input)
+    save_deg_prediction_file(experiment, dataset)
 
-    save_deg_prediction_file(dataset, PURE_BEHAVIORS)
+def postprocess_behaviors(dataset, percentile=1):
+    """
+    Remove short bouts of behaviors and join simultanous behaviors
+    
+    A short bout of behavior is a bout shorter than the _percentile_ percentile bout length
+    in the DEG database
+    """
+    
+    unique_behaviors=dataset["behavior"].unique().tolist()
+    if "background" in unique_behaviors:
+        unique_behaviors.pop(unique_behaviors.index("background"))
+    unique_behaviors=["background"] + unique_behaviors
+    predictions=one_hot_encoding(dataset["behavior"], unique_behaviors)
+
+    bout_length_dict=get_bout_length_percentile_from_project(DEEPETHOGRAM_PROJECT_PATH, percentile=percentile)
+    logger.debug("Bout length cutoff %s", bout_length_dict)
+    
+    bout_lengths=[int(bout_length_dict.get(behav, 1)) for behav in unique_behaviors]
+    predictions_smoothed = []
+    T, K = predictions.shape
+    for i in range(K):
+        trace = predictions[:, i]
+        trace = remove_short_bouts_from_trace(trace, bout_lengths[i])
+        predictions_smoothed.append(trace)
+
+    predictions = np.stack(predictions_smoothed, axis=1)
+    predictions = compute_background(predictions)
+    rows,cols=np.where(predictions==1)
+    prediction=[unique_behaviors[i] for i in cols]
+    prediction=join_strings_by_repeated_integers(rows, prediction, joiner="+")
+    dataset["behavior"]=prediction
+    return dataset
 
 
-def save_deg_prediction_file(dataset, behaviors):
+def save_deg_prediction_file(experiment, dataset, group_name="flyhostel"):
     """
     Save the prediction in the same format as Deepethogram, so that it can be rendered in the GUI
     """
     
-    chunk_ids=dataset[["chunk", "local_identity"]].drop_duplicates().sort_values("chunk").values.tolist()
-    experiment=dataset["experiment"].iloc[0]
+    chunk_lids=dataset[["chunk", "local_identity"]].drop_duplicates().sort_values("chunk").values.tolist()
+    
+    for chunk, local_identity in tqdm(chunk_lids, desc="Saving prediction files"):
 
-    for chunk, local_identity in chunk_ids:
+        # video_file=os.path.join(
+        #     basedir, "flyhostel", "single_animal",
+        #     str(local_identity).zfill(3), str(chunk).zfill(3) + ".mp4"
+        # )
         output_folder=f"{experiment}_{str(chunk).zfill(6)}_{str(local_identity).zfill(3)}"
-        filename=f"{str(chunk).zfill(6)}_ouputs.h5"
+        filename=f"{str(chunk).zfill(6)}_outputs.h5"
         os.makedirs(output_folder, exist_ok=True)
         output_path=os.path.join(output_folder, filename)
 
-        P=dataset[behaviors].loc[(dataset["chunk"]==chunk) & (dataset["local_identity"]==local_identity)].values
-        assert P.shape[0] == chunksize
-        logger.debug("Writing %s", output_path)
+        dataset, behaviors=reverse_behaviors(dataset)
 
-        with h5py.File(filename, "w") as f:
-            group=f.create_group("flyhostel")
-            P_d=group.create_dataset("P", dtype=np.float32)
+        P=dataset[behaviors].loc[(dataset["chunk"]==chunk) & (dataset["local_identity"]==local_identity)].values
+        P = np.repeat(P, wavelet_downsample, axis=0)
+        assert P.shape[0] == chunksize
+        # P = np.apply_along_axis(rankdata, 1, P, 'average')/(P.shape[1])
+        # P[P < 0.7]=0 # because top 3 are usually correct
+
+        logger.debug("Writing %s", output_path)
+        with h5py.File(output_path, "w") as f:
+            group=f.create_group(group_name)
+            P_d=group.create_dataset("P", P.shape, dtype=np.float32)
             P_d[:]=P
 
-            class_names=group.create_dataset("class_names", (len(behaviors), ), dtype="|S12")
-            class_names[:]=np.array([e.encode() for e in behaviors])
+            class_names=group.create_dataset("class_names", (len(behaviors), ), dtype="|S24")
+            class_names[:]=[e.encode() for e in behaviors]
 
             thresholds=group.create_dataset("thresholds", (len(behaviors), ), dtype=np.float32)
             thresholds[:]=np.array([1, ] * len(behaviors))
+
+
+def reverse_behaviors(dataset):
+
+    for behavior in ["inactive", "pe"]:
+        if behavior not in dataset.columns:
+            dataset[behavior]=0
+        dataset.loc[
+            dataset["behavior"]=="inactive+pe",
+            behavior
+        ]=dataset.loc[
+            dataset["behavior"]=="inactive+pe",
+            "inactive+pe"
+        ]
+
+    for behavior in ["inactive", "twitch", "turn", "micromovement"]:
+        if behavior not in dataset.columns:
+            dataset[behavior]=0
+
+        dataset.loc[
+            dataset["behavior"]=="micromovement",
+            behavior
+        ]=dataset.loc[
+            dataset["behavior"]=="micromovement",
+            "micromovement"
+        ]
+    
+    for behavior in ["interactor", "interactee", "touch", "rejection"]:
+        if behavior not in dataset.columns:
+            dataset[behavior]=0
+    
+    behaviors=["background", "walk", "groom", "feed", "pe", "inactive", "micromovement", "twitch", "turn", "rejection", "touch", "interactor", "interactee"]
+
+    assert np.isnan(dataset[behaviors].values).sum()==0
+
+
+    return dataset, behaviors
+

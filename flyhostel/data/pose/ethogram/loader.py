@@ -1,39 +1,56 @@
-import glob
 import os.path
-import datetime
 import itertools
 import logging
 import h5py
-import pickle
 import joblib
+import git
 
 logger=logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import plotly.express as px
-from sklearn.ensemble import RandomForestClassifier
+from flyhostel.data.pose.constants import DEG_DATA
 
-pd.set_option("display.max_rows", 1200)
-from flyhostel.data.pose.constants import get_bodyparts, chunksize, framerate, inactive_states, bodyparts, bodyparts_xy
+from flyhostel.data.pose.constants import chunksize, bodyparts_xy
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.main import FlyHostelLoader
 from motionmapperpy import setRunParameters
 
-from sklearn.metrics import ConfusionMatrixDisplay
 from flyhostel.data.pose.distances import compute_distance_features_pairs
-from sklearn.utils.class_weight import compute_class_weight
 from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
-from sklearn.preprocessing import StandardScaler
-
 
 wavelet_downsample=setRunParameters().wavelet_downsample
-filters="rle-jump"
+DEFAULT_FILTERS="rle-jump"
+DISTANCE_FEATURES_PAIRS=[("head", "proboscis"),]
+
+idx_cols=["id", "local_identity", "frame_number"]
 
 
+def get_dataset_version():
+    repo = git.Repo(os.path.join(DEG_DATA, ".."))
+    hexhash=repo.head.object.hexsha
+    return hexhash
 
-def compute_distance(pose, bodyparts_xy, time_window_length=1, framerate=30, FUN="sum"):
+
+def get_pose_model_version():
+    config_file="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/pose_estimation/nextflow.config"
+    with open(config_file, "r") as handle:
+        config=handle.readlines()
+    model_name=[line for line in config if "sleap_model" in line][-1].strip("\n").split("/models/")[-1].rstrip('"')
+    return model_name
+
+def document_provenance():
+
+    model_name=get_pose_model_version()
+    deg_data_version=get_dataset_version()
+
+    return {
+        "SLEAP_model_name": model_name,
+        "DEG_data_version": deg_data_version, 
+    }
+
+
+def compute_distance(pose, bodyparts_xy, time_window_length=1, framerate=FRAMERATE//wavelet_downsample, FUN="sum"):
     
     k=int(time_window_length*framerate)
     
@@ -60,11 +77,15 @@ def compute_distance(pose, bodyparts_xy, time_window_length=1, framerate=30, FUN
 def load_deg(loader):
     loader.deg=None
     loader.load_deg_data(verbose=False)
+    if loader.deg is None:
+        logger.warning("%s does not have DEG data", loader)
+        return
     loader.deg.loc[loader.deg["behavior"]=="groom+micromovement", "behavior"]="groom"
     loader.deg.loc[loader.deg["behavior"]=="feed+walk", "behavior"]="feed"
     loader.deg.loc[loader.deg["behavior"]=="feed+groom", "behavior"]="groom"
     loader.deg.loc[loader.deg["behavior"]=="feed+micromovement", "behavior"]="feed"
     loader.deg.loc[loader.deg["behavior"]=="pe", "behavior"]="feed"
+    loader.deg.loc[loader.deg["behavior"]=="pe+walk", "behavior"]="feed"
     loader.deg.loc[loader.deg["behavior"]=="groom+pe", "behavior"]="groom"
     loader.deg.loc[loader.deg["behavior"]=="inactive+turn+twitch", "behavior"]="inactive+turn"
     loader.deg.loc[loader.deg["behavior"]=="twitch", "behavior"]="background"
@@ -76,17 +97,29 @@ def load_deg(loader):
     loader.deg.loc[loader.deg["behavior"]=='turn+twitch', "behavior"]="background"
     loader.deg.loc[loader.deg["behavior"]=='inactive+micromovement+pe', "behavior"]="inactive+pe"
     loader.deg.loc[loader.deg["behavior"]=='feed+inactive', "behavior"]="feed"
+    loader.deg.loc[loader.deg["behavior"]=='feed+inactive+turn', "behavior"]="feed"
+    loader.deg.loc[loader.deg["behavior"]=='feed+inactive+turn+twitch', "behavior"]="feed"
+    loader.deg.loc[loader.deg["behavior"]=='feed+inactive+twitch', "behavior"]="feed"
+    loader.deg.loc[loader.deg["behavior"]=="feed+inactive+micromovement+twitch", "behavior"]="feed"
+    loader.deg.loc[loader.deg["behavior"]=="feed+inactive+micromovement", "behavior"]="feed"
     loader.deg.loc[loader.deg["behavior"]=='inactive+micromovement+twitch', "behavior"]="inactive+twitch"
+    loader.deg.loc[loader.deg["behavior"]=='feed+twitch', "behavior"]="feed"
     loader.deg.loc[loader.deg["behavior"]=='inactive+micromovement+turn', "behavior"]="inactive+turn"
     loader.deg.loc[loader.deg["behavior"]=='inactive+micromovement+turn+twitch', "behavior"]="inactive+turn"
-    
+    loader.deg.loc[loader.deg["behavior"]=='micromovement+twitch', "behavior"]="background"
 
     loader.deg.sort_values("frame_number", inplace=True)
     loader.deg=annotate_bouts(loader.deg, variable="behavior")
     loader.deg=annotate_bout_duration(loader.deg, fps=150)
-    loader.deg["t"]=loader.deg["frame_number"]/150
     loader.deg["score"]=None
-    assert loader.deg is not None
+    loader.deg=annotate_bouts(loader.deg, variable="behavior")
+    loader.deg=annotate_bout_duration(loader.deg, fps=30)
+    loader.deg["label"]=loader.deg["behavior"]
+    loader.deg.loc[
+        loader.deg["behavior"].isin(["inactive+micromovement", "inactive+turn", "inactive+twitch"]),
+        "label"
+    ]="micromovement"
+
     
     
 def load_scores(loader):
@@ -99,35 +132,63 @@ def load_scores(loader):
     loader.scores=scores
 
 
-def load_pose(loader, chunksize, frame_numbers=None, load_distance_travelled_features=False, load_inter_bp_distance_features=True, downsample=1, filters="rle-jump"):
+def compute_proboscis_visibility_timing(pose):
+    """
+    Annotate for how long has the proboscis been visible
+    and for how long it will be.
+    These features may help distinguish feed from PE    
+    """
+    logger.warning("compute_proboscis_visibility_timing is not implemented. Skipping")
+    return pose
+
+
+
+
+def load_pose(loader, chunksize, files=None, frame_numbers=None, load_distance_travelled_features=False, load_inter_bp_distance_features=True, annotate_proboscis_visibility_timings=True, downsample=1, filters="rle-jump"):
     """
     Populate loader.pose and loader.first_fn
     """
 
-    pose_folder=f"motionmapper/{str(loader.identity).zfill(2)}/pose_filter_{filters}"
-    hdf5_file=os.path.join(loader.basedir, f"{pose_folder}/{loader.experiment}__{str(loader.identity).zfill(2)}/{loader.experiment}__{str(loader.identity).zfill(2)}.h5")
-    with h5py.File(hdf5_file, "r") as file:
-        files=[e.decode() for e in file["files"][:]]
-        chunks=[int(os.path.basename(file).split(".")[0]) for file in files]
-        frame_number_available=np.array(list(itertools.chain(*[(np.arange(0, chunksize)+chunksize*chunk).tolist() for chunk in chunks])))
-        first_fn=frame_number_available[0]
-        loader.first_fn=first_fn
+    if files is None:
+        pose_folder=f"motionmapper/{str(loader.identity).zfill(2)}/pose_filter_{filters}"
+        hdf5_file=os.path.join(loader.basedir, f"{pose_folder}/{loader.experiment}__{str(loader.identity).zfill(2)}/{loader.experiment}__{str(loader.identity).zfill(2)}.h5")
+    else:
+        hdf5_file=files[0]
 
-        if frame_numbers is None:
-            pose_r=file["tracks"][0, :, :, :]
-        else:
-            frames=frame_numbers-first_fn
-            pose_r=file["tracks"][0, :, :, frames]
+    try:
+        with h5py.File(hdf5_file, "r") as file:
+            files=sorted([e.decode() for e in file["files"][:]], key=lambda x: os.path.basename(x))
+            chunks=[int(os.path.basename(file).split(".")[0]) for file in files]
+            local_identities=[int(os.path.basename(os.path.dirname(file))) for file in files]
+            frame_number_available=np.array(list(itertools.chain(*[(np.arange(0, chunksize)+chunksize*chunk).tolist() for chunk in chunks])))
+            first_fn=frame_number_available[0]
+            loader.first_fn=first_fn
 
-        m=pose_r.shape[2]
-        pose=pose_r.transpose(2, 1, 0).reshape((m, -1))
-        pose=pd.DataFrame(pose)
-        
-        node_names=[e.decode() for e in file["node_names"][:]]
-        pose.columns=list(itertools.chain(*[[bp +"_x", bp+"_y"] for bp in node_names]))
-        
-        if frame_numbers is None:
-            frame_numbers=np.array(list(itertools.chain(*[(np.arange(0, chunksize)+chunksize*chunk).tolist() for chunk in chunks])))
+            if frame_numbers is None:
+                frames=None
+                pose_r=file["tracks"][0, :, :, :]
+            else:
+                frames=frame_numbers-first_fn
+                pose_r=file["tracks"][0, :, :, frames]
+
+            m=pose_r.shape[2]
+            pose=pose_r.transpose(2, 1, 0).reshape((m, -1))
+            pose=pd.DataFrame(pose)
+            
+            node_names=[e.decode() for e in file["node_names"][:]]
+            pose.columns=list(itertools.chain(*[[bp +"_x", bp+"_y"] for bp in node_names]))
+            
+            if frame_numbers is None:
+                frame_numbers=np.array(list(itertools.chain(*[(np.arange(0, chunksize)+chunksize*chunk).tolist() for chunk in chunks])))
+
+            local_identities=np.array(list(itertools.chain(*[[local_identities[i],]*chunksize for i, chunk in enumerate(chunks)])))
+            if frames is not None:
+                local_identities=local_identities[frames]
+    
+    except Exception as error:
+        logger.error("Cannot open %s", hdf5_file)
+        raise error
+
 
     columns = list(itertools.chain(*[[bp +"_x", bp+"_y"] for bp in node_names]))
     if load_distance_travelled_features:
@@ -137,16 +198,21 @@ def load_pose(loader, chunksize, frame_numbers=None, load_distance_travelled_fea
         logger.debug("Done %s", pose.shape)
 
     pose.columns=columns
+    pose["local_identity"]=local_identities
     pose["frame_number"]=frame_numbers
     pose=pose.loc[pose["frame_number"]%downsample==0]
     frame_numbers=frame_numbers[frame_numbers%downsample==0]
     pose["id"]=loader.ids[0]
 
+    if annotate_proboscis_visibility_timings:
+        pose=compute_proboscis_visibility_timing(pose)
+
+
     if load_inter_bp_distance_features:
-        pose=compute_distance_features_pairs(pose, [("head", "proboscis"),])
+        pose=compute_distance_features_pairs(pose, DISTANCE_FEATURES_PAIRS)
         pose.loc[pose["head_proboscis_distance"].isna(), "head_proboscis_distance"]=0
 
-    pose.set_index(["id", "frame_number"], inplace=True)    
+    # pose.set_index(idx_cols, inplace=True)
     loader.pose=pose
 
 def select_wavelet_file(loader, filters):
@@ -168,88 +234,161 @@ def select_wavelet_file(loader, filters):
         return None
 
 
-def load_wavelets(loader, filters, frames):
+def load_wavelets(loader, filters, frames, wavelet_file=None):
     assert loader.pose is not None
-    wavelet_file=select_wavelet_file(loader, filters=filters)
+    if wavelet_file is None:
+        wavelet_file=select_wavelet_file(loader, filters=filters)
     wavelets, (frequencies, freq_names)=loader.load_wavelets(matfile=wavelet_file, frames=frames)
     loader.wavelets=wavelets
 
 
-def load_animal_data(loader, filters, load_scores_data=False, load_deg_data=True, load_pose_data=True, load_wavelets_data=True, chunksize=45000, downsample=5):
-    print(loader.basedir)
+def load_animal_data(
+        loader, filters,
+        load_scores_data=False,
+        load_deg_data=True,
+        load_pose_data=True,
+        load_wavelets_data=True,
+        wavelet_file=None,
+        files=None,
+        chunksize=45000,
+        downsample=5
+    ):
+    """
+    Load pose, deg labels and wavelets for a single animal
+    
+    Populate loader.deg, loader.pose and loader.wavelets
+
+    If load_wavelets_data is True, load_pose_data must be True
+    """
+
+    
+    if load_wavelets_data:
+        assert load_pose_data
+
     if load_scores_data:
         load_scores(loader)
 
     if load_deg_data:
         load_deg(loader)
-        labeled_frames=loader.deg["frame_number"].values
-        labeled_frames_wt=labeled_frames[labeled_frames%downsample==0]
-        wt_frames=labeled_frames_wt // downsample
-
+    
+    if load_deg_data:
+        if loader.deg is None:
+            return loader
+        else:
+            labeled_frames=loader.deg["frame_number"].values
+            # wt = wavelet transform
+            wt_frames=labeled_frames[labeled_frames % downsample==0] // downsample
+            labeled_frames_wt=None
+        
+    else:
+        labeled_frames=None
+        wt_frames=None
+        labeled_frames_wt=None
 
     if load_pose_data:
-        load_pose(loader, chunksize, filters=filters, downsample=downsample, frame_numbers=labeled_frames)
+        load_pose(loader, chunksize, files=files, filters=filters, downsample=downsample, frame_numbers=labeled_frames)
         if load_scores_data:
             loader.scores.index=loader.pose.index
             loader.pose=pd.concat([loader.pose, loader.scores], axis=1)
     if load_wavelets_data:
-        frames=wt_frames- (loader.first_fn // downsample)
-        # import ipdb; ipdb.set_trace()
-        load_wavelets(loader, filters=filters, frames=frames)
-        loader.wavelets["frame_number"]=labeled_frames_wt
+        if wt_frames is None:
+            frames=None
+        else:
+            frames=wt_frames- (loader.first_fn // downsample)
+
+        load_wavelets(loader, filters=filters, frames=frames, wavelet_file=wavelet_file)
+
+        if labeled_frames_wt is None:
+            frame_numbers=loader.pose["frame_number"].values
+        else:
+            frame_numbers=labeled_frames_wt
+
+        loader.wavelets["frame_number"]=frame_numbers
 
     return loader
 
 
-def compile_dataset(loader, out):
-    if os.path.exists(out):
-        loader.data=pd.read_feather(out)
-        return loader.data
+def compile_dataset(loader, out=None):
     
-    deg=loader.deg.set_index(["id", "frame_number"])
-    loader.data=deg.merge(loader.pose, left_index=True, right_index=True, how="inner")
-    wavelets=loader.wavelets.set_index("frame_number", append=True)
-    loader.data=loader.data.merge(wavelets, left_index=True, right_index=True, how="inner").reset_index()
-    loader.data_path=out
-    loader.data.to_feather(out)
+    if loader.deg is None:
+        loader.data=loader.pose.copy()
+    elif loader.pose is None:
+        loader.data=loader.deg
+    else:        
+        loader.data=loader.deg.merge(loader.pose, on=idx_cols, how="inner")
+    
+    # import ipdb; ipdb.set_trace()
+
+    if loader.wavelets is None:
+        pass
+    else:
+        wavelets=loader.wavelets.reset_index()
+        loader.data=loader.data.merge(wavelets, on=["id", "frame_number"], how="inner")
+    if out is not None:
+        loader.data_path=out
+        if loader.data.shape[0]>0:
+            loader.data.to_feather(out)
+    
     return loader.data
 
 
-def process_animal(loader):
-    out=out=f"datasets/{loader.experiment}__{str(loader.identity).zfill(2)}_ml_dataset.feather"
-    if os.path.exists(out):
-        data=compile_dataset(loader, out)
-        
-    else:
-        loader=load_animal_data(
-            loader,
-            load_deg_data=True, load_pose_data=True, load_wavelets_data=True,
-            filters=filters, downsample=wavelet_downsample, chunksize=chunksize
-        )
-        data=compile_dataset(loader, out)
+def process_animal(
+        loader, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, downsample=wavelet_downsample, files =None, wavelet_file=None,
+        load_deg_data=True, load_pose_data=True, load_wavelets_data=True, on_fail="raise"
+    ):
+    try:
+        if cache is None:
+            must_load=True
+            out=None
+        else:
+            out=f"{cache}/{loader.experiment}__{str(loader.identity).zfill(2)}_ml_dataset.feather"
+            if not refresh_cache and os.path.exists(out):
+                logger.debug("Loading %s", out)
+                data=pd.read_feather(out)
+                loader.data=data
+                must_load=False
+            else:
+                must_load=True
 
-    data=data.reset_index()
-    data=annotate_bouts(data, variable="behavior")
-    data=annotate_bout_duration(data, fps=30)
-    data.set_index(["id", "frame_number"], inplace=True)
+        if must_load:
+            loader=load_animal_data(
+                loader,
+                load_deg_data=load_deg_data, load_pose_data=load_pose_data, load_wavelets_data=load_wavelets_data,
+                filters=filters, downsample=downsample, chunksize=chunksize,
+                wavelet_file=wavelet_file, files=files,
+            )
+            if load_deg_data and loader.deg is None:
+                logger.warning("Data could not be loaded for %s", loader)
+                return None
+            data=compile_dataset(loader, out)
+                
+        if "t" not in data.columns:
+            loader.load_store_index(cache=cache)
+            loader.store_index["t"]=loader.store_index["frame_time"]+loader.meta_info["t_after_ref"]
+            data=data.merge(loader.store_index[["frame_number", "t"]], on="frame_number")
+
+        # data.set_index(["id", "frame_number"], inplace=True)
+        print(f"Loading dataset of shape {data.shape} for animal {loader.experiment}__{str(loader.identity).zfill(2)}")
+        return data
     
-    data["label"]=data["behavior"]
-    data.loc[
-        data["behavior"].isin(["inactive+micromovement", "inactive+turn", "inactive+twitch"]),
-        "label"
-    ]="micromovement"
+    except Exception as error:
+        if on_fail=="raise":
+            raise error
+        elif on_fail=="ignore":
+            logger.error(error)
+            return None
 
-    return data 
-
-def load_animals(animals, n_jobs):
+def load_animals(animals, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, n_jobs=1, **kwargs):
     loaders=[FlyHostelLoader(experiment=expid.split("__")[0], identity=int(expid.split("__")[1]), chunks=range(0, 400)) for expid in animals]
     data = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             process_animal
         )(
-            loader
+            loader, filters=filters, cache=cache, refresh_cache=refresh_cache, **kwargs
         )
         for loader in loaders
     )
-    data=pd.concat(data, axis=0)
+    data=[d for d in data if d is not None]
+    if data:
+        data=pd.concat(data, axis=0)
     return data
