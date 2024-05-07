@@ -67,6 +67,7 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
       local_identity
       contour_id
       text
+      frame_idx_in_block
     """
     parsed_annot=[]
     contours=[]
@@ -115,10 +116,10 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
 
         frame_number0=int(image_filename.split("_")[-2])
         frame_number=frame_number0+frame_idx_in_block + block*block_size
-        parsed_annot.append((frame_number, *center, identity, i, text, frame_number0, block, block_size, panel-1))
+        parsed_annot.append((frame_number, *center, identity, i, text, frame_number0, block, block_size, panel-1, frame_idx_in_block))
         contours.append(contour)
 
-    annotations_df=pd.DataFrame.from_records(parsed_annot, columns=["frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel"])
+    annotations_df=pd.DataFrame.from_records(parsed_annot, columns=["frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel", "frame_idx_in_block"])
 
     return annotations_df, contours
 
@@ -169,48 +170,88 @@ def get_annotation(basedir, task_number, **kwargs):
     annotations_df["task"]=task_number
     return annotations_df, contours
 
-
-
-def copy_annotations_one_block_back(annotations_df, identity_corrected, roi0_corrected, annotations_to_copy):
-
-    # identity_raw=identity_corrected.copy()
-    # roi0_raw=roi0_corrected.copy()
-
+def spatial_copy_annotations(annotations_df, identity_corrected, roi0_corrected, annotations_to_copy):
+    """
+    For every pair of fn0, fn1 in annotations_to_copy, copy the annotations in fn1 to fn0
+    """
     block_size=annotations_df["block_size"].unique().tolist()
     assert len(block_size)==1
     block_size=block_size[0]
 
+    for frame_number, ref_frame_number in annotations_to_copy:
+        annotations_df, identity_corrected, roi0_corrected=copy_annotations(
+            annotations_df, identity_corrected, roi0_corrected,
+            frame_number, ref_frame_number, block_size=block_size
+        )
+
+    identity_corrected.sort_values(["frame_number", "local_identity"], inplace=True)
+    roi0_corrected.sort_values("frame_number", inplace=True)
+    return identity_corrected, roi0_corrected
+
+
+def copy_annotations(annotations_df, identity_corrected, roi0_corrected, frame_number, ref_frame_number, block_size):
+    """
+    
+    frame_number = frame_number where the annotations will be copied
+    ref_frame_number = frame number from which the annotations will be taken
+
+    """
+    row=annotations_df.loc[annotations_df["frame_number"]==ref_frame_number].iloc[:1]
+    if row.shape[0]==0:
+        logger.warning("No annotations for frame %s", ref_frame_number)
+        return annotations_df, roi0_corrected, identity_corrected
+
+
+    copied_data=identity_corrected.loc[identity_corrected["frame_number"]==ref_frame_number].copy()
+    copied_data["frame_number"]=frame_number
+    identity_corrected=pd.concat([
+        identity_corrected.reset_index(drop=True),
+        copied_data.reset_index(drop=True)
+    ], axis=0)
+
+    copied_data=roi0_corrected.loc[roi0_corrected["frame_number"]==ref_frame_number].copy()
+    copied_data["frame_number"]=frame_number
+    roi0_corrected=pd.concat([
+        roi0_corrected.reset_index(drop=True),
+        copied_data.reset_index(drop=True)
+    ], axis=0)
+
+
+    # so that the row has data in the following iterations (when copying a copy)
+    mark_annotation=pd.DataFrame({
+        "frame_number": [frame_number], "x": [None], "y": [None],  "local_identity": [None],
+        "contour_id": [None],  "text": ["COPY"], "frame_number0": [None],  "block": [None],  "block_size": [block_size], 
+        "panel": [None],  "task": [None], "frame_idx_in_block": [None]
+    })
+    annotations_df=pd.concat([annotations_df.reset_index(drop=True), mark_annotation], axis=0)
+    return annotations_df, roi0_corrected, identity_corrected
+
+
+def copy_annotations_one_block_back(annotations_df, identity_corrected, roi0_corrected, annotations_to_copy):
+    """
+    Replicate the annotations annotated one block back in the present frame
+
+    A block is the amount of frames placed in a single space-time image (9 by default)
+    This is needed to make the annotation in the validation GUI more efficient.
+    One block is annotated, and several following blocks can be annotated by simply making a mask
+    with the copy label in any of the frames of the block. This will make all frames of the block
+    get their annotations from the equivalent frame in the preceding block
+
+    The COPY tag should not be overused, because the exact position of the animals will drift over time
+    and the preceding annotations lose accuracy with every block. 
+    """
+
+    block_size=annotations_df["block_size"].unique().tolist()
+    assert len(block_size)==1
+    block_size=block_size[0]
+    n_steps=1
+
     for frame_number in annotations_to_copy:
-        n_steps=1
-        target_frame_number=frame_number-block_size*n_steps
-        row=annotations_df.loc[annotations_df["frame_number"]==target_frame_number].iloc[:1]
-        if row.shape[0]==0:
-            continue
-
-
-        copied_data=identity_corrected.loc[identity_corrected["frame_number"]==target_frame_number].copy()
-        copied_data["frame_number"]=frame_number
-        identity_corrected=pd.concat([
-            identity_corrected.reset_index(drop=True),
-            copied_data.reset_index(drop=True)
-        ], axis=0)
-
-        copied_data=roi0_corrected.loc[roi0_corrected["frame_number"]==target_frame_number].copy()
-        copied_data["frame_number"]=frame_number
-        roi0_corrected=pd.concat([
-            roi0_corrected.reset_index(drop=True),
-            copied_data.reset_index(drop=True)
-        ], axis=0)
-
-
-        # so that the row has data in the following iterations (when copying a copy)
-        mark_annotation=pd.DataFrame({
-            "frame_number": [frame_number], "x": [None], "y": [None],  "local_identity": [None],
-            "contour_id": [None],  "text": ["COPY"], "frame_number0": [None],  "block": [None],  "block_size": [block_size], 
-            "panel": [None],  "task": [None]
-        })
-        annotations_df=pd.concat([annotations_df.reset_index(drop=True), mark_annotation], axis=0)
-
+        ref_frame_number=frame_number-block_size*n_steps
+        annotations_df, identity_corrected, roi0_corrected=copy_annotations(
+            annotations_df, identity_corrected, roi0_corrected,
+            frame_number, ref_frame_number, block_size=block_size
+        )
 
     identity_corrected.sort_values(["frame_number", "local_identity"], inplace=True)
     roi0_corrected.sort_values("frame_number", inplace=True)
@@ -218,6 +259,10 @@ def copy_annotations_one_block_back(annotations_df, identity_corrected, roi0_cor
 
 
 def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df, annotated_contours, last_machine_id, first_frame_number=0, last_frame_number=math.inf):
+    """
+    
+    annotations_df contains the fields exported in load_task_annotations
+    """
     config=load_idtrackerai_config(basedir)
     dbfile=get_dbfile(basedir)
     chunksize=get_chunksize(dbfile)
@@ -241,6 +286,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
         identity_corrected=[]
         fragments_must_break=[]
         annotations_to_copy=set()
+        annotations_to_spatial_copy=set()
         crossings=[]
         n_frames=len(machine_data_of_modified_frames["frame_number"].unique())
 
@@ -306,6 +352,15 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
 
                         for fn in frame_numbers:
                             annotations_to_copy.add(fn)
+                    
+                    elif text=="SPATIAL-COPY":
+                        frame_number0, block, block_size=annotation.loc[annotation["text"]=="SPATIAL-COPY", ["frame_number0", "block", "block_size"]].values.flatten()
+                        ref_frame=frame_number0 + block_size//2
+                        frame_numbers=list(range(frame_number0+block_size*block, frame_number0+block_size*(block+1)))
+
+
+                        for fn in frame_numbers:
+                            annotations_to_spatial_copy.add((fn, ref_frame))
 
                     elif text=="CROSSING":
                         crossings.append((frame_number, fragment))
@@ -323,12 +378,21 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
             pb.update(1)
         identity_corrected=pd.DataFrame.from_records(identity_corrected, columns=["frame_number", "in_frame_index", "local_identity"])
         roi0_corrected=pd.DataFrame.from_records(roi0_corrected, columns=["frame_number", "in_frame_index", "x", "y", "fragment"])
+
+        identity_corrected, roi0_corrected=spatial_copy_annotations(
+            annotations_df,
+            identity_corrected,
+            roi0_corrected,
+            sorted(list(annotations_to_spatial_copy))           
+        )
+
         identity_corrected, roi0_corrected=copy_annotations_one_block_back(
             annotations_df,
             identity_corrected,
             roi0_corrected,
             sorted(list(annotations_to_copy))
         )
+
 
 
     finally:
