@@ -1,12 +1,16 @@
 import logging
 
+
+logger=logging.getLogger(__name__)
 import numpy as np
-import cupy as cp
+try:
+    import cupy as cp
+except:
+    logger.warning("cupy not installed")
+
 import joblib
 from tqdm.auto import tqdm
 from zeitgeber.rle import encode
-
-logger=logging.getLogger(__name__)
 
 def one_pass_filter_all(data, n_jobs=1):
     if isinstance(data, np.ndarray):

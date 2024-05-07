@@ -259,7 +259,7 @@ def get_local_identities_v2(dbfile, frame_numbers, identity_table=None):
     with sqlite3.connect(dbfile) as conn:
         cursor = conn.cursor()
         query = "SELECT * FROM CONCATENATION_VAL;"
-        cursor.execute(query)        
+        cursor.execute(query)
         table = cursor.fetchall()
     
     table=pd.DataFrame.from_records(table, columns=["id", "chunk", "identity", "local_identity"])
