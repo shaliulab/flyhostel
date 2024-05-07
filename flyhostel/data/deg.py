@@ -6,12 +6,12 @@ import os.path
 from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
+from flyhostel.data.pose.constants import DEG_DATA
 from flyhostel.utils import restore_cache, save_cache
 from flyhostel.utils import get_local_identities_from_experiment, get_sqlite_file, get_chunksize
 logger = logging.getLogger(__name__)
 
 SOCIAL_BEHAVIORS=["rejection", "touch", "interactor", "interactee"]
-DEG_DATA=os.path.join(os.environ["DEEPETHOGRAM_PROJECT_PATH"], "DATA")
 RESTORE_FROM_CACHE_ENABLED=False
 
 def parse_entry(data_entry, verbose=True):
@@ -58,7 +58,10 @@ class DEGLoader:
         else:
             self.load_deg_data_prediction(*args, **kwargs)
 
+        
+
         if self.deg is not None:
+            logger.info("Loaded DEG dataset of size %s", self.deg.shape)
             self.load_store_index(cache=cache)
             t=self.store_index["frame_time"]+self.meta_info["t_after_ref"]
 
@@ -82,7 +85,15 @@ class DEGLoader:
             self.deg["behavior"].loc[pd.isna(self.deg["behavior"])]="unknown"
             before=time.time()
             self.social_deg=self.deg.loc[self.deg["behavior"].isin(SOCIAL_BEHAVIORS)]
+            self.deg=self.deg.loc[~self.deg["behavior"].isin(SOCIAL_BEHAVIORS)]
             self.deg=self.annotate_two_or_more_behavs_at_same_time_(self.deg)
+
+            for i, behavior in enumerate(self.deg["behavior"]):
+                if np.sum([beh in behavior for beh in ["inactive", "walk", "groom"]]) > 1:
+                    raise ValueError(f"{behavior} label passed in {self.deg.iloc[i]} is not allowed")
+
+
+
             after=time.time()
             logger.debug("Took %s seconds to annotate two or more behaviors", after-before)
 
@@ -171,10 +182,7 @@ class DEGLoader:
         if identity is not None:
             identities=[identity]
         else:
-            if len(self.datasetnames) == 1:
-                identities=[0]
-            else:
-                identities=[animal.split("__")[1] for animal in self.datasetnames]
+            identities=[int(animal.split("__")[1]) for animal in self.datasetnames]
 
         for identity in identities:
             self.load_deg_data_gt_single_animal(identity=identity, verbose=verbose)
@@ -257,9 +265,9 @@ def read_label_file(data_entry, labels_file, verbose=False):
     labels=pd.read_csv(labels_file, index_col=0)
 
     # if pe and inactive ae true, then it's a separate behavior
-    # labels["pe_inactive"]=((labels["pe"]==1) & (labels["inactive"]==1))*1
-    # labels.loc[labels["pe_inactive"]==1, "pe"]=0
-    # labels.loc[labels["pe_inactive"]==1, "inactive"]=0
+    # labels["inactive+pe"]=((labels["pe"]==1) & (labels["inactive"]==1))*1
+    # labels.loc[labels["inactive+pe"]==1, "pe"]=0
+    # labels.loc[labels["inactive+pe"]==1, "inactive"]=0
     behaviors=labels.columns
 
     behavr_count_per_frame = labels.values.sum(axis=1)
