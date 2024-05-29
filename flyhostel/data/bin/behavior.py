@@ -28,5 +28,10 @@ def main():
     if args.wavelets is not None:
         assert os.path.exists(args.wavelets)
     
-    predict_behavior(args.experiment, model_path=args.model_path, identity=args.identity, output=args.output, files=args.files, wavelets=args.wavelets)
+    predict_behavior(
+        args.experiment, model_path=args.model_path,
+        identity=args.identity, output=args.output,
+        files=args.files,
+        wavelets=args.wavelets,
+    )
 

@@ -19,8 +19,7 @@ def get_parser():
     ap.add_argument("--t0", type=int, default=None)
     ap.add_argument("--postprocess", action="store_true", default=False)
     ap.add_argument("--correct-by-all-inactive", dest="correct_by_all_inactive", action="store_true", default=False)
-    group=ap.add_mutually_exclusive_group(required=True)
-    group.add_argument("--inference", dest="train", action="store_false", default=None)
+    ap.add_argument("--correct-groom-behaviors", action="store_true", default=False, help="If True, groom bouts shorter than 5 seconds are set to background")
     return ap
 
 def main():
@@ -38,6 +37,7 @@ def main():
         # t0=args.t0,
         correct_by_all_inactive=args.correct_by_all_inactive,
         cache=None,
+        correct_groom_behaviors=args.correct_groom_behaviors,
     )
 
     return None
