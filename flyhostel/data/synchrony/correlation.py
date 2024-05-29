@@ -51,14 +51,16 @@ def cross_correlation(df, col1, col2, lag=0):
     return np.corrcoef(series1[selected], series2[selected])[0, 1]
 
 
-def compute_corrs(df, lags):
+def annotator(df, lags, feature="asleep", FUN=cross_correlation):
     corrs={}
-    wide_table=df.reset_index().pivot_table(index=['t'], columns='id', values='asleep')
+    wide_table=df.reset_index().pivot_table(index=['t'], columns='id', values=feature)
     ids=wide_table.columns.tolist()
+    pairs=list(itertools.combinations(ids, 2))
+
     for lag in lags:
         corrs[lag]=[
-            cross_correlation(wide_table, id1, id2, lag=lag)
-            for id1, id2 in itertools.combinations(ids, 2)
+            FUN(wide_table, id1, id2, lag=lag)
+            for id1, id2 in pairs
         ]
         
-    return corrs
+    return corrs, pairs
