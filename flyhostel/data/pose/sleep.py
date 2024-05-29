@@ -10,9 +10,11 @@
 # }
 
 from abc import ABC
+import logging
 
 import pandas as pd
 import numpy as np
+
 
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import inactive_states
@@ -33,8 +35,7 @@ RESOLUTION=1
 # max duration of the brief awakening in seconds
 MAX_GAP=5
 
-
-
+logger=logging.getLogger(__name__)
 
 def sleep_contiguous(moving, min_valid_time, fs):
     
@@ -69,6 +70,37 @@ def find_brief_awakenings_all(dt, *args, **kwargs):
 
 
 
+def sleep_annotation_inactive(
+        data, min_time_immobile=300, time_window_length=1,
+        min_time_immobile_2=None, max_time_mobile=None, velocity_correction_coef=None, mask=None,
+    ):
+    
+    dt, _, _=bin_behavior_table_v2(data, time_window_length=time_window_length, x_var="t")
+    dt=postprocessing(dt, time_window_length)
+    logger.debug("Asserting inactive state")
+    # import ipdb; ipdb.set_trace()
+    behavior_data=np.array(["all_inactive" if "inactive" in behavior or behavior == "background" else "active" for behavior in dt["behavior"]])
+    logger.debug("Computing moving state")
+    dt["moving"]=np.bitwise_not(behavior_data=="all_inactive")
+    logger.debug("Computing asleep state")
+    if min_time_immobile_2 is None:
+        dt["asleep"]=sleep_contiguous(dt["moving"], min_valid_time=min_time_immobile, fs=1/time_window_length)
+    else:
+        # import ipdb; ipdb.set_trace()
+        dt["nm"]=sleep_contiguous(dt["moving"], min_valid_time=min_time_immobile_2, fs=1/time_window_length)
+        real_movement_bout=sleep_contiguous(dt["nm"], min_valid_time=max_time_mobile, fs=1/time_window_length)
+        dt["nm2"]=dt["nm"].copy()
+        dt.loc[
+            np.bitwise_and(~real_movement_bout, ~dt["nm"]),
+            "nm2"
+        ]=True
+        dt["asleep"]=sleep_contiguous(~dt["nm2"], min_valid_time=min_time_immobile, fs=1/time_window_length)
+
+    # import ipdb; ipdb.set_trace()
+    logger.debug("sleep_annotation_inactive Done")
+    del dt["id"]
+    return dt
+
 class SleepAnnotator(ABC):
     """
     Extend a FlyHostelLoader with the ability to annotate sleep and detect brief awakenings
@@ -79,18 +111,8 @@ class SleepAnnotator(ABC):
         return find_brief_awakenings(dt, *args, **kwargs)
     
 
-    def sleep_annotation_inactive(self, data, min_time_immobile=300, time_window_length=1):
-        
-        dt, _, _=bin_behavior_table_v2(data, time_window_length=time_window_length, x_var="t")
-        dt=postprocessing(dt, time_window_length=time_window_length)
-
-        
-        behavior=dt["behavior"].copy()
-        behavior.loc[behavior.isin(inactive_states)]="all_inactive"
-        
-        dt["moving"]=np.bitwise_not(behavior=="all_inactive")
-        dt["asleep"]=sleep_contiguous(dt["moving"], min_valid_time=min_time_immobile, fs=1/time_window_length)
-        return dt
+    def sleep_annotation_inactive(self, *args, **kwargs):
+        return sleep_annotation_inactive(*args, **kwargs)
         
 
 def find_brief_awakenings(dt, min_significant_bout=60, max_gap=5, time_window_length=1):

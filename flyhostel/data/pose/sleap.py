@@ -10,11 +10,11 @@ from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 try:
     from sleap.io.dataset import Labels
     from sleap.io.video import Video
-    from sleap.instance import LabeledFrame, Instance
+    from sleap.instance import LabeledFrame, Instance, PredictedInstance, Track
     from sleap.io.visuals import resize_images, VideoMarkerThread
     from sleap.io.visuals import save_labeled_video
     cwd=os.getcwd()
-    ref_labels_file="/Users/FlySleepLab_Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/labels.slp"
+    ref_labels_file="/Users/FlySleepLab_Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/labels_train.slp"
     os.chdir(os.path.dirname(ref_labels_file))
     skeleton=Labels.load_file(ref_labels_file).skeleton
     os.chdir(cwd)
@@ -40,7 +40,7 @@ try:
         return data
 
 
-    def make_labeled_frames(pose, identity, frame_numbers, chunksize, video, pb=True):
+    def make_labeled_frames(pose, frame_numbers, chunksize, video, identities, pb=True, predictions=False):
 
         labeled_frames=[]
 
@@ -49,21 +49,49 @@ try:
         else:
             iterable=frame_numbers
 
+        tracks={}
+        for identity in identities:
+            if identity is None:
+                tracks[identity]=None
+            else:
+                tracks[identity]=Track(spawned_on=frame_numbers[0], name=f"Track-{identity}")
+
+
         for frame_number in iterable:
             frame_idx=frame_number%chunksize
 
-            instance_series=pose.loc[(pose["identity"]==identity) & (pose["frame_number"]==frame_number)]
-            
-            # if no data is found for the fly in that frame
-            if instance_series.shape[0]==0:
-                logger.warning("No data found for fly %s in frame %s", identity, frame_number)
-                continue
-            base_instance_numpy=numpy(instance_series, bodyparts=[node.name for node in skeleton.nodes])
+            instance_series=pose.loc[(pose["frame_number"]==frame_number)]
+            instances=[]
+            for identity in identities:
+                if identity is not None:
+                    instance_series_identity=instance_series.loc[(instance_series["identity"]==identity)]
+                else:
+                    instance_series_identity=instance_series
+                
+                # if no data is found for the fly in that frame
+                if instance_series_identity.shape[0]==0:
+                    logger.warning("No data found for identity %s in frame %s", identity, frame_number)
+                    continue
+                base_instance_numpy=numpy(instance_series_identity, bodyparts=[node.name for node in skeleton.nodes])
 
-            instance=Instance.from_numpy( 
-                base_instance_numpy, skeleton=skeleton
-            )
-            lf = LabeledFrame(video=video, frame_idx=frame_idx, instances=[instance])
+
+                if predictions:
+                    PredictedInstance.from_numpy( 
+                        points=base_instance_numpy,
+                        point_confidences=np.array([1.0,] * len(skeleton.nodes)),
+                        instance_score=1.0,
+                        skeleton=skeleton,
+                        track=tracks[identity],
+                    )
+                else:
+                    instance=Instance.from_numpy( 
+                        points=base_instance_numpy,
+                        skeleton=skeleton,
+                        track=tracks[identity],
+                    )
+                instances.append(instance)
+
+            lf = LabeledFrame(video=video, frame_idx=frame_idx, instances=instances)
             labeled_frames.append(lf)
         return labeled_frames
 
@@ -73,8 +101,10 @@ try:
 
         video=Video.from_filename(index.loc[index["frame_number"]==frame_number]["video"].item())
         labeled_frames=make_labeled_frames(
-            pose, identity,
-            frame_numbers=[frame_number], chunksize=chunksize, video=video,
+            pose,
+            identity=[identity],
+            frame_numbers=[frame_number],
+            chunksize=chunksize, video=video,
             pb=pb
         )
         labels=Labels(labeled_frames=labeled_frames, videos=[video], skeletons=[skeleton])
@@ -95,7 +125,7 @@ try:
         return imgs[0]
 
 
-    def draw_video(pose, index, identity, frame_numbers, chunksize=45000, fps=15, output_filename=None, gui_progress=False):
+    def draw_video(pose, index, identities, frame_numbers, chunksize=45000, output_filename=None, pb=True, **kwargs):
         """
         pose (pd.DataFrame): coordinates of body parts relative to the top left corner of a square around the fly.
             Needs to contain columns bp_x and bp_y for each bodypart, id (str), identity (int), frame_number.
@@ -106,16 +136,20 @@ try:
         
         chunks=[frame_number // chunksize for frame_number in frame_numbers]
         assert len(set(chunks)) == 1, f"Please pass frames from within the same chunk"
+        video_filename=index.loc[index["frame_number"]==frame_numbers[0], "video"].unique().item()
+        video=Video.from_filename(video_filename)
 
-        video=Video.from_filename(index.loc[index["frame_number"]==frame_numbers[0], "video"].item())
 
 
         logger.debug("Making labeled frames")
 
         labeled_frames=make_labeled_frames(
-            pose, identity,
-            frame_numbers=frame_numbers, chunksize=chunksize, video=video,
-            pb=gui_progress
+            pose,
+            identities=identities,
+            frame_numbers=frame_numbers,
+            chunksize=chunksize,
+            video=video,
+            pb=pb,
         )
         labels=Labels(labeled_frames=labeled_frames, videos=[video], skeletons=[skeleton])
 
@@ -124,21 +158,22 @@ try:
         if output_filename is None:
             output_filename=os.path.join(os.path.dirname(video.backend.filename), fn + "_render" + extension)
 
+        Labels.save_file(labels, filename=output_filename+".slp")
+
         save_labeled_video(
             output_filename,
             labels=labels,
             video=labels.video,
             frames=frame_numbers%chunksize,
-            fps=fps,
-            scale=5.0,
-            crop_size_xy= None,
-            show_edges= True,
-            edge_is_wedge=False,
-            marker_size=1,
-            color_manager=None,
-            palette="standard",
-            distinctly_color="instances",
-            gui_progress=gui_progress
+            # fps=fps,
+            # scale=5.0,
+            # crop_size_xy= None,
+            # show_edges= True,
+            # edge_is_wedge=False,
+            # marker_size=1,
+            # color_manager=None,
+            # palette="standard",
+            **kwargs
         )
 
 

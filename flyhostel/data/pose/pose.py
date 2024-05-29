@@ -92,7 +92,7 @@ class FilterPose(ABC):
                             self.filter_pose_by_time(pose=pose, min_time=min_time, max_time=max_time)
                             if stride!=1:
                                 pose=pose.iloc[::stride]
-                            filters="rle-jump"                           
+                            filters="rle-jump"                       
                             return pose, filters
                         else:
                             pass
@@ -260,6 +260,7 @@ class FilterPose(ABC):
                 continue
             identity=pose["identity"].iloc[0].item()
             identifier=self.experiment + "__" + str(identity).zfill(2)
+            # TODO I might be able to just remove this call to copy
             pose, filters = self.filter_and_interpolate_pose_single_animal(pose.copy(), *args, min_time=min_time, max_time=max_time, identifier=identifier, **kwargs)
             pose=self.filter_pose_by_time(min_time=min_time, max_time=max_time, pose=pose)
 
@@ -275,4 +276,4 @@ class FilterPose(ABC):
     @staticmethod
     def full_interpolation(*args, **kwargs):
         return full_interpolation(*args, **kwargs)
-
+    

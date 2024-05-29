@@ -94,10 +94,13 @@ PARTITION_SIZE=framerate*3600
 PX_PER_CM=175
 APPLY_MEDIAN_FILTER=False
 ROI_WIDTH_MM=60
-DIST_MAX_MM=4
 SQUARE_HEIGHT=100
 SQUARE_WIDTH=100
-MIN_INTERACTION_DURATION=1 # seconds
+DIST_MAX_MM=2.5
+MIN_INTERACTION_DURATION=.3 # seconds
+MIN_TIME_BETWEEN_INTERACTIONS=0.5 # seconds. Interactions closer than this in time become one
+
+
 inactive_states=["inactive", "inactive+pe", "inactive+micromovement", "inactive+twitch", "background"]
 DEFAULT_FILTERS=["rle", "jump"]
 

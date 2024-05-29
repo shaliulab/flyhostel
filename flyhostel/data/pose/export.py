@@ -133,7 +133,7 @@ def load_files(files, n_jobs=1):
                 template_score = score.copy()
                 template_score[:] = np.nan
 
-        assert dataset.shape[3]==CHUNKSIZE, f"{files[i]} is missing pose estimates"
+        assert dataset.shape[3]==CHUNKSIZE, f"{file} is missing pose estimates (found {dataset.shape[3]} instead of {CHUNKSIZE})"
               
             
         datasets.append(dataset)

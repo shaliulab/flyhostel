@@ -1,5 +1,8 @@
 import time
 import io
+import shutil
+import itertools
+import h5py
 import glob
 import time
 import os.path
@@ -20,6 +23,7 @@ from flyhostel.data.pose.loaders.behavior import BehaviorLoader
 from flyhostel.data.pose.loaders.pose import PoseLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import ROI_WIDTH_MM
 from flyhostel.data.pose.sleep import SleepAnnotator
 from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
@@ -487,3 +491,100 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
     def draw_videos(self, index):
         for i, row in index.iterrows():
             draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos")
+
+    def get_pose_file_h5py(self, pose_name="filter_rle-jump"):
+        animal=self.experiment + "__" + str(self.identity).zfill(2)
+        pose_file=os.path.join(
+            self.basedir, "motionmapper",
+            str(self.identity).zfill(2),
+            f"pose_{pose_name}",
+            animal,
+            animal + ".h5"
+        )
+        return pose_file
+
+    def load_filtered_pose(self, partition):
+        logger.warning("Please change load_filtered_pose to load_finished_pose. Pass a pose_name to select which pose")
+        return self.load_finished_pose(partition=partition, pose_name="filter_rle-jump")
+
+
+    def load_finished_pose(self, partition=None, pose_name="filter_rle-jump"):
+        pose_file=self.get_pose_file_h5py(pose_name=pose_name)
+        # pose_file=self.manage_backup_copies(pose_file, fail=False)
+
+        try:
+            with h5py.File(pose_file, "r") as f:
+                files=[e.decode() for e in f["files"][:]]
+            chunks=[int(os.path.basename(file).split(".")[0]) for file in files]
+            first_fn=chunks[0]*CHUNKSIZE
+            if partition is not None:
+                partition_frames=slice(partition.start-first_fn, partition.stop-first_fn)
+            else:
+                partition_frames=None
+            
+            before=time.time()
+            with h5py.File(pose_file, "r", locking=True) as f:               
+                if partition_frames is None:
+                    out_x = pd.DataFrame(f["tracks"][0, 0, ...].T)
+                    out_y = pd.DataFrame(f["tracks"][0, 1, ...].T)
+                else:
+                    logger.debug("Loading filtered pose %s frames from %s to %s", partition.stop-partition.start, partition.start, partition.stop)
+                    out_x = pd.DataFrame(f["tracks"][0, 0, :, partition_frames].T)
+                    out_y = pd.DataFrame(f["tracks"][0, 1, :, partition_frames].T)
+                bodyparts=[bp.decode() for bp in f["node_names"][:]]
+            after=time.time()
+            logger.debug("h5py.File loaded %s rows of X and Y data from %s in %s seconds", out_x.shape[0], pose_file, np.round(after-before, 2))
+
+        except Exception as error:
+            logger.error("Cannot open %s", pose_file)
+            raise error
+    
+        assert np.all(np.diff(chunks)==1)
+        local_identities=[int(file.split("/")[-2]) for file in files]
+
+        bodyparts_xy = list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
+        out_x.columns=bodyparts_xy[::2]
+        out_y.columns=bodyparts_xy[1::2]
+        pose=pd.concat([out_x, out_y], axis=1)[bodyparts_xy]
+        del out_x
+        del out_y
+
+        local_identities=np.array(list(itertools.chain(*[[lid, ] * CHUNKSIZE for lid in local_identities])))[partition_frames]
+        f_idxs=np.array(list(itertools.chain(*[list(range(0, CHUNKSIZE, 1)) for _ in chunks])))[partition_frames]
+        chunks=np.array(list(itertools.chain(*[[chunk, ] * CHUNKSIZE for chunk in chunks])))[partition_frames]
+        
+        
+        pose["identity"]=self.identity
+        pose["local_identity"]=local_identities
+        pose["chunk"]=chunks
+        pose["frame_idx"]=f_idxs
+        pose["frame_number"]=pose["chunk"]*CHUNKSIZE + pose["frame_idx"]
+        pose["id"]=self.experiment[:26] + "|" + str(self.identity).zfill(2)
+        return pose
+    
+    def manage_backup_copies(self, file, fail=False):
+        if validate_h5py_file(file):
+            shutil.copy(file, f"{file}.backup")
+            return file
+        else:
+            if not fail and os.path.exists(f"{file}.backup"):
+                shutil.copy(f"{file}.backup", file)
+                return self.manage_backup_copies(file, fail=True)
+            else:
+                raise OSError(f"{file} is corrupted")
+                
+
+
+def validate_h5py_file(file):
+    try:
+        with h5py.File(file, 'r') as f:
+            print(f"File {file} integrity passed")
+            pass
+        return True
+    except Exception as e:
+        print(f"File {file} integrity check failed: {e}")
+        return False
+    
+
+
+            

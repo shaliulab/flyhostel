@@ -34,6 +34,7 @@ def predict_behavior(experiment, model_path, identity=None, wavelets=None, outpu
     
     predict_experiment("FlyHostelN_MX_YYYY-MM-DD_HH-MM-SS", "knn.pkl", 1)
     """
+    raise DeprecationWarning()
 
     loader = FlyHostelLoader(experiment, identity=identity, chunks=range(0, 400))
     loader.load_and_process_data(
