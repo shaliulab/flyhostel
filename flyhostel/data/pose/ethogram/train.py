@@ -28,8 +28,9 @@ from flyhostel.data.pose.constants import bodyparts_xy as BODYPARTS_XY
 
 from flyhostel.data.pose.constants import DEFAULT_FILTERS
 DEFAULT_FILTERS="-".join(DEFAULT_FILTERS)
+from flyhostel.data.deg import LABELS
 
-from flyhostel.data.pose.ethogram.loader import load_animals, DISTANCE_FEATURES_PAIRS, document_provenance
+from flyhostel.data.pose.ethogram.loader import load_animals, DISTANCE_FEATURES_PAIRS, document_provenance, validate_animals_data
 
 PARAMS=setRunParameters()
 wavelet_downsample=PARAMS.wavelet_downsample
@@ -65,8 +66,9 @@ def get_sample_weights(y):
     return sample_weights
 
 
+
 def train(
-        train_set_animals, test_set_animals, norm=True, output_folder=".", label="label", n_jobs_load=1, model_arch="RandomForestClassifier",
+        train_set_animals, test_set_animals, norm=True, output_folder=".", label="behavior", n_jobs_load=1, model_arch="RandomForestClassifier",
         eval_params={}, cache=None, refresh_cache=True, on_fail="raise", **kwargs):
     f"""
     Train a multiclass classifier to predict a behavior using the WT features and the head-proboscis distance
@@ -115,13 +117,13 @@ def train(
     eval_params["downsample_train"]=eval_params.get("downsample_train", 1)
     eval_params["downsample_test"]=eval_params.get("downsample_test", 1)
     eval_params["bodyparts"]=eval_params.get("bodyparts", BODYPARTS)
-    eval_params["freqs"]=eval_params.get("freqs", [None])
+    eval_params["freqs"]=eval_params.get("freqs", get_frequencies(PARAMS))
     eval_params["distance_features_pairs"]=eval_params.get("distance_features_pairs", DISTANCE_FEATURES_PAIRS)
     bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in eval_params["bodyparts"]]))
     provenance.update(eval_params)
 
-    provenance["freqs"]=[float(np.round(freq, 4)) for freq in provenance["freqs"]]
-
+    provenance["freqs"]=[float(np.round(freq, 4)) for freq in provenance["freqs"] if freq is not None]
+    
     with open(os.path.join(output_folder, "provenance.yaml"), "w") as handle:
         yaml.safe_dump(provenance, handle)
 
@@ -131,10 +133,9 @@ def train(
         distance_features_pairs=eval_params["distance_features_pairs"],
     )
 
-
+    validate_animals_data(train_set_animals+test_set_animals)
     train_data=load_animals(train_set_animals, load_deg_data=True, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
     test_data=load_animals(test_set_animals, load_deg_data=True, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
-
     train_data=downsample_dataset(train_data, eval_params["downsample_train"])
     test_data=downsample_dataset(test_data, eval_params["downsample_test"])
 
@@ -150,15 +151,17 @@ def train(
     
     if len(missing_freqs)>0:
         logger.warning("Some of the frequencies produced by LTA are not present in the data")
-        import ipdb; ipdb.set_trace()
         logger.warning("Missing frequencies %s", missing_freqs)
         logger.warning("Available frequecies: %s", train_data.columns)
+        import ipdb; ipdb.set_trace()
         
 
     # Downsample so that least abundant classes are not so underrepresented
     n_samples_inactive_pe=train_data.loc[train_data["behavior"]=="inactive+pe"].shape[0]
     train_data_downsampled=train_data.groupby("behavior").apply(lambda df: df.sample(n=min(n_samples_inactive_pe, df.shape[0]))).reset_index(drop=True)
     assert train_data_downsampled["head_proboscis_distance"].isna().sum()==0
+
+    train_data_downsampled.to_feather(os.path.join(output_folder, "train_set.feather"))
 
     y_train=train_data_downsampled[label].values
 
@@ -182,42 +185,12 @@ def train(
     logger.info("Training %s on dataset of size %s", model, z_train.shape)
     sample_weights=get_sample_weights(y_train)
     model.fit(z_train, y_train, sample_weight=sample_weights)
-    with open(os.path.join(output_folder, f"{model_arch}.pkl"), "wb") as handle:
+    model_path=os.path.join(output_folder, f"{model_arch}.pkl")
+    with open(model_path, "wb") as handle:
         pickle.dump((model, features, scaler), handle)
 
-    x_test=test_data[features].values
-    z_test=scaler.transform(x_test)
-    probabilities=model.predict_proba(z_test)
-    predictions=[model.classes_[i] for i in probabilities.argmax(axis=1)]
-    confidence=probabilities.max(axis=1)
-    prob_sorted=np.sort(probabilities, axis=1)
-    contrast=prob_sorted[:, -1] - prob_sorted[:, -2]
-
-    preds=test_data.copy()
-    preds["prediction"]=predictions
-    preds["confidence"]=confidence
-    preds["contrast"]=contrast
-    preds["correct"]=preds[label]==preds["prediction"]
-    
-    bp_probabilities=[cl + "_prob" for cl in model.classes_]
-    
-    index=preds.index
-    preds=pd.concat([
-        preds,
-        pd.DataFrame(probabilities, index=preds.index, columns=bp_probabilities),
-    ], axis=1)
-    preds=preds.merge(
-        preds.groupby("bout_count").agg({"correct": np.mean}).reset_index().rename({"correct": "correct_bout_fraction"}, axis=1),
-        on=["bout_count"], how="left"
-    )
-    preds.index=index
-
-    ground_truth=preds[label].values
-    disp=ConfusionMatrixDisplay.from_predictions(y_true=ground_truth, y_pred=predictions, normalize="true", xticks_rotation=45)
-    np.savetxt(
-        os.path.join(output_folder, "test_confusion_matrix.csv"),
-        disp.confusion_matrix, delimiter=",", fmt="%.4e"
-    )
+    preds=inference(test_data, label, model_path)
+    predictions=preds["prediction"].values
 
     title=[]
     for k, v in eval_params.items():
@@ -227,15 +200,12 @@ def train(
         title.append(f"{k}: {v}")
     title="\n".join(title)
     
-    # Create a larger figure to accommodate the long title
-    fig, ax = plt.subplots(figsize=(10, 8))  # Adjust the figure size as needed
-    # Display the confusion matrix
-    disp.plot(ax=ax)
-    # Set a long title and wrap it
-    plt.title("\n".join(wrap(title, 60)))  # Wrap text after 60 characters
-    # Adjust layout
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_folder, "test_confusion_matrix.png"))
+
+    ground_truth=preds[label].values
+    save_confusion_matrix(ground_truth, predictions, output_folder, "test_confusion_matrix.png", title)
+
+    save_confusion_matrix(preds["active.gt"], preds["active.pr"], output_folder, "test_confusion_matrix_inactive.png", title)
+
     preds.reset_index().to_feather(os.path.join(output_folder, "test_predictions.feather"))
 
     y_true=preds[label].values
@@ -262,6 +232,72 @@ def train(
 
     with open(os.path.join(output_folder, "metrics.yaml"), "w") as handle:
         yaml.safe_dump(metrics, handle)
+
+
+
+
+def inference(dataset, label, model_path, inactive_states):
+
+    with open(model_path, "rb") as handle:
+        model, features, scaler= pickle.load(handle)
+
+    x_test=dataset[features].values
+    logger.debug("Predicting %s points", x_test.shape[0])
+    z_test=scaler.transform(x_test)
+    probabilities=model.predict_proba(z_test)
+    predictions=[model.classes_[i] for i in probabilities.argmax(axis=1)]
+    confidence=probabilities.max(axis=1)
+    prob_sorted=np.sort(probabilities, axis=1)
+    contrast=prob_sorted[:, -1] - prob_sorted[:, -2]
+
+    preds=dataset.copy()
+    preds["prediction"]=predictions
+    preds["confidence"]=confidence
+    preds["contrast"]=contrast
+    preds["correct"]=preds[label]==preds["prediction"]
+    
+    bp_probabilities=[cl + "_prob" for cl in model.classes_]
+    
+    index=preds.index
+    preds=pd.concat([
+        preds,
+        pd.DataFrame(probabilities, index=preds.index, columns=bp_probabilities),
+    ], axis=1)
+    preds=preds.merge(
+        preds.groupby("bout_count").agg({"correct": np.mean}).reset_index().rename({"correct": "correct_bout_fraction"}, axis=1),
+        on=["bout_count"], how="left"
+    )
+    preds.index=index
+    annotate_active_state(preds, prediction="prediction", inactive_states=inactive_states)
+
+
+    return preds
+
+def annotate_active_state(dataset, prediction, inactive_states):
+
+    dataset["active.pr"]="active"
+    dataset["active.gt"]="active"
+    dataset.loc[dataset[prediction].isin(inactive_states), "active.pr"]="inactive"
+    dataset.loc[dataset["behavior"].isin(inactive_states), "active.gt"]="inactive"
+    return dataset
+
+
+def save_confusion_matrix(y_true, y_pred, output_folder, name="test_confusion_matrix.png", title=None):
+    disp=ConfusionMatrixDisplay.from_predictions(y_true=y_true, y_pred=y_pred, normalize="true", xticks_rotation=45, labels=LABELS)
+    np.savetxt(
+        os.path.join(output_folder, "test_confusion_matrix.csv"),
+        disp.confusion_matrix, delimiter=",", fmt="%.4e"
+    )
+
+    # Create a larger figure to accommodate the long title
+    fig, ax = plt.subplots(figsize=(10, 8))  # Adjust the figure size as needed
+    # Display the confusion matrix
+    disp.plot(ax=ax)
+    # Set a long title and wrap it
+    plt.title("\n".join(wrap(title, 60)))  # Wrap text after 60 characters
+    # Adjust layout
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_folder, name))
 
 
 def downsample_dataset(data, downsample):

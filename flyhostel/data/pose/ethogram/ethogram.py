@@ -201,9 +201,11 @@ def make_ethogram(
         experiment, identity, model_path, output="./",
         frame_numbers=None, postprocess=True,
         correct_by_all_inactive=False,
+        correct_groom_behaviors=True,
         **kwargs):
     """
     Generate ethogram for a particular fly (inference)
+    Called by the predict_behavior process in the behavior prediction pipeline
 
     experiment
     identity
@@ -252,7 +254,7 @@ def make_ethogram(
         pd.DataFrame(probabilities, columns=behaviors)
     ], axis=1)
 
-    output_cols=["id", "frame_number", "t", "behavior_raw","behavior", "score", "fluctuations"] + behaviors.tolist()
+    output_cols=["id", "frame_number", "chunk", "frame_idx", "local_identity", "t", "behavior_raw","behavior", "score", "fluctuations"] + behaviors.tolist()
 
     if postprocess:
         logger.debug("Postprocessing predictions")
@@ -273,6 +275,22 @@ def make_ethogram(
 
     dataset=annotate_bouts(dataset, "behavior")
     dataset=annotate_bout_duration(dataset, fps=framerate/wavelet_downsample)
+    dataset["chunk"]=dataset["frame_number"]//chunksize
+    dataset["frame_idx"]=dataset["frame_number"]%chunksize
+
+    if correct_groom_behaviors:
+        # NOTE
+        # set to background groom bouts shorter than 5 seconds
+        # this is designed to improve the sensitivity to sleep
+        # while decreasing the sensitivity to wake behaviors
+        # which this project does not focus on
+
+        dataset.loc[
+            (dataset["behavior"]=="groom") & (dataset["duration"]<=5),
+            "behavior"
+        ]="groom"
+        dataset=annotate_bouts(dataset, "behavior")
+        dataset=annotate_bout_duration(dataset, fps=framerate/wavelet_downsample)
 
     feather_out=os.path.join(output, "dataset.feather")
     # feather_input=os.path.join(output, "input.feather")
@@ -284,13 +302,11 @@ def make_ethogram(
             final_cols.append(col)
         else:
             logger.warning("Ignoring field %s", col)
-
-    dataset["chunk"]=dataset["frame_number"]//chunksize
-    dataset["frame_idx"]=dataset["frame_number"]%chunksize
-
     dataset[final_cols].reset_index(drop=True).to_feather(feather_out)
+
     # dataset[["frame_number", "chunk", "frame_idx"] + features].reset_index(drop=True).to_feather(feather_input)
     save_deg_prediction_file(experiment, dataset)
+
 
 def postprocess_behaviors(dataset, percentile=1):
     """

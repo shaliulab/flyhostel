@@ -1,5 +1,9 @@
+import logging
 import numpy as np
 from flyhostel.data.pose.constants import framerate as FRAMERATE
+
+logger=logging.getLogger(__name__)
+
 
 def count_bout_position(df, variable, counter):
     """
@@ -64,17 +68,19 @@ def find_window_winner(df, behaviors, time_window_length=1, other_cols=[], behav
 
     assert len(behaviors_used)>1, f"No behavior has its probability saved"
 
+    logger.debug("Computing fluctuations")
     fluctuations=df[["id", "t"] + behaviors_used].groupby(["id", "t"]).apply(identify_fluctuating_events).reset_index()
     fluctuations.columns=["id", "t", "fluctuations"]
 
+
+    logger.debug("Computing most abundant behavior per window")
     # Group by 'id' and 't', and get the most common behavior
-    most_common_behavior = df.groupby(['id', 't', behavior_col]).size()
-    most_common_behavior = most_common_behavior.reset_index(name='count')
-    most_common_behavior = most_common_behavior.sort_values(['id', 't', 'count'], ascending=[True, True, False])
-    
+    most_common_behavior = df.groupby(['id', 't', behavior_col]).size().reset_index(name='count')
+    most_common_behavior = most_common_behavior.sort_values(['id', 't', 'count'], ascending=[True, True, False])   
     # Drop duplicates to keep the most common behavior for each group
     most_common_behavior = most_common_behavior.drop_duplicates(subset=['id', 't'])
     
+    logger.debug("Computing fraction of most abundant behavior")
     # Calculate the fraction of the most common behavior
     total_counts = df.groupby(['id', 't']).size().reset_index(name='total_count')
     most_common_behavior = most_common_behavior.merge(total_counts, on=['id', 't'])
@@ -83,10 +89,12 @@ def find_window_winner(df, behaviors, time_window_length=1, other_cols=[], behav
     # Select the required columns
     most_common_behavior = most_common_behavior[['id', 't', behavior_col, 'fraction']]
 
+    logger.debug("Merging index")
     most_common_behavior=most_common_behavior.merge(index, on=["id", "t"])
+    logger.debug("Merging fluctuations")
     most_common_behavior=most_common_behavior.merge(fluctuations, on=["id", "t"])
+    logger.debug("find_window_winner Done")
     return most_common_behavior
-
 
 
 def most_common_behavior_vectorized(df, time_window_length=1, other_cols=[], behavior_col="behavior"):

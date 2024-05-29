@@ -17,13 +17,44 @@ from flyhostel.data.pose.main import FlyHostelLoader
 from motionmapperpy import setRunParameters
 
 from flyhostel.data.pose.distances import compute_distance_features_pairs
-from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
 
 wavelet_downsample=setRunParameters().wavelet_downsample
 DEFAULT_FILTERS="rle-jump"
 DISTANCE_FEATURES_PAIRS=[("head", "proboscis"),]
 
 idx_cols=["id", "local_identity", "frame_number"]
+
+
+
+def validate_animals_data(animals, filters=DEFAULT_FILTERS):
+    results=[]
+    loaders=[FlyHostelLoader(experiment=expid.split("__")[0], identity=int(expid.split("__")[1]), chunks=range(0, 400)) for expid in animals]
+    for loader in loaders:
+        # validate wavelets
+        wavelets_folder=os.path.join(loader.basedir, "motionmapper", str(loader.identity).zfill(2), f"wavelets_{filters}", "FlyHostel_long_timescale_analysis", "Wavelets")
+        wavelet_file=os.path.join(wavelets_folder, loader.experiment + "__" + str(loader.identity).zfill(2) + "-pcaModes-wavelets.mat")
+        wavelet_val=validate_file(wavelet_file)
+
+        # validate pose
+        pose_folder=f"{loader.basedir}/motionmapper/{str(loader.identity).zfill(2)}/pose_filter_{filters}/{loader.experiment}__{str(loader.identity).zfill(2)}"
+        hdf5_file=os.path.join(pose_folder, f"{loader.experiment}__{str(loader.identity).zfill(2)}.h5")
+        pose_val=validate_file(hdf5_file)
+
+        # validate deg
+        loader.load_deg_data_long(verbose=False)
+        behaviors=loader.deg["behavior"].unique()
+        print(f"{loader}: {behaviors}")
+
+
+        results.append((wavelet_val, pose_val))
+    
+    for i in range(len(results)):
+        loader=loaders[i]
+        wavelet_val, pose_val=results[i]
+        if wavelet_val is None:
+            raise ValueError(f"{loader} wavelet data is not readable")
+        if pose_val is None:
+            raise ValueError(f"{loader} pose data is not readable")
 
 
 def get_dataset_version():
@@ -80,47 +111,9 @@ def load_deg(loader):
     if loader.deg is None:
         logger.warning("%s does not have DEG data", loader)
         return
-    loader.deg.loc[loader.deg["behavior"]=="groom+micromovement", "behavior"]="groom"
-    loader.deg.loc[loader.deg["behavior"]=="feed+walk", "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=="feed+groom", "behavior"]="groom"
-    loader.deg.loc[loader.deg["behavior"]=="feed+micromovement", "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=="pe", "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=="pe+walk", "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=="groom+pe", "behavior"]="groom"
-    loader.deg.loc[loader.deg["behavior"]=="inactive+turn+twitch", "behavior"]="inactive+turn"
-    loader.deg.loc[loader.deg["behavior"]=="twitch", "behavior"]="background"
-    loader.deg.loc[loader.deg["behavior"]=="turn", "behavior"]="background"    
-    loader.deg.loc[loader.deg["behavior"]=="micromovement", "behavior"]="background"
-    loader.deg.loc[loader.deg["behavior"]=="inactive+pe+turn+twitch", "behavior"]="inactive+turn"
-    loader.deg.loc[loader.deg["behavior"]=='inactive+pe+twitch', "behavior"]="inactive+pe"
-    loader.deg.loc[loader.deg["behavior"]=='inactive+pe+turn', "behavior"]="inactive+pe"
-    loader.deg.loc[loader.deg["behavior"]=='turn+twitch', "behavior"]="background"
-    loader.deg.loc[loader.deg["behavior"]=='inactive+micromovement+pe', "behavior"]="inactive+pe"
-    loader.deg.loc[loader.deg["behavior"]=='feed+inactive', "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=='feed+inactive+turn', "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=='feed+inactive+turn+twitch', "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=='feed+inactive+twitch', "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=="feed+inactive+micromovement+twitch", "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=="feed+inactive+micromovement", "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=='inactive+micromovement+twitch', "behavior"]="inactive+twitch"
-    loader.deg.loc[loader.deg["behavior"]=='feed+twitch', "behavior"]="feed"
-    loader.deg.loc[loader.deg["behavior"]=='inactive+micromovement+turn', "behavior"]="inactive+turn"
-    loader.deg.loc[loader.deg["behavior"]=='inactive+micromovement+turn+twitch', "behavior"]="inactive+turn"
-    loader.deg.loc[loader.deg["behavior"]=='micromovement+twitch', "behavior"]="background"
 
-    loader.deg.sort_values("frame_number", inplace=True)
-    loader.deg=annotate_bouts(loader.deg, variable="behavior")
-    loader.deg=annotate_bout_duration(loader.deg, fps=150)
-    loader.deg["score"]=None
-    loader.deg=annotate_bouts(loader.deg, variable="behavior")
-    loader.deg=annotate_bout_duration(loader.deg, fps=30)
-    loader.deg["label"]=loader.deg["behavior"]
-    loader.deg.loc[
-        loader.deg["behavior"].isin(["inactive+micromovement", "inactive+turn", "inactive+twitch"]),
-        "label"
-    ]="micromovement"
 
-    
+
     
 def load_scores(loader):
     hdf5_file=os.path.join(loader.basedir, f"motionmapper/{str(loader.identity).zfill(2)}/pose_raw/{loader.experiment}__{str(loader.identity).zfill(2)}/{loader.experiment}__{str(loader.identity).zfill(2)}.h5")
@@ -215,29 +208,30 @@ def load_pose(loader, chunksize, files=None, frame_numbers=None, load_distance_t
     # pose.set_index(idx_cols, inplace=True)
     loader.pose=pose
 
-def select_wavelet_file(loader, filters):
-    wavelets_folder=os.path.join(loader.basedir, "motionmapper", str(loader.identity).zfill(2), f"wavelets_{filters}", "FlyHostel_long_timescale_analysis", "Wavelets")
-    wavelet_file=os.path.join(wavelets_folder, loader.experiment + "__" + str(loader.identity).zfill(2) + "-pcaModes-wavelets.mat")
+def validate_file(path):
 
-    if not os.path.exists(wavelet_file):
-        logger.error(f"{wavelet_file} not found")
+    if not os.path.exists(path):
+        logger.error("%s not found", path)
         return None
         
     try:
-        with h5py.File(wavelet_file, "r") as file:
+        with h5py.File(path, "r") as file:
             file.keys()
-            logger.debug(f"{wavelet_file} OK")
-            return wavelet_file
+            logger.debug("%s OK", path)
+            return path
         
     except OSError:
-        logger.error(f"{wavelet_file} not readable")
+        logger.error("%s not readable", path)
         return None
 
 
 def load_wavelets(loader, filters, frames, wavelet_file=None):
     assert loader.pose is not None
     if wavelet_file is None:
-        wavelet_file=select_wavelet_file(loader, filters=filters)
+        wavelets_folder=os.path.join(loader.basedir, "motionmapper", str(loader.identity).zfill(2), f"wavelets_{filters}", "FlyHostel_long_timescale_analysis", "Wavelets")
+        wavelet_file=os.path.join(wavelets_folder, loader.experiment + "__" + str(loader.identity).zfill(2) + "-pcaModes-wavelets.mat")
+
+        wavelet_file=validate_file(wavelet_file)
     wavelets, (frequencies, freq_names)=loader.load_wavelets(matfile=wavelet_file, frames=frames)
     loader.wavelets=wavelets
 
@@ -297,13 +291,15 @@ def load_animal_data(
             frames=wt_frames- (loader.first_fn // downsample)
 
         load_wavelets(loader, filters=filters, frames=frames, wavelet_file=wavelet_file)
+        if loader.wavelets is not None:
+            if labeled_frames_wt is None:
+                frame_numbers=loader.pose["frame_number"].values
+            else:
+                frame_numbers=labeled_frames_wt
 
-        if labeled_frames_wt is None:
-            frame_numbers=loader.pose["frame_number"].values
+            loader.wavelets["frame_number"]=frame_numbers
         else:
-            frame_numbers=labeled_frames_wt
-
-        loader.wavelets["frame_number"]=frame_numbers
+            logger.warning("Could not load wavelets for loader %s", loader)
 
     return loader
 
@@ -317,7 +313,6 @@ def compile_dataset(loader, out=None):
     else:        
         loader.data=loader.deg.merge(loader.pose, on=idx_cols, how="inner")
     
-    # import ipdb; ipdb.set_trace()
 
     if loader.wavelets is None:
         pass
@@ -378,7 +373,7 @@ def process_animal(
             logger.error(error)
             return None
 
-def load_animals(animals, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, n_jobs=1, **kwargs):
+def     load_animals(animals, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, n_jobs=1, **kwargs):
     loaders=[FlyHostelLoader(experiment=expid.split("__")[0], identity=int(expid.split("__")[1]), chunks=range(0, 400)) for expid in animals]
     data = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(

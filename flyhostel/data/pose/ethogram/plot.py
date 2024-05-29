@@ -28,6 +28,7 @@ behaviors=[
     "groom",
     "feed+walk",
     "walk",
+    "rejection",
     "background",
 ]
 
@@ -47,7 +48,8 @@ PALETTE = {
     "inactive+walk": "darkgray",
     "inactive+microm": "purple",
     "inactive+micromovement": "purple",
-    "inactive+twitch": "purple",    
+    "inactive+twitch": "purple",
+    "rejection": "yellow",    
 }
 
 
@@ -117,6 +119,7 @@ def bin_behavior_table_v2(df, time_window_length=1, x_var="seconds", t0=None, be
             other_cols=["zt", "zt_", "score", "chunk", "frame_idx"],
             behavior_col=behavior_col
         )
+        logger.debug("bin_behavior_table_v2 Done")
 
     bin_columns=["fraction", "fluctuations"]
     return df, x_var, bin_columns
