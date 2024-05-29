@@ -15,8 +15,10 @@ import glob
 import yaml
 from tqdm.auto import tqdm
 import joblib
+import numpy as np
 import pandas as pd
 import cupy as cp
+
 
 from .qc import all_id_expected_qc
 from flyhostel.data.interactions.neighbors_gpu import compute_distance_between_ids, find_closest_pair
@@ -78,13 +80,21 @@ def scene_qc(scene, number_of_animals):
     }
 
 def min_distance_between_animals_qc(scene):
+    if isinstance(scene, cp.ndarray):
+        nx=cp
+    else:
+        nx=np
+
     ids=scene["id"].unique().tolist()
     distance_matrix=compute_distance_between_ids(scene, ids)
     distance, (i, j) = find_closest_pair(distance_matrix, time_axis=2, partner_axis=1)
     i=i.tolist()
     j=j.tolist()
-    k=int(cp.argmin(distance))
-    min_distance=distance_matrix[k, i[k], j[k]].get().item()
+    k=int(nx.argmin(distance))
+    if nx is np:
+        min_distance=distance_matrix[k, i[k], j[k]].item()
+    elif nx is cp:
+        min_distance=distance_matrix[k, i[k], j[k]].get().item()
 
     focal_id=ids[k]
 

@@ -3,16 +3,13 @@ import os.path
 import sqlite3
 import pandas as pd
 
-from flyhostel.utils.utils import get_dbfile
+from flyhostel.utils.utils import get_dbfile, get_basedir
 
 logger=logging.getLogger(__name__)
 
 
 
-def get_basedir(experiment):
-    tokens = experiment.split("_")
-    basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
-    return basedir
+
 
 def get_number_of_animals(experiment):
     tokens = experiment.split("_")
