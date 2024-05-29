@@ -34,6 +34,11 @@ def get_dbfile(basedir):
     assert os.path.exists(dbfile), f"{dbfile} not found"
     return dbfile
 
+def get_basedir(experiment):
+    tokens = experiment.split("_")
+    basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
+    return basedir
+
 def add_suffix(filename, suffix=""):
 
     if suffix != "":
