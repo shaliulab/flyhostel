@@ -1,7 +1,9 @@
 import time
+import shutil
 import logging
 import os.path
 import pandas as pd
+import h5py
 from tqdm.auto import tqdm
 logger=logging.getLogger(__name__)
 
@@ -17,13 +19,17 @@ except ModuleNotFoundError:
     wavelet_downsample=5
 
 
-def get_behavior_feather_file(experiment, identity):
+def get_behavior_feather_file_path(experiment, identity):
     tokens=experiment.split("_")
-    feather_path=os.path.join(
+    basedir=os.path.join(
         os.environ["FLYHOSTEL_VIDEOS"],
         tokens[0],
         tokens[1],
-        "_".join(tokens[2:4]),
+        "_".join(tokens[2:4])
+    )
+    
+    feather_path=os.path.join(
+        basedir,
         "motionmapper",
         str(identity).zfill(2),
         f"{experiment}__{str(identity).zfill(2)}.feather"
@@ -31,25 +37,50 @@ def get_behavior_feather_file(experiment, identity):
     return feather_path
 
 
+def interpolate_wavelets(dt, interpolate_frames=0):
+
+    dt_t_complete=[]
+    for i in tqdm(range(interpolate_frames), desc="filling wavelet gaps"):
+        df=dt.copy()
+        df["frame_number"]+=i
+        dt_t_complete.append(df)
+    
+    dt=pd.concat(dt_t_complete, axis=0)
+    del dt_t_complete
+    dt.sort_values(["id", "frame_number"], inplace=True)
+    return dt
+
 
 class BehaviorLoader():
 
     def __init__(self, *args, **kwargs):
         self.behavior=None
+        self.store_index=None
         self.pose=None
         super(BehaviorLoader, self).__init__(*args, **kwargs)
 
+    def load_store_index(self):
+        raise NotImplementedError
 
-    @staticmethod
-    def get_behavior_feather_file(experiment, identity):
-        return get_behavior_feather_file(experiment, identity)
 
+    def get_behavior_feather_file(self, experiment, identity, fail=False):
+        file=get_behavior_feather_file_path(experiment, identity)
+        assert os.path.exists(file)
+        return file
+
+            
 
     def load_behavior_data(self, experiment, identity, pose=None, interpolate_frames=0, cache=None):
+        """
+        Load the results of draw_ethogram (predict_behavior process)
+        Add interdistance features (proboscis-head)
+        Annotate ZT
+        Annotate bouts
+        """
 
         if cache is not None:
             path = os.path.join(cache, f"{experiment}__{str(identity).zfill(2)}_behavior.pkl")
-            ret, self.behavior = restore_cache(path)
+            # ret, self.behavior = restore_cache(path)
             ret=False
             if ret:
                 return
@@ -59,6 +90,7 @@ class BehaviorLoader():
 
         if os.path.exists(feather_path):
 
+            logger.debug("Reading %s", feather_path)
             dt=pd.read_feather(feather_path)
             i=list(dt.columns).index("score")
             behaviors=list(dt.columns[i+1:])
@@ -66,16 +98,7 @@ class BehaviorLoader():
             dt=dt[["id", "frame_number", "behavior", "score"] + behaviors]
     
             if interpolate_frames>0:
-                dt_t_complete=[]
-                for i in tqdm(range(interpolate_frames), desc="filling wavelet gaps"):
-                    df=dt.copy()
-                    df["frame_number"]+=i
-                    dt_t_complete.append(df)
-                
-                dt=pd.concat(dt_t_complete, axis=0)
-                del dt_t_complete
-                dt.sort_values(["id", "frame_number"], inplace=True)
-                
+                dt=interpolate_wavelets(dt, interpolate_frames=interpolate_frames)
             
             fps=FRAMERATE//wavelet_downsample
 
@@ -100,17 +123,21 @@ class BehaviorLoader():
                 logger.debug("Refining behavior took %s seconds", after-before)
 
 
-
         else:
             logger.warning("%s does not exist", feather_path)
             return
-    
+        
+
+        logger.debug("Annotating bouts and their duration")
         dt=annotate_bouts(dt, "behavior")
         dt=annotate_bout_duration(dt, fps=fps)
         self.behavior=dt
         
+        logger.debug("Loading store index")
+        self.load_store_index()
         self.store_index["t"]=self.store_index["frame_time"]+self.meta_info["t_after_ref"]
 
+        logger.debug("Annotating time of behavior data")
         self.behavior=self.behavior.drop(
             "t", axis=1, errors="ignore"
         ).merge(
@@ -118,7 +145,7 @@ class BehaviorLoader():
                 "frame_number"
         )
 
-
         if cache is not None:
+            logger.debug("Saving cache to %s", path)
             save_cache(path, self.behavior)
 
