@@ -1,9 +1,10 @@
-import warnings
+import logging
 from abc import ABC, abstractmethod
 import sqlite3
 import os.path
 from tqdm.auto import tqdm
 from .reader import MP4Reader
+logger=logging.getLogger(__name__)
 FLYHOSTEL_SINGLE_VIDEOS="./flyhostel/single_animal/"
 
 class MP4VideoMaker(ABC):
@@ -99,7 +100,7 @@ class MP4VideoMaker(ABC):
                                 fn, written_images_=self.write_frame(img, output, chunk, frame_number, 0, resolution_full, index_cur=index_cur, written_images=written_images[0], **kwargs)
                                 written_images[identifier]=written_images_
                                 if fn is not None:
-                                    print(f"Working on chunk 000/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
+                                    logger.debug(f"Working on chunk 000/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
 
 
                             else:
@@ -107,7 +108,7 @@ class MP4VideoMaker(ABC):
                                     fn, written_images_=self.write_frame(img[i], output, chunk, frame_number, identifier, resolution, index_cur=index_cur, written_images=written_images[identifier], **kwargs)
                                     written_images[identifier]=written_images_
                                     if fn is not None:
-                                        print(f"Working on chunk {str(identifier).zfill(3)}/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
+                                        logger.debug(f"Working on chunk {str(identifier).zfill(3)}/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
                                 
                             target_fn=frame_number+mp4_reader.step
 
@@ -140,7 +141,7 @@ class MP4VideoMaker(ABC):
             fn, written_images = self.init_video_writer(basedir=output, frame_size=resolution, identifier=identifier,chunk=chunk, **kwargs)
             if fn is None:
                 return fn, written_images
-            print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}")
+            logger.debug("Working on chunk %s. Initialized %s. start_next_chunk = %s", chunk, fn, self.start_next_chunk)
             assert img.shape == resolution[::-1], f"{img.shape} != {resolution[::-1]}"
             assert str(chunk).zfill(6) in fn
 

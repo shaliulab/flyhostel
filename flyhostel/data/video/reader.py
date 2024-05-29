@@ -128,9 +128,9 @@ class MP4Reader:
             self._data.set_index(["frame_number", self.IDENTIFIER_COLUMN], inplace=True)
             self._data["x"] = np.int32(np.floor(self._data["x"]))
             self._data["y"] = np.int32(np.floor(self._data["y"]))
-            print(f"MP4 reader initialized with step = {self.step}")
+            logger.debug("MP4 reader initialized with step = %s", self.step)
         else:
-            print("MP4 reader failed initializing due to warnings displayed above")
+            logger.debug("MP4 reader failed initializing due to warnings displayed above")
     
     def filter_data(self):
         # self.no_filter()
@@ -315,7 +315,7 @@ class MP4Reader:
             return None
         
         coords = (x_coord, y_coord)
-        logger.debug(f"frame number: {frame_number}, coords: {coords}")
+        # logger.debug(f"frame number: {frame_number}, coords: {coords}")
 
         return coords
 
@@ -324,7 +324,7 @@ class MP4Reader:
 
         if frame_number is None:
             frame_number = self._cap.frame_number
-            print(f"Reading frame number {frame_number}")
+            logger.debug(f"Reading frame number {frame_number}")
 
         img, (fn, ft) = self._cap.get_image(frame_number)
         if fn != frame_number:
