@@ -20,8 +20,8 @@ def load_model(model_path):
             model=pickle.load(handle)
         return model
     except TypeError as error:
-        logger.error("%s cannot be loaded from this Python due to pickle issues")
-        raise error       
+        logger.error("%s cannot be loaded from this Python due to pickle issues", model_path)
+        raise error
 
 
 def predict_behavior(experiment, model_path, identity=None, wavelets=None, output=None, **kwargs):

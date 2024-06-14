@@ -29,7 +29,7 @@ from flyhostel.data.pose.constants import bodyparts_xy as BODYPARTS_XY
 from flyhostel.data.pose.constants import DEFAULT_FILTERS
 DEFAULT_FILTERS="-".join(DEFAULT_FILTERS)
 from flyhostel.data.deg import LABELS
-
+from flyhostel.data.pose.ethogram.utils import load_train_test_split
 from flyhostel.data.pose.ethogram.loader import load_animals, DISTANCE_FEATURES_PAIRS, document_provenance, validate_animals_data
 
 PARAMS=setRunParameters()
@@ -48,9 +48,21 @@ def get_frequencies_bps(params=PARAMS, freqs=None, bodyparts_xy=BODYPARTS_XY):
     return freq_names
 
 
-def get_features(freqs=None, bodyparts_xy=BODYPARTS_XY, distance_features_pairs=DISTANCE_FEATURES_PAIRS):
+def get_features(
+        freqs=None, bodyparts_xy=BODYPARTS_XY,
+        distance_features_pairs=DISTANCE_FEATURES_PAIRS,
+        probabilities=None,
+        speed_features=None,
+        landmarks=None,
+        ):
     freq_names=get_frequencies_bps(freqs=freqs, bodyparts_xy=bodyparts_xy)
     features=freq_names + [f"{p0}_{p1}_distance" for p0, p1 in distance_features_pairs]
+    if speed_features is not None:
+        features+=speed_features    
+    if probabilities is not None:
+        features+=probabilities
+    if landmarks is not None:
+        features+=landmarks
     return features
 
 logger=logging.getLogger(__name__)
@@ -65,6 +77,17 @@ def get_sample_weights(y):
     sample_weights = np.array([weight_dict[cls] for cls in y])
     return sample_weights
 
+
+def build_eval_params(eval_params):
+    eval_params["downsample_train"]=eval_params.get("downsample_train", 1)
+    eval_params["probabilities"]=eval_params.get("probabilities", None)
+    eval_params["landmarks"]=eval_params.get("landmarks", None)
+    eval_params["speed_features"]=eval_params.get("speed_features", None)
+    eval_params["downsample_test"]=eval_params.get("downsample_test", 1)
+    eval_params["bodyparts"]=eval_params.get("bodyparts", BODYPARTS)
+    eval_params["freqs"]=eval_params.get("freqs", get_frequencies(PARAMS))
+    eval_params["distance_features_pairs"]=eval_params.get("distance_features_pairs", DISTANCE_FEATURES_PAIRS)
+    return eval_params
 
 
 def train(
@@ -111,14 +134,13 @@ def train(
 
 
     os.makedirs(output_folder)
-    shutil.copyfile("split.yaml", os.path.join(output_folder, "split.yaml"))
+    split={"train": train_set_animals, "test": test_set_animals}
+    with open(os.path.join(output_folder, "split.yaml"), "w") as handle:
+        yaml.dump(split, handle, sort_keys=False)
+
 
     provenance=document_provenance()
-    eval_params["downsample_train"]=eval_params.get("downsample_train", 1)
-    eval_params["downsample_test"]=eval_params.get("downsample_test", 1)
-    eval_params["bodyparts"]=eval_params.get("bodyparts", BODYPARTS)
-    eval_params["freqs"]=eval_params.get("freqs", get_frequencies(PARAMS))
-    eval_params["distance_features_pairs"]=eval_params.get("distance_features_pairs", DISTANCE_FEATURES_PAIRS)
+    eval_params=build_eval_params(eval_params)
     bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in eval_params["bodyparts"]]))
     provenance.update(eval_params)
 
@@ -131,11 +153,16 @@ def train(
         freqs=eval_params["freqs"],
         bodyparts_xy=bodyparts_xy,
         distance_features_pairs=eval_params["distance_features_pairs"],
+        speed_features=eval_params["speed_features"],
+        probabilities=eval_params["probabilities"],
+        landmarks=eval_params["landmarks"],
+
     )
 
     validate_animals_data(train_set_animals+test_set_animals)
-    train_data=load_animals(train_set_animals, load_deg_data=True, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
-    test_data=load_animals(test_set_animals, load_deg_data=True, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
+    load_scores_data=True
+    train_data=load_animals(train_set_animals, load_deg_data=True, load_scores_data=load_scores_data, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
+    test_data=load_animals(test_set_animals, load_deg_data=True, load_scores_data=load_scores_data, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
     train_data=downsample_dataset(train_data, eval_params["downsample_train"])
     test_data=downsample_dataset(test_data, eval_params["downsample_test"])
 
@@ -153,7 +180,6 @@ def train(
         logger.warning("Some of the frequencies produced by LTA are not present in the data")
         logger.warning("Missing frequencies %s", missing_freqs)
         logger.warning("Available frequecies: %s", train_data.columns)
-        import ipdb; ipdb.set_trace()
         
 
     # Downsample so that least abundant classes are not so underrepresented
@@ -168,10 +194,27 @@ def train(
     # Compute class weights
     x_train=train_data_downsampled[features].values
 
-    # check there is no missing data
-    assert (np.isnan(x_train).sum(axis=0)==0).all()
-    scaler=StandardScaler()
+    missing_data=np.isnan(x_train).sum(axis=1)
 
+    # check there is no missing data
+    if (missing_data==0).all():
+        pass
+
+    elif (missing_data>0).sum()<100:
+        logger.error("Missing data:")
+        print(
+            train_data_downsampled.loc[missing_data]
+        )
+        x_train=train_data_downsampled[features].ffill(axis=0).values
+
+    else:
+        logger.error("Missing data:")
+        print(
+            train_data_downsampled.loc[missing_data]
+        )
+        raise Exception()
+    
+    scaler=StandardScaler()
     if norm:
         z_train=scaler.fit_transform(x_train)
     else:
@@ -189,9 +232,15 @@ def train(
     with open(model_path, "wb") as handle:
         pickle.dump((model, features, scaler), handle)
 
-    preds=inference(test_data, label, model_path)
-    predictions=preds["prediction"].values
+    try:
+        preds=inference(test_data, label, model_path, inactive_states=["inactive", "inactive+pe", "inactive+rejection", "inactive+micromovement"])
+    except Exception as error:
+        test_data.reset_index().to_feather(os.path.join(output_folder, "test_predictions.feather"))
+        raise error
+    else:
+        preds.reset_index().to_feather(os.path.join(output_folder, "test_predictions.feather"))
 
+    # Generate visualizations
     title=[]
     for k, v in eval_params.items():
         if k == "freqs":
@@ -199,14 +248,9 @@ def train(
         
         title.append(f"{k}: {v}")
     title="\n".join(title)
-    
 
-    ground_truth=preds[label].values
-    save_confusion_matrix(ground_truth, predictions, output_folder, "test_confusion_matrix.png", title)
-
-    save_confusion_matrix(preds["active.gt"], preds["active.pr"], output_folder, "test_confusion_matrix_inactive.png", title)
-
-    preds.reset_index().to_feather(os.path.join(output_folder, "test_predictions.feather"))
+    save_confusion_matrix(preds, label, "prediction", output_folder, "test_confusion_matrix.png",  labels=LABELS, title=title)
+    save_confusion_matrix(preds, "active.gt", "active.pr", output_folder, "test_confusion_matrix_inactive.png", labels=None, title=title)
 
     y_true=preds[label].values
     y_pred=preds["prediction"].values
@@ -214,6 +258,7 @@ def train(
     y_score=preds[columns].values
     sample_weights=get_sample_weights(y_true)
     
+    # Generate metrics
     try:
         metrics = {
             "accuracy_score": accuracy_score                         (y_true=y_true, y_pred=y_pred),
@@ -235,15 +280,22 @@ def train(
 
 
 
-
 def inference(dataset, label, model_path, inactive_states):
 
     with open(model_path, "rb") as handle:
         model, features, scaler= pickle.load(handle)
 
+    print(f"Loaded {model_path}. Will predict among the following classes : {model.classes_}")
+    dataset.drop(["bout_count_pred", "bout_in_pred", "bout_out_pred", "duration_pred", "correct_bout_fraction"], axis=1, errors="ignore", inplace=True)
+
+    missing_counts=dataset[features].isna().sum(axis=0)
+    if (missing_counts>0).any():
+        print("Missing values count: ", np.array(features)[missing_counts>0], missing_counts[missing_counts>0])
+        dataset[features]=dataset[features].ffill(axis=0)
     x_test=dataset[features].values
     logger.debug("Predicting %s points", x_test.shape[0])
     z_test=scaler.transform(x_test)
+    
     probabilities=model.predict_proba(z_test)
     predictions=[model.classes_[i] for i in probabilities.argmax(axis=1)]
     confidence=probabilities.max(axis=1)
@@ -260,7 +312,7 @@ def inference(dataset, label, model_path, inactive_states):
     
     index=preds.index
     preds=pd.concat([
-        preds,
+        preds.drop(bp_probabilities, axis=1, errors="ignore"),
         pd.DataFrame(probabilities, index=preds.index, columns=bp_probabilities),
     ], axis=1)
     preds=preds.merge(
@@ -268,22 +320,28 @@ def inference(dataset, label, model_path, inactive_states):
         on=["bout_count"], how="left"
     )
     preds.index=index
-    annotate_active_state(preds, prediction="prediction", inactive_states=inactive_states)
+    annotate_active_state(preds, y_true="behavior", y_pred="prediction", inactive_states=inactive_states)
 
 
     return preds
 
-def annotate_active_state(dataset, prediction, inactive_states):
+def annotate_active_state(dataset, y_true, y_pred, inactive_states):
 
     dataset["active.pr"]="active"
     dataset["active.gt"]="active"
-    dataset.loc[dataset[prediction].isin(inactive_states), "active.pr"]="inactive"
-    dataset.loc[dataset["behavior"].isin(inactive_states), "active.gt"]="inactive"
+    dataset.loc[dataset[y_pred].isin(inactive_states), "active.pr"]="inactive"
+    dataset.loc[dataset[y_true].isin(inactive_states), "active.gt"]="inactive"
     return dataset
 
 
-def save_confusion_matrix(y_true, y_pred, output_folder, name="test_confusion_matrix.png", title=None):
-    disp=ConfusionMatrixDisplay.from_predictions(y_true=y_true, y_pred=y_pred, normalize="true", xticks_rotation=45, labels=LABELS)
+def save_confusion_matrix(predictions, y_true, y_pred, output_folder, name="test_confusion_matrix.png", labels=None, title=None):
+    disp=ConfusionMatrixDisplay.from_predictions(
+        y_true=predictions[y_true],
+        y_pred=predictions[y_pred],
+        normalize="true",
+        xticks_rotation=45,
+        labels=labels
+    )
     np.savetxt(
         os.path.join(output_folder, "test_confusion_matrix.csv"),
         disp.confusion_matrix, delimiter=",", fmt="%.4e"
@@ -324,12 +382,6 @@ def downsample_dataset(data, downsample):
     data=data.loc[data["chunk_lid"].isin(kept)]
     return data
 
-
-
-def load_train_test_split():
-    with open("split.yaml", "r") as handle:
-        train_test_split=yaml.safe_load(handle)
-    return train_test_split
 
 
 def main(**kwargs):

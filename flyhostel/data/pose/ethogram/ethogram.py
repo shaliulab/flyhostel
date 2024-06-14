@@ -35,10 +35,9 @@ from motionmapperpy import setRunParameters
 wavelet_downsample=setRunParameters().wavelet_downsample
 
 
-def get_bout_length_percentile_from_project(project_path, percentile=1):
+def get_bout_length_percentile_from_project(project_path, percentile=1, behaviors=None):
     records = projects.get_records_from_datadir(os.path.join(project_path, "DATA"))
     label_list = []
-    behaviors=projects.get_classes_from_project(project_path)
     for animal, record in records.items():
         labelfile = record['label']
         if labelfile is None:
@@ -49,8 +48,10 @@ def get_bout_length_percentile_from_project(project_path, percentile=1):
             continue
         label_list.append(label)
     
-    percentiles = get_bout_length_percentile(label_list, percentile)
-    percentiles={behaviors[i]: percentiles[i] for i in range(len(percentiles))}
+    percentiles = get_bout_length_percentile(label_list, percentile, behaviors=behaviors)
+    if behaviors is None:
+        behavior_list=projects.get_classes_from_project(project_path)
+        percentiles={behavior_list[i]: percentiles[i] for i in range(len(percentiles))}
     return percentiles
 
 
@@ -305,10 +306,10 @@ def make_ethogram(
     dataset[final_cols].reset_index(drop=True).to_feather(feather_out)
 
     # dataset[["frame_number", "chunk", "frame_idx"] + features].reset_index(drop=True).to_feather(feather_input)
-    save_deg_prediction_file(experiment, dataset)
+    save_deg_prediction_file(experiment, dataset, features)
 
 
-def postprocess_behaviors(dataset, percentile=1):
+def postprocess_behaviors(dataset, percentile=1, column="behavior", behaviors=None):
     """
     Remove short bouts of behaviors and join simultanous behaviors
     
@@ -316,13 +317,17 @@ def postprocess_behaviors(dataset, percentile=1):
     in the DEG database
     """
     
-    unique_behaviors=dataset["behavior"].unique().tolist()
+    if behaviors is None:
+        unique_behaviors=dataset[column].unique().tolist()
+    else:
+        unique_behaviors=list(behaviors.keys())
+
     if "background" in unique_behaviors:
         unique_behaviors.pop(unique_behaviors.index("background"))
     unique_behaviors=["background"] + unique_behaviors
-    predictions=one_hot_encoding(dataset["behavior"], unique_behaviors)
+    predictions=one_hot_encoding(dataset[column], unique_behaviors)
 
-    bout_length_dict=get_bout_length_percentile_from_project(DEEPETHOGRAM_PROJECT_PATH, percentile=percentile)
+    bout_length_dict=get_bout_length_percentile_from_project(DEEPETHOGRAM_PROJECT_PATH, percentile=percentile, behaviors=behaviors)
     logger.debug("Bout length cutoff %s", bout_length_dict)
     
     bout_lengths=[int(bout_length_dict.get(behav, 1)) for behav in unique_behaviors]
@@ -330,25 +335,31 @@ def postprocess_behaviors(dataset, percentile=1):
     T, K = predictions.shape
     for i in range(K):
         trace = predictions[:, i]
+        print(unique_behaviors[i], bout_lengths[i])
         trace = remove_short_bouts_from_trace(trace, bout_lengths[i])
         predictions_smoothed.append(trace)
 
     predictions = np.stack(predictions_smoothed, axis=1)
+    confusing_rows=predictions.sum(axis=1)>1
+    predictions[confusing_rows, :]=0
     predictions = compute_background(predictions)
+    
+
     rows,cols=np.where(predictions==1)
     prediction=[unique_behaviors[i] for i in cols]
-    prediction=join_strings_by_repeated_integers(rows, prediction, joiner="+")
-    dataset["behavior"]=prediction
+    # prediction=join_strings_by_repeated_integers(rows, prediction, joiner="+")
+    dataset[column]=prediction
     return dataset
 
 
-def save_deg_prediction_file(experiment, dataset, group_name="flyhostel"):
+def save_deg_prediction_file(experiment, dataset, features, group_name="motionmapper"):
     """
     Save the prediction in the same format as Deepethogram, so that it can be rendered in the GUI
     """
     
     chunk_lids=dataset[["chunk", "local_identity"]].drop_duplicates().sort_values("chunk").values.tolist()
-    
+    dataset, behaviors=reverse_behaviors(dataset)
+
     for chunk, local_identity in tqdm(chunk_lids, desc="Saving prediction files"):
 
         # video_file=os.path.join(
@@ -360,13 +371,14 @@ def save_deg_prediction_file(experiment, dataset, group_name="flyhostel"):
         os.makedirs(output_folder, exist_ok=True)
         output_path=os.path.join(output_folder, filename)
 
-        dataset, behaviors=reverse_behaviors(dataset)
+        dataset_this_chunk=dataset.loc[(dataset["chunk"]==chunk) & (dataset["local_identity"]==local_identity)]
 
-        P=dataset[behaviors].loc[(dataset["chunk"]==chunk) & (dataset["local_identity"]==local_identity)].values
+        P=dataset_this_chunk[behaviors].values
         P = np.repeat(P, wavelet_downsample, axis=0)
         assert P.shape[0] == chunksize
-        # P = np.apply_along_axis(rankdata, 1, P, 'average')/(P.shape[1])
-        # P[P < 0.7]=0 # because top 3 are usually correct
+
+        features_data=dataset_this_chunk[features].values
+        features_data = np.repeat(features_data, wavelet_downsample, axis=0)
 
         logger.debug("Writing %s", output_path)
         with h5py.File(output_path, "w") as f:
@@ -379,6 +391,12 @@ def save_deg_prediction_file(experiment, dataset, group_name="flyhostel"):
 
             thresholds=group.create_dataset("thresholds", (len(behaviors), ), dtype=np.float32)
             thresholds[:]=np.array([1, ] * len(behaviors))
+
+            features_group=group.create_dataset("features", features_data.shape, dtype=np.float32)
+            features_group[:]=features_data
+
+            features_names=group.create_dataset("features_names", (len(features), ), dtype="|S100")
+            features_names[:]=[e.encode() for e in features]
 
 
 def reverse_behaviors(dataset):

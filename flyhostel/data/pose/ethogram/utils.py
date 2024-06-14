@@ -1,8 +1,16 @@
 import logging
+import yaml
 import numpy as np
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 logger=logging.getLogger(__name__)
+
+
+
+def load_train_test_split(file="split.yaml"):
+    with open(file, "r") as handle:
+        train_test_split=yaml.safe_load(handle)
+    return train_test_split
 
 
 def count_bout_position(df, variable, counter):

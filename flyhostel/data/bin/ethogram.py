@@ -10,6 +10,7 @@ def get_parser():
     ap.add_argument("--experiment", required=False, default=None)
     ap.add_argument("--identity", required=False, default=None)
     ap.add_argument("--files", nargs="+", type=str, default=None, help="Processed pose files (.h5)")
+    ap.add_argument("--raw-files", nargs="+", type=str, default=None, help="Processed pose files (.h5)")
     ap.add_argument("--wavelets", type=str, default=None)
     # group.add_argument("--input", required=False, type=str, default=None,
     #                    help="path to input video on which annotations will be drawn. If ")
@@ -30,6 +31,7 @@ def main():
         args.experiment, str(args.identity).zfill(2),
         model_path=args.model_path,
         files=args.files,
+        raw_files=args.raw_files,
         wavelet_file=args.wavelets,
         output=args.output,
         frame_numbers=args.frame_number,

@@ -394,7 +394,7 @@ def read_label_file(data_entry, labels_file, verbose=False, **kwargs):
     
     labels=melt_labels(labels, behaviors=BEHAVIORS, tracks=tracks)
     if labels is None:
-        logger.warning("%s cannot be loaded")
+        logger.warning("%s cannot be loaded", labels_file)
         return None
     
     for key, value in kwargs.items():

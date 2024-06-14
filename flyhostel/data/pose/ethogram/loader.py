@@ -1,6 +1,7 @@
 import os.path
 import itertools
 import logging
+from tqdm.auto import tqdm
 import h5py
 import joblib
 import git
@@ -13,6 +14,7 @@ from flyhostel.data.pose.constants import DEG_DATA
 
 from flyhostel.data.pose.constants import chunksize, bodyparts_xy
 from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.main import FlyHostelLoader
 from motionmapperpy import setRunParameters
 
@@ -114,14 +116,22 @@ def load_deg(loader):
 
 
 
-    
-def load_scores(loader):
-    hdf5_file=os.path.join(loader.basedir, f"motionmapper/{str(loader.identity).zfill(2)}/pose_raw/{loader.experiment}__{str(loader.identity).zfill(2)}/{loader.experiment}__{str(loader.identity).zfill(2)}.h5")
-    with h5py.File(hdf5_file, "r") as file:
+def load_scores(loader, files=None):
+    if files is None:
+        pose_file=os.path.join(loader.basedir, f"motionmapper/{str(loader.identity).zfill(2)}/pose_raw/{loader.experiment}__{str(loader.identity).zfill(2)}/{loader.experiment}__{str(loader.identity).zfill(2)}.h5")
+    else:
+        pose_file=files[0]
+    with h5py.File(pose_file, "r") as file:
         scores=pd.DataFrame(file["point_scores"][0, :, :].T)
         node_names=[e.decode() for e in file["node_names"][:]]
         scores.columns=node_names
 
+        files=sorted([e.decode() for e in file["files"][:]], key=lambda x: os.path.basename(x))
+        chunks=[int(os.path.basename(file).split(".")[0]) for file in files]
+        frame_numbers=np.array(list(itertools.chain(*[(np.arange(0, chunksize)+chunksize*chunk).tolist() for chunk in chunks])))
+    
+    scores["frame_number"]=frame_numbers
+    scores["id"]=loader.ids[0]
     loader.scores=scores
 
 
@@ -135,9 +145,56 @@ def compute_proboscis_visibility_timing(pose):
     return pose
 
 
+def compute_bp_speeds(pose):
+    bodyparts=[bp for bp in BODYPARTS if "J" not in bp and not bp in ["thorax"]]
+    for bp in tqdm(bodyparts, desc="Computing bodypart speeds"):
+        pose=compute_bp_speed(pose, bp)
+
+    
+    return pose
+
+def compute_bp_speed(dt, bp):
+    
+        
+    diff=np.diff(dt[[f"{bp}_x", f"{bp}_y"]].values, axis=0)
+    dist=np.sqrt((diff**2).sum(axis=1))
+    if "t" in dt.columns:
+        remove_t=False
+    else:
+        remove_t=True
+        dt["t"]=dt["frame_number"]/FRAMERATE
+
+    deltaT=np.diff(dt["t"])
+
+    speed=np.concatenate([[0], dist/deltaT])
+    dt[f"{bp}_speed"]=speed
+    missing_data=np.isnan(speed)
+    if np.sum(missing_data)>0:
+        # logger.warning("Missing data for id %s in frames %s", dt["id"].iloc[0], dt.loc[missing_data, "frame_number"])
+        dt.loc[missing_data, f"{bp}_speed"]=0
 
 
-def load_pose(loader, chunksize, files=None, frame_numbers=None, load_distance_travelled_features=False, load_inter_bp_distance_features=True, annotate_proboscis_visibility_timings=True, downsample=1, filters="rle-jump"):
+    dt["t_round"]=1*(dt["t"]//1)
+    speed_1s=dt.groupby("t_round").\
+        agg({f"{bp}_speed": np.sum}).\
+        rename({f"{bp}_speed": f"{bp}_speed_1s"}, axis=1).\
+        reset_index()
+
+    dt=dt.merge(speed_1s, on="t_round", how="left")
+    
+    if remove_t:
+        dt.drop(["t", "t_round"], axis=1, inplace=True)
+    return dt
+
+
+
+
+def load_pose(
+        loader, chunksize, files=None, frame_numbers=None, load_distance_travelled_features=False,
+        load_inter_bp_distance_features=True,
+        load_bp_speeds=True,
+        load_angle_speeds=True,
+        annotate_proboscis_visibility_timings=True, downsample=1, filters="rle-jump"):
     """
     Populate loader.pose and loader.first_fn
     """
@@ -205,6 +262,14 @@ def load_pose(loader, chunksize, files=None, frame_numbers=None, load_distance_t
         pose=compute_distance_features_pairs(pose, DISTANCE_FEATURES_PAIRS)
         pose.loc[pose["head_proboscis_distance"].isna(), "head_proboscis_distance"]=0
 
+    
+    if load_bp_speeds:
+        pose=compute_bp_speeds(pose)
+    
+    # if load_angle_speeds:
+    #     pose=compute_angular_speeds(pose, ANGULAR_SPEED_FEATURES_PAIRS)
+
+
     # pose.set_index(idx_cols, inplace=True)
     loader.pose=pose
 
@@ -236,6 +301,52 @@ def load_wavelets(loader, filters, frames, wavelet_file=None):
     loader.wavelets=wavelets
 
 
+def compute_centroid_speed(dt):
+
+        
+    diff=np.diff(dt[["x", "y"]].values, axis=0)
+    dist=np.sqrt((diff**2).sum(axis=1))
+    deltaT=np.diff(dt["t"])
+    speed=np.concatenate([[0], dist/deltaT])
+    dt["centroid_speed"]=speed
+    missing_data=np.isnan(speed)
+    if np.sum(missing_data)>0:
+        logger.warning("Missing data for id %s in frames %s", dt["id"].iloc[0], dt.loc[missing_data, "frame_number"])
+        dt["centroid_speed"].ffill(inplace=True)
+
+    dt["t_round"]=1*(dt["t"]//1)
+    centroid_speed_1s=dt.groupby("t_round").\
+        agg({"centroid_speed": np.sum}).\
+        rename({"centroid_speed": "centroid_speed_1s"}, axis=1).\
+        reset_index()
+
+    dt=dt.merge(centroid_speed_1s, on="t_round", how="left")
+    return dt
+
+
+
+def load_landmarks(loader):
+    loader.load_landmarks()
+    loader.compute_if_fly_on_food_patch(include_outside=1)
+    loader.compute_if_fly_on_notch()
+
+
+def load_centroids(loader, load_centroid_speed=True):
+
+    loader.load_centroid_data(
+        identity=loader.identity,
+        identity_table=loader.identity_table,
+        roi_0_table=loader.roi_0_table,
+        cache="/flyhostel_data/cache"
+    )
+    dt=loader.dt
+    
+    if load_centroid_speed:
+        dt=compute_centroid_speed(dt)
+    
+    loader.dt=dt
+        
+
 def load_animal_data(
         loader, filters,
         load_scores_data=False,
@@ -244,6 +355,7 @@ def load_animal_data(
         load_wavelets_data=True,
         wavelet_file=None,
         files=None,
+        raw_files=None,
         chunksize=45000,
         downsample=5
     ):
@@ -259,8 +371,12 @@ def load_animal_data(
     if load_wavelets_data:
         assert load_pose_data
 
+    
+    load_centroids(loader)
+    load_landmarks(loader)
+
     if load_scores_data:
-        load_scores(loader)
+        load_scores(loader, files=raw_files)
 
     if load_deg_data:
         load_deg(loader)
@@ -282,13 +398,13 @@ def load_animal_data(
     if load_pose_data:
         load_pose(loader, chunksize, files=files, filters=filters, downsample=downsample, frame_numbers=labeled_frames)
         if load_scores_data:
-            loader.scores.index=loader.pose.index
-            loader.pose=pd.concat([loader.pose, loader.scores], axis=1)
+            loader.pose=loader.pose.merge(loader.scores, how="left", on=["frame_number", "id"])
+
     if load_wavelets_data:
         if wt_frames is None:
             frames=None
         else:
-            frames=wt_frames- (loader.first_fn // downsample)
+            frames=wt_frames-(loader.first_fn // downsample)
 
         load_wavelets(loader, filters=filters, frames=frames, wavelet_file=wavelet_file)
         if loader.wavelets is not None:
@@ -304,15 +420,32 @@ def load_animal_data(
     return loader
 
 
+def check_missing_data(self, features):
+    missing_data=self.dt[features].isna().sum(axis=0)
+    if (missing_data>0).any():
+        logger.warning("Missing data for id %s in frames %s", self.dt["id"].iloc[0], self.dt.loc[missing_data, "frame_number"])
+        for feat in features:
+            self.dt[feat].ffill(inplace=True)
+
+
 def compile_dataset(loader, out=None):
     
     if loader.deg is None:
         loader.data=loader.pose.copy()
     elif loader.pose is None:
         loader.data=loader.deg
-    else:        
-        loader.data=loader.deg.merge(loader.pose, on=idx_cols, how="inner")
-    
+    else:
+        loader.data=loader.deg.\
+            merge(loader.pose, on=idx_cols, how="inner").\
+            merge(
+                loader.dt[["id", "frame_number", "x", "y", "centroid_speed_1s", "centroid_speed"] + ["notch_distance", "food_distance", "notch", "food"]],
+                on=["frame_number", "id"], how="left"
+            )
+        
+        check_missing_data(loader, ["notch", "notch_distance"])
+        check_missing_data(loader, ["food", "food_distance"])
+        check_missing_data(loader, ["centroid_speed", "centroid_speed_1s"])
+
 
     if loader.wavelets is None:
         pass
@@ -328,8 +461,8 @@ def compile_dataset(loader, out=None):
 
 
 def process_animal(
-        loader, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, downsample=wavelet_downsample, files =None, wavelet_file=None,
-        load_deg_data=True, load_pose_data=True, load_wavelets_data=True, on_fail="raise"
+        loader, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, downsample=wavelet_downsample, files=None, raw_files=None, wavelet_file=None,
+        load_deg_data=True, load_pose_data=True, load_wavelets_data=True, load_scores_data=True, on_fail="raise"
     ):
     try:
         if cache is None:
@@ -349,8 +482,9 @@ def process_animal(
             loader=load_animal_data(
                 loader,
                 load_deg_data=load_deg_data, load_pose_data=load_pose_data, load_wavelets_data=load_wavelets_data,
+                load_scores_data=load_scores_data,
                 filters=filters, downsample=downsample, chunksize=chunksize,
-                wavelet_file=wavelet_file, files=files,
+                wavelet_file=wavelet_file, files=files, raw_files=raw_files
             )
             if load_deg_data and loader.deg is None:
                 logger.warning("Data could not be loaded for %s", loader)
@@ -373,8 +507,25 @@ def process_animal(
             logger.error(error)
             return None
 
-def     load_animals(animals, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, n_jobs=1, **kwargs):
-    loaders=[FlyHostelLoader(experiment=expid.split("__")[0], identity=int(expid.split("__")[1]), chunks=range(0, 400)) for expid in animals]
+def load_animals(animals, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, n_jobs=1, **kwargs):
+    loaders=[]
+    for animal in animals:
+        if "1X" in animal:
+            identity_table='IDENTITY'
+            roi_0_table="ROI_0"
+        else:
+            identity_table='IDENTITY_VAL'
+            roi_0_table="ROI_0_VAL"
+
+        loaders.append(
+            FlyHostelLoader(
+                experiment=animal.split("__")[0],
+                identity=int(animal.split("__")[1]),
+                chunks=range(0, 400),
+                identity_table=identity_table,
+                roi_0_table=roi_0_table,                
+            )
+        )
     data = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             process_animal
