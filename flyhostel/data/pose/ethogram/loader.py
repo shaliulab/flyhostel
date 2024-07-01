@@ -371,8 +371,7 @@ def load_animal_data(
     if load_wavelets_data:
         assert load_pose_data
 
-    
-    load_centroids(loader)
+    load_centroids(loader)   
     load_landmarks(loader)
 
     if load_scores_data:
@@ -436,15 +435,16 @@ def compile_dataset(loader, out=None):
         loader.data=loader.deg
     else:
         loader.data=loader.deg.\
-            merge(loader.pose, on=idx_cols, how="inner").\
-            merge(
-                loader.dt[["id", "frame_number", "x", "y", "centroid_speed_1s", "centroid_speed"] + ["notch_distance", "food_distance", "notch", "food"]],
-                on=["frame_number", "id"], how="left"
-            )
-        
-        check_missing_data(loader, ["notch", "notch_distance"])
-        check_missing_data(loader, ["food", "food_distance"])
-        check_missing_data(loader, ["centroid_speed", "centroid_speed_1s"])
+            merge(loader.pose, on=idx_cols, how="inner")
+
+    loader.data=loader.data.merge(
+        loader.dt[["id", "frame_number", "x", "y", "centroid_speed_1s", "centroid_speed"] + ["notch_distance", "food_distance", "notch", "food"]],
+        on=["frame_number", "id"], how="left"
+    )
+    loader.data.loc[loader.data["frame_number"]==6949465, ["x", "y"]].values
+    check_missing_data(loader, ["notch", "notch_distance"])
+    check_missing_data(loader, ["food", "food_distance"])
+    check_missing_data(loader, ["centroid_speed", "centroid_speed_1s"])
 
 
     if loader.wavelets is None:

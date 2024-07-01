@@ -26,9 +26,9 @@ except ModuleNotFoundError:
     file_io=None
     logger.error("Please install deepethogram without dependencies (pip install --no-deps deepethogram")
 
+logger.warning("Deprecated module")
 
 DEEPETHOGRAM_PROJECT_PATH=os.environ["DEEPETHOGRAM_PROJECT_PATH"]
-
 FLYHOSTEL_VIDEOS=os.environ["FLYHOSTEL_VIDEOS"]
 
 from motionmapperpy import setRunParameters
@@ -214,6 +214,8 @@ def make_ethogram(
      1) an object with a predict method
      2) a list of columns that should be used as features
     """
+
+    raise DeprecationWarning()
 
 
     # dataset, (frequencies, freq_names, features)=load_dataset(experiment=experiment, identity=identity, cache=cache, **kwargs)

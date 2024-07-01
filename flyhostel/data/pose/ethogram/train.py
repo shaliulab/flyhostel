@@ -5,7 +5,6 @@ import itertools
 import logging
 import pickle
 
-from textwrap import wrap
 
 import numpy as np
 import pandas as pd
@@ -15,6 +14,11 @@ import yaml
 from xgboost import XGBClassifier
 from interpret.glassbox import ExplainableBoostingClassifier
 from sklearn.ensemble import RandomForestClassifier
+from flyhostel.data.pose.ethogram.inference import inference_ as inference
+from flyhostel.data.pose.ethogram.plot import save_confusion_matrix
+from flyhostel.data.pose.ethogram.utils import (
+    annotate_active_state,
+)
 
 MODELS={"RandomForestClassifier": RandomForestClassifier, "XGBClassifier": XGBClassifier, "ExplainableBoostingClassifier": ExplainableBoostingClassifier}
 
@@ -22,25 +26,23 @@ from sklearn.metrics import ConfusionMatrixDisplay, balanced_accuracy_score, top
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.preprocessing import StandardScaler
 
-from motionmapperpy.motionmapper import setRunParameters, generate_frequencies
+from motionmapperpy.motionmapper import generate_frequencies
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import bodyparts_xy as BODYPARTS_XY
-
+from flyhostel.data.pose.constants import WAVELET_DOWNSAMPLE, MOTIONMAPPER_PARAMS
 from flyhostel.data.pose.constants import DEFAULT_FILTERS
 DEFAULT_FILTERS="-".join(DEFAULT_FILTERS)
 from flyhostel.data.deg import LABELS
 from flyhostel.data.pose.ethogram.utils import load_train_test_split
 from flyhostel.data.pose.ethogram.loader import load_animals, DISTANCE_FEATURES_PAIRS, document_provenance, validate_animals_data
 
-PARAMS=setRunParameters()
-wavelet_downsample=PARAMS.wavelet_downsample
 
 
 def get_frequencies(params):
     return np.round(generate_frequencies(params.minF, params.maxF, params.numPeriods), 4)
 
 
-def get_frequencies_bps(params=PARAMS, freqs=None, bodyparts_xy=BODYPARTS_XY):
+def get_frequencies_bps(params=MOTIONMAPPER_PARAMS, freqs=None, bodyparts_xy=BODYPARTS_XY):
     if freqs is None:
         freqs=get_frequencies(params)
 
@@ -85,7 +87,7 @@ def build_eval_params(eval_params):
     eval_params["speed_features"]=eval_params.get("speed_features", None)
     eval_params["downsample_test"]=eval_params.get("downsample_test", 1)
     eval_params["bodyparts"]=eval_params.get("bodyparts", BODYPARTS)
-    eval_params["freqs"]=eval_params.get("freqs", get_frequencies(PARAMS))
+    eval_params["freqs"]=eval_params.get("freqs", get_frequencies(MOTIONMAPPER_PARAMS))
     eval_params["distance_features_pairs"]=eval_params.get("distance_features_pairs", DISTANCE_FEATURES_PAIRS)
     return eval_params
 
@@ -234,6 +236,7 @@ def train(
 
     try:
         preds=inference(test_data, label, model_path, inactive_states=["inactive", "inactive+pe", "inactive+rejection", "inactive+micromovement"])
+    
     except Exception as error:
         test_data.reset_index().to_feather(os.path.join(output_folder, "test_predictions.feather"))
         raise error
@@ -250,6 +253,13 @@ def train(
     title="\n".join(title)
 
     save_confusion_matrix(preds, label, "prediction", output_folder, "test_confusion_matrix.png",  labels=LABELS, title=title)
+    title+=" with rules"
+    save_confusion_matrix(preds, label, "prediction2", output_folder, "test_confusion_matrix_with_rules.png",  labels=LABELS, title=title)
+    
+    preds=annotate_active_state(
+        preds, y_true="behavior", y_pred="prediction2",
+        inactive_states=["inactive", "inactive+micromovement", "inactive+pe", "inactive+rejection"]
+    )
     save_confusion_matrix(preds, "active.gt", "active.pr", output_folder, "test_confusion_matrix_inactive.png", labels=None, title=title)
 
     y_true=preds[label].values
@@ -277,85 +287,6 @@ def train(
 
     with open(os.path.join(output_folder, "metrics.yaml"), "w") as handle:
         yaml.safe_dump(metrics, handle)
-
-
-
-def inference(dataset, label, model_path, inactive_states):
-
-    with open(model_path, "rb") as handle:
-        model, features, scaler= pickle.load(handle)
-
-    print(f"Loaded {model_path}. Will predict among the following classes : {model.classes_}")
-    dataset.drop(["bout_count_pred", "bout_in_pred", "bout_out_pred", "duration_pred", "correct_bout_fraction"], axis=1, errors="ignore", inplace=True)
-
-    missing_counts=dataset[features].isna().sum(axis=0)
-    if (missing_counts>0).any():
-        print("Missing values count: ", np.array(features)[missing_counts>0], missing_counts[missing_counts>0])
-        dataset[features]=dataset[features].ffill(axis=0)
-    x_test=dataset[features].values
-    logger.debug("Predicting %s points", x_test.shape[0])
-    z_test=scaler.transform(x_test)
-    
-    probabilities=model.predict_proba(z_test)
-    predictions=[model.classes_[i] for i in probabilities.argmax(axis=1)]
-    confidence=probabilities.max(axis=1)
-    prob_sorted=np.sort(probabilities, axis=1)
-    contrast=prob_sorted[:, -1] - prob_sorted[:, -2]
-
-    preds=dataset.copy()
-    preds["prediction"]=predictions
-    preds["confidence"]=confidence
-    preds["contrast"]=contrast
-    preds["correct"]=preds[label]==preds["prediction"]
-    
-    bp_probabilities=[cl + "_prob" for cl in model.classes_]
-    
-    index=preds.index
-    preds=pd.concat([
-        preds.drop(bp_probabilities, axis=1, errors="ignore"),
-        pd.DataFrame(probabilities, index=preds.index, columns=bp_probabilities),
-    ], axis=1)
-    preds=preds.merge(
-        preds.groupby("bout_count").agg({"correct": np.mean}).reset_index().rename({"correct": "correct_bout_fraction"}, axis=1),
-        on=["bout_count"], how="left"
-    )
-    preds.index=index
-    annotate_active_state(preds, y_true="behavior", y_pred="prediction", inactive_states=inactive_states)
-
-
-    return preds
-
-def annotate_active_state(dataset, y_true, y_pred, inactive_states):
-
-    dataset["active.pr"]="active"
-    dataset["active.gt"]="active"
-    dataset.loc[dataset[y_pred].isin(inactive_states), "active.pr"]="inactive"
-    dataset.loc[dataset[y_true].isin(inactive_states), "active.gt"]="inactive"
-    return dataset
-
-
-def save_confusion_matrix(predictions, y_true, y_pred, output_folder, name="test_confusion_matrix.png", labels=None, title=None):
-    disp=ConfusionMatrixDisplay.from_predictions(
-        y_true=predictions[y_true],
-        y_pred=predictions[y_pred],
-        normalize="true",
-        xticks_rotation=45,
-        labels=labels
-    )
-    np.savetxt(
-        os.path.join(output_folder, "test_confusion_matrix.csv"),
-        disp.confusion_matrix, delimiter=",", fmt="%.4e"
-    )
-
-    # Create a larger figure to accommodate the long title
-    fig, ax = plt.subplots(figsize=(10, 8))  # Adjust the figure size as needed
-    # Display the confusion matrix
-    disp.plot(ax=ax)
-    # Set a long title and wrap it
-    plt.title("\n".join(wrap(title, 60)))  # Wrap text after 60 characters
-    # Adjust layout
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_folder, name))
 
 
 def downsample_dataset(data, downsample):

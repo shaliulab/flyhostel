@@ -1,6 +1,7 @@
 import logging
 import yaml
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 logger=logging.getLogger(__name__)
@@ -173,3 +174,57 @@ def postprocessing(df, time_window_length):
     df.loc[(df["behavior"].isin(["inactive+pe"])) & (df["duration"]>3), "behavior"]="feed"
 
     return df
+
+
+def annotate_bout_info(df_single_animal, fps, behavior=None, prediction="prediction"):
+    df_single_animal.drop(["bout_in_pred","bout_out_pred","bout_count_pred","duration_pred", "bout_in","bout_out","bout_count","duration"], axis=1, inplace=True, errors="ignore")
+
+    if behavior is not None:
+        x=annotate_bout_duration(
+            annotate_bouts(df_single_animal, variable=behavior),
+            fps=fps,
+            on=["bout_count"]
+        )
+    else:
+        x=None
+    y=annotate_bout_duration(
+        annotate_bouts(df_single_animal, variable=prediction),
+        fps=fps,
+        on=["bout_count"]
+    )
+    rename_dict={
+        "bout_in": "bout_in_pred",
+        "bout_out": "bout_out_pred",
+        "bout_count": "bout_count_pred",
+        "duration": "duration_pred",
+    }
+    
+    y.rename(rename_dict, axis=1, inplace=True)
+    cols=list(rename_dict.values())
+
+    if x is not None:
+        z=x.merge(y[["frame_number", "id"] + cols], how="left", on=["frame_number", "id"])
+    else:
+        z=y
+    return z
+    
+
+    
+
+def generate_windows(b, window_size):
+    shape=(b.size - window_size + 1, window_size)
+    strides=(b.strides[0], b.strides[0])
+    windowed_view=as_strided(b, shape=shape, strides=strides)
+    return windowed_view
+
+
+def annotate_active_state(dataset, y_true, y_pred, inactive_states):
+
+    dataset["active.pr"]="active"
+    dataset["active.gt"]="active"
+    dataset.loc[dataset[y_pred].isin(inactive_states), "active.pr"]="inactive"
+    dataset.loc[dataset[y_true].isin(inactive_states), "active.gt"]="inactive"
+    return dataset
+
+
+

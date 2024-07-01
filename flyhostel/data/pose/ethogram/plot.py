@@ -6,54 +6,36 @@ import logging
 import pandas as pd
 import numpy as np
 import plotly.graph_objs as go
+from sklearn.metrics import ConfusionMatrixDisplay
 import webcolors
+import matplotlib.pyplot as plt
+from textwrap import wrap
 
 from flyhostel.data.pose.ethogram.utils import find_window_winner, find_window_winner, postprocessing
 from flyhostel.data.pose.constants import chunksize, framerate
+from flyhostel.data.pose.constants import BEHAVIOR_IDX_MAP
 
 
 logger = logging.getLogger(__name__)
 
 # behaviors are shown in this order from bottom to top
-behaviors=[
-    "inactive",
-    "inactive+microm",
-    "inactive+micromovement",
-    "inactive+twitch",
-    "inactive+pe",
-    "feed+inactive",
-    "feed",
-    "feed+groom",
-    "groom+pe",
-    "groom",
-    "feed+walk",
-    "walk",
-    "rejection",
-    "background",
-]
+behaviors=list(BEHAVIOR_IDX_MAP.keys())
 
 # list of colors is taken from https://www.w3.org/TR/SVG11/types.html#ColorKeywords
 # in English
+RAINBOW_8_COLOR=["448aff","1565c0","009688","8bc34a","ffc107","ff9800","f44336","ad1457"][::-1]
+RAINBOW_8_COLOR=[f"#{value}" for value in RAINBOW_8_COLOR]
+
 PALETTE = {
-    "inactive+pe": "gold",
-    "feed": "orange",
-    "groom": "green",
-    "inactive": "blue",
-    "walk": "red",
-    "background": "white",
-    "feed+inactive": "peachpuff",
-    "groom+pe": "darkseagreen",
-    "feed+walk": "crimson",
-    "feed+groom": "peachpuff",
-    "inactive+walk": "darkgray",
-    "inactive+microm": "purple",
-    "inactive+micromovement": "purple",
-    "inactive+twitch": "purple",
-    "rejection": "yellow",    
+    "walk": RAINBOW_8_COLOR[0],
+    "groom": RAINBOW_8_COLOR[1],
+    "feed": RAINBOW_8_COLOR[2],
+    "background": RAINBOW_8_COLOR[3],
+    "inactive+micromovement": RAINBOW_8_COLOR[4],
+    "inactive+rejection": RAINBOW_8_COLOR[5],
+    "inactive+pe": RAINBOW_8_COLOR[6],
+    "inactive": RAINBOW_8_COLOR[7],
 }
-
-
-
 
 def get_parser():
     ap=argparse.ArgumentParser()
@@ -100,6 +82,10 @@ def bin_behavior_table_v2(df, time_window_length=1, x_var="seconds", t0=None, be
 
     df["zt"]=(df["t"]/3600).round(2)
     df["zt_"]=(df["t"]/3600)
+
+    if "score" not in df.columns:
+        logger.warning("Score not found. Setting to 1 in all rows of data")
+        df["score"]=1
 
     if x_var=="seconds":
         if t0 is None:
@@ -159,19 +145,19 @@ def generate_hover_text(behavior_data, meta_columns):
 
     return text
 
-def add_track_black_line(fig, df, x_var, behavior):
+def add_track_midline(fig, df, x_var, behavior, color="white"):
 
     fig.add_trace(go.Scatter(
         x=[df[x_var].min(), df[x_var].max()],
         y=[behavior, behavior],
         mode='lines',
-        line=dict(color='black', width=1),
+        line=dict(color=color, width=1),
         showlegend=False
     ))
     return fig
 
-def add_track_markers(fig, df, x_var, behavior, palette_rgb_, meta_columns):
-    behavior_data = df[df['behavior'] == behavior]
+def add_track_markers(fig, df, x_var, behavior, palette_rgb_, meta_columns, behavior_col="prediction2"):
+    behavior_data = df[df[behavior_col] == behavior]
     text=generate_hover_text(behavior_data, meta_columns=meta_columns)
     marker_colors=generate_marker_colors(behavior_data["score"], behavior, palette_rgb_=palette_rgb_)
     trace=go.Scattergl(
@@ -186,14 +172,14 @@ def add_track_markers(fig, df, x_var, behavior, palette_rgb_, meta_columns):
     fig.add_trace(trace)
     return fig
 
-def palette_to_rgb_(palette, reverse=False):
+def palette_to_rgb_(palette, reverse=False, input_type="hex"):
 
     if reverse:
         # in BGR
-        palette_rgb={behavior: webcolors.name_to_rgb(v)[:3][::-1] for behavior, v in palette.items()}
+        palette_rgb={behavior: getattr(webcolors, f"{input_type}_to_rgb")(v)[:3][::-1] for behavior, v in palette.items()}
     else:
         # in RGB
-        palette_rgb={behavior: webcolors.name_to_rgb(v) for behavior, v in palette.items()}
+        palette_rgb={behavior: getattr(webcolors, f"{input_type}_to_rgb")(v) for behavior, v in palette.items()}
 
     # in RGBA partial string (to be completed witj alpha value )
     palette_rgb_ = {behavior: f'rgba({v[0]}, {v[1]}, {v[2]},' for behavior, v in palette_rgb.items()}
@@ -204,16 +190,11 @@ def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info
 
     df=df.copy()
     id = df["id"].iloc[0]
-    df, x_var, bin_columns=bin_behavior_table_v2(df, time_window_length=time_window_length, x_var=x_var, t0=t0)
-    
-
-    df=postprocessing(df, time_window_length=time_window_length)
-    df["behavior_30fps"]=df["behavior"].copy()
-
-    
+    behavior_col="prediction2"
+    df, x_var, bin_columns=bin_behavior_table_v2(df, time_window_length=time_window_length, x_var=x_var, t0=t0,behavior_col=behavior_col)
     palette_rgb_=palette_to_rgb_(palette)
     # Get unique behaviors
-    found_behaviors = list(set(list(palette.keys()) + df["behavior"].unique().tolist()))
+    found_behaviors = list(set(list(palette.keys()) + df[behavior_col].unique().tolist()))
     for behav in found_behaviors:
         if behav not in behaviors:
             logger.warning("Ignoring behavior %s", behav)
@@ -221,14 +202,18 @@ def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info
     zt_min=round(df["zt"].min(), 2)
     zt_max=round(df["zt"].max(), 2)
     message("Generating ethogram from %s to %s ZT", zt_min, zt_max)
-    meta_columns=["behavior", "id", "frame_number", "chunk","frame_idx", "zt", "score"] + bin_columns
+    meta_columns=[behavior_col, "id",  "frame_number", "chunk","frame_idx", "zt", "score"] + bin_columns
 
     # Create a figure
     fig = go.Figure()
     # Plot a thin black line for all behaviors throughout the plot
     for behavior in behaviors:
-        fig=add_track_black_line(fig, df, x_var, behavior=behavior)
-        fig=add_track_markers(fig, df, x_var, behavior=behavior, palette_rgb_=palette_rgb_, meta_columns=meta_columns)
+        print(behavior)
+        fig=add_track_midline(fig, df, x_var, behavior=behavior)
+        fig=add_track_markers(
+            fig, df, x_var, behavior=behavior, palette_rgb_=palette_rgb_,
+            meta_columns=meta_columns, behavior_col=behavior_col
+        )
 
     date_time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -281,7 +266,7 @@ def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info
             )
         ]
     )
-    
+
     step=900
     tickvals=np.arange(
         np.floor(df[x_var].min()/step)*step,
@@ -293,9 +278,29 @@ def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info
         tickvals=tickvals,
         ticktext=ticktext
         )
-
-
     message("Done")
-
-
     return fig
+
+
+def save_confusion_matrix(predictions, y_true, y_pred, output_folder, name="test_confusion_matrix.png", labels=None, title=None):
+    disp=ConfusionMatrixDisplay.from_predictions(
+        y_true=predictions[y_true],
+        y_pred=predictions[y_pred],
+        normalize="true",
+        xticks_rotation=45,
+        labels=labels
+    )
+    np.savetxt(
+        os.path.join(output_folder, "test_confusion_matrix.csv"),
+        disp.confusion_matrix, delimiter=",", fmt="%.4e"
+    )
+
+    # Create a larger figure to accommodate the long title
+    fig, ax = plt.subplots(figsize=(10, 8))  # Adjust the figure size as needed
+    # Display the confusion matrix
+    disp.plot(ax=ax)
+    # Set a long title and wrap it
+    plt.title("\n".join(wrap(title, 60)))  # Wrap text after 60 characters
+    # Adjust layout
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_folder, name))
