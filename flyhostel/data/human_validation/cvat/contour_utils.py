@@ -110,9 +110,9 @@ def rle_to_blob(*args, frame_width, frame_height, number_of_cols, original_resol
     return frame_idx_in_block, (x, y), contour
 
 
-def contour_to_centroid(contour, frame_width, frame_height):    
-    x, y= _getCentroid(contour) 
-    return round(x, 2), round(y, 2)   
+def contour_to_centroid(contour, frame_width, frame_height):
+    x, y= _getCentroid(contour)
+    return round(x, 2), round(y, 2)
     
 
 def contour_to_frame_idx_in_block(contour, frame_width, frame_height, number_of_cols, original_resolution):

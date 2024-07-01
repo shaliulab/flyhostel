@@ -1,14 +1,80 @@
 import math
+import logging
 
 import pandas as pd
 import cudf
 from idtrackerai_app.cli.utils.overlap import propagate_identities
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 
+logger=logging.getLogger(__name__)
 
 def euclidean_distance(centroid1, centroid2):
     return ((centroid1-centroid2)**2).sum(axis=1)**0.5
 
+
+def match_animals_between_chunks_by_distance(before, after, local_identity_before, chunk):
+    animal=before.loc[before["local_identity"]==local_identity_before]
+    min_distance=math.inf
+    selected_lid=None
+    lids=after["local_identity"]
+    if isinstance(lids, cudf.Series):
+        lids=lids.to_pandas()
+    lids=lids.unique()
+
+    for i, lid_after in enumerate(lids):
+        next_animal=after.loc[after["local_identity"]==lid_after]
+        if next_animal.shape[0]>1:
+            import ipdb; ipdb.set_trace()
+            raise ValueError(f"{next_animal.shape[0]} animals found with local identity {lid_after} in chunk {chunk+1}")
+
+        elif next_animal.shape[0]==0:
+            raise ValueError(f"0 animals found with local identity {lid_after} in chunk {chunk+1}")
+
+        distance=euclidean_distance(
+            animal[["x", "y"]].values,
+            next_animal[["x", "y"]].values
+        ).item()
+        if distance < min_distance:
+            
+            min_distance=distance
+            selected_lid=lid_after
+        
+    
+    logger.debug("%s - %s -> %s - %s", chunk, local_identity_before, chunk+1, selected_lid)
+
+    return selected_lid, min_distance
+
+
+
+def make_identity_table(lid_table, chunks):
+    identity_table=[]
+    for chunk in chunks[:-1]:
+        used_local_identity_after=set([])
+
+        before = lid_table.loc[
+            (lid_table["chunk"]==chunk) & (lid_table["frame_idx"]==(CHUNKSIZE-1))
+        ]
+        after = lid_table.loc[
+            (lid_table["chunk"]==chunk+1) & (lid_table["frame_idx"]==0)
+        ]
+        
+        lids=before["local_identity"]
+        if isinstance(lids, cudf.Series):
+            lids=lids.to_pandas()
+        lids=lids.unique()
+        for lid in lids:
+            local_identity, min_distance=match_animals_between_chunks_by_distance(before, after, lid, chunk)
+            if local_identity in used_local_identity_after:
+                logger.warning("%s already used in chunk %s", local_identity, chunk)
+            else:
+                used_local_identity_after.add(local_identity.item())
+            
+            identity_table.append((chunk.item(), lid.item(), local_identity.item(), min_distance))
+
+    identity_table=pd.DataFrame.from_records(identity_table, columns=["chunk", "local_identity", "local_identity_after", "distance"])
+    identity_table["is_inferred"]=False
+    return identity_table
+            
 def annotate_identity(data, number_of_animals):
     """
     Generate the identity track for each animal in a dataset
@@ -29,41 +95,14 @@ def annotate_identity(data, number_of_animals):
     lid_table["frame_idx"]=lid_table["frame_number"]%CHUNKSIZE
     chunks=sorted(lid_table["chunk"].to_pandas().unique())
 
-    identity_table=[]
-    for chunk in chunks[:-1]:
-
-        before = lid_table.loc[
-            (lid_table["chunk"]==chunk) & (lid_table["frame_idx"]==(CHUNKSIZE-1))
-        ]
-        after = lid_table.loc[
-            (lid_table["chunk"]==chunk+1) & (lid_table["frame_idx"]==0)
-        ]
-
-        for lid in before["local_identity"].to_pandas().unique():
-            animal=before.loc[before["local_identity"]==lid]
-            min_distance=math.inf
-            selected_lid=None
-            for i, lid_after in enumerate(after["local_identity"].to_pandas().unique()):
-                next_animal=after.loc[after["local_identity"]==lid_after]
-                if next_animal.shape[0]>1:
-                    import ipdb; ipdb.set_trace()
-                    raise ValueError(f"{next_animal.shape[0]} animals found with local identity {lid_after} in chunk {chunk+1}")
-
-                elif next_animal.shape[0]==0:
-                    raise ValueError(f"0 animals found with local identity {lid_after} in chunk {chunk+1}")
-
-                distance=euclidean_distance(
-                    animal[["x", "y"]].values,
-                    next_animal[["x", "y"]].values
-                ).item()
-                if distance < min_distance:
-                    min_distance=distance
-                    selected_lid=lid_after
-
-            identity_table.append((chunk.item(), lid.item(), selected_lid.item(), min_distance))
-
-    identity_table=pd.DataFrame.from_records(identity_table, columns=["chunk", "local_identity", "local_identity_after", "distance"])
-    identity_table["is_inferred"]=False
+    identity_table=make_identity_table(lid_table, chunks)
+    identity_table.to_csv("identity_table.csv")
     identity_table=propagate_identities(identity_table, chunks=chunks, ref_chunk=chunks[0], number_of_animals=number_of_animals, strict=True)
-    data=data.merge(cudf.DataFrame(identity_table[["chunk", "local_identity", "identity"]]), on=["chunk", "local_identity"]).sort_values(["frame_number", "identity"]).to_pandas()
+    data=data.merge(
+        cudf.DataFrame(identity_table[["chunk", "local_identity", "identity"]]),
+        on=["chunk", "local_identity"]
+    ).sort_values([
+        "frame_number", "identity"
+    ]).to_pandas()
+
     return data

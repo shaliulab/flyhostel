@@ -8,6 +8,7 @@ def get_parser():
     ap.add_argument("--folder", type=str, required=True)
     ap.add_argument("--tasks", type=int, nargs="+", required=True)
     ap.add_argument("--fn-interval", type=int, nargs=2, required=False, default=[0, math.inf])
+    ap.add_argument("--redownload", action="store_true", default=False, required=False)
     return ap
 
 def main():
@@ -18,6 +19,7 @@ def main():
         args.experiment, args.folder, args.tasks,
         first_frame_number=args.fn_interval[0],
         last_frame_number=args.fn_interval[1],
+        redownload=args.redownload,
     )
 
 

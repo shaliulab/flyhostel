@@ -64,7 +64,11 @@ def test_df(df):
 
 
 REDOWNLOAD_FROM_CVAT=True
-def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0, last_frame_number=math.inf):
+def integrate_human_annotations(
+        experiment, folder, tasks,
+        first_frame_number=0, last_frame_number=math.inf,
+        redownload=REDOWNLOAD_FROM_CVAT,
+    ):
     """
     Add human validated identity tracks to a flyhostel dbfile
     Annotations are downloaded from a locally running CVAT instance and stored in the form of new tables in the dbfile
@@ -109,7 +113,8 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
     basedir=get_basedir(experiment)
     number_of_animals=get_number_of_animals(experiment)
 
-    annotations_df, contours=get_annotations(basedir, tasks, redownload=REDOWNLOAD_FROM_CVAT)
+    annotations_df, contours=get_annotations(basedir, tasks, redownload=redownload)
+    annotations_df["chunk"]=annotations_df["frame_number"]//chunksize
 
     # load original predictions (machine made)
     logger.info("Loading predictions from frame number %s to %s", first_frame_number, last_frame_number)
@@ -118,6 +123,7 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
         where_statement+=f" AND frame_number < {last_frame_number}"
 
     identity_machine, roi_0_machine=load_machine_data(basedir, where=where_statement)
+
     identity_annotations, roi0_annotations, _=cross_machine_human(
         basedir, identity_machine, roi_0_machine, annotations_df, contours, number_of_animals,
         first_frame_number=first_frame_number, last_frame_number=last_frame_number
@@ -236,7 +242,6 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
     new_data["frame_validated"]=False
     new_data.loc[new_data["frame_number"].isin(validated_frames["frame_number"]), "frame_validated"]=True
 
-
     new_data=new_data.loc[~((new_data["local_identity"]==0) & (new_data["frame_validated"]==True))]
     new_data["frame_idx"]=new_data["frame_number"]%chunksize
 
@@ -253,13 +258,10 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
     except:
         import ipdb; ipdb.set_trace()
 
-    print(out.groupby("identity").last())
-
     # Save result!
     out_file=os.path.join(folder, f"{experiment}.feather")
     logger.debug("Saving ---> %s", out_file)
     out.reset_index(drop=True).to_feather(out_file)
-
 
     # reports
     fragment_crossing_fraction=qc1(roi0_annotations, identity_annotations)
@@ -308,11 +310,11 @@ def integrate_human_annotations(experiment, folder, tasks, first_frame_number=0,
     
     groupby=df_identity.groupby("local_identity")
     logger.debug("Number of frames seen")
-    logger.debug(groupby.size())
+    logger.debug("\n%s", groupby.size())
     logger.debug("First frame seen")
-    logger.debug(groupby.first())
+    logger.debug("\n%s", groupby.first())
     logger.debug("Last frame seen")
-    logger.debug(groupby.last())
+    logger.debug("\n%s", groupby.last())
 
     if df_identity["identity"].isna().any():
         logger.error("NaN identities:")

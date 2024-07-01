@@ -21,8 +21,7 @@ from flyhostel.data.human_validation.cvat.utils import (
 )
 from flyhostel.utils.utils import get_chunksize
 logger=logging.getLogger(__name__)
-
-cvat_host="localhost"
+from flyhostel.data.human_validation.cvat.constants import cvat_username, cvat_host, cvat_password
 
 def download_task_annotations(task_number, redownload=False):
 
@@ -37,7 +36,7 @@ def download_task_annotations(task_number, redownload=False):
         if os.path.exists(zip_file):
             shutil.rmtree(unzipped_folder)
 
-        cmd=f"/home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli --auth vibflysleep:flysleep1 --server-host 'http://{cvat_host}' --server-port 8080 dump --format 'COCO 1.0' {task_number} {task_number}_annotations.zip"
+        cmd=f"/home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli --auth {cvat_username}:{cvat_password} --server-host 'http://{cvat_host}' --server-port 8080 dump --format 'COCO 1.0' {task_number} {task_number}_annotations.zip"
         cmd_list=shlex.split(cmd)
 
         p=subprocess.Popen(
@@ -45,13 +44,15 @@ def download_task_annotations(task_number, redownload=False):
         )
         p.communicate()
 
+        assert os.path.exists(zip_file), f"{zip_file} was not downloaded"
+
 
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
             zip_ref.extractall(unzipped_folder)
 
     with open(f"{unzipped_folder}/annotations/instances_default.json", "r") as handle:
         cvat_annotations=json.load(handle)
-
+   
     annotations=cvat_annotations["annotations"]
     images=pd.DataFrame(cvat_annotations["images"])
     categories=pd.DataFrame(cvat_annotations["categories"])
@@ -78,6 +79,7 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
     block_size=number_of_rows*number_of_cols
     for i, annotation in enumerate(annotations):
         panel=annotation["image_id"]
+        contour_id=annotation["id"]
 
         image=images.loc[
             images["id"]==panel
@@ -101,12 +103,17 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
             identity=None
 
         if isinstance(annotation["segmentation"], dict):
-            frame_idx_in_block, center, contour=rle_to_blob(
-                rle=annotation["segmentation"], shape=annotation["segmentation"]["size"],
-                frame_width=frame_width, frame_height=frame_height,
-                number_of_cols=number_of_cols,
-                original_resolution=original_resolution,
-            )
+            try:
+                frame_idx_in_block, center, contour=rle_to_blob(
+                    rle=annotation["segmentation"], shape=annotation["segmentation"]["size"],
+                    frame_width=frame_width, frame_height=frame_height,
+                    number_of_cols=number_of_cols,
+                    original_resolution=original_resolution,
+                )
+            except AssertionError as error:
+                logger.error("Problem with image %s", image_filename)
+                raise error
+
         else:
             frame_idx_in_block, center, contour=polygon_to_blob(
                 polygon=annotation["segmentation"],
@@ -117,10 +124,10 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
 
         frame_number0=int(image_filename.split("_")[-2])
         frame_number=frame_number0+frame_idx_in_block + block*block_size
-        parsed_annot.append((frame_number, *center, identity, i, text, frame_number0, block, block_size, panel-1, frame_idx_in_block))
+        parsed_annot.append((i, frame_number, *center, identity, contour_id, text, frame_number0, block, block_size, panel-1, frame_idx_in_block))
         contours.append(contour)
 
-    annotations_df=pd.DataFrame.from_records(parsed_annot, columns=["frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel", "frame_idx_in_block"])
+    annotations_df=pd.DataFrame.from_records(parsed_annot, columns=["idx", "frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel", "frame_idx_in_block"])
 
     return annotations_df, contours
 
@@ -135,13 +142,15 @@ def join_task_data(task1, task2):
     first_id_of_next_contour=len(contours)
 
     contours=contours+contours2
-    annotations_df2["contour_id"]+=first_id_of_next_contour
+    annotations_df2["idx"]+=first_id_of_next_contour
     annotations_df=pd.concat([
         annotations_df, annotations_df2
     ], axis=0)
     return annotations_df, contours
 
 def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
+
+    n_jobs=min(len(tasks), n_jobs)
     out = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             get_annotation
@@ -152,6 +161,8 @@ def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
     )
 
     annotations_df, contours=out[0]
+    
+    # if more than 1 task was passed
     for annotations_df2, contours2 in out[1:]:
         annotations_df, contours=join_task_data(
             (annotations_df, contours), (annotations_df2, contours2)
@@ -162,11 +173,19 @@ def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
 
 def get_annotation(basedir, task_number, **kwargs):
     annotations, images, categories=download_task_annotations(task_number, **kwargs)
+    
+    number_of_cols=number_of_rows=3
+    assert len(images["width"].unique())==1
+    frame_width=images["width"].unique()[0]//number_of_cols
+
+    assert len(images["height"].unique())==1
+    frame_height=images["height"].unique()[0]//number_of_rows
+    
     annotations_df, contours=load_task_annotations(
         annotations, images, categories,
         basedir=basedir,
-        frame_width=500, frame_height=500,
-        number_of_rows=3, number_of_cols=3,
+        frame_width=frame_width, frame_height=frame_height,
+        number_of_rows=number_of_rows, number_of_cols=number_of_cols,
     )
     annotations_df["task"]=task_number
     return annotations_df, contours
@@ -175,19 +194,23 @@ def spatial_copy_annotations(annotations_df, identity_corrected, roi0_corrected,
     """
     For every pair of fn0, fn1 in annotations_to_copy, copy the annotations in fn1 to fn0
     """
+    identity_corrected_copy=identity_corrected.copy()
     block_size=annotations_df["block_size"].unique().tolist()
     assert len(block_size)==1
     block_size=block_size[0]
+    
+    identity_corrected_full=identity_corrected.copy()
+    roi0_corrected_full=roi0_corrected.copy()
 
     for frame_number, ref_frame_number in annotations_to_copy:
-        annotations_df, identity_corrected, roi0_corrected=copy_annotations(
-            annotations_df, identity_corrected, roi0_corrected,
+        annotations_df, identity_corrected_full, roi0_corrected_full=copy_annotations(
+            annotations_df, identity_corrected_full, roi0_corrected_full,
             frame_number, ref_frame_number, block_size=block_size
         )
 
-    identity_corrected.sort_values(["frame_number", "local_identity"], inplace=True)
-    roi0_corrected.sort_values("frame_number", inplace=True)
-    return identity_corrected, roi0_corrected
+    identity_corrected_full.sort_values(["frame_number", "local_identity"], inplace=True)
+    roi0_corrected_full.sort_values("frame_number", inplace=True)
+    return identity_corrected_full, roi0_corrected_full
 
 
 def copy_annotations(annotations_df, identity_corrected, roi0_corrected, frame_number, ref_frame_number, block_size):
@@ -197,10 +220,12 @@ def copy_annotations(annotations_df, identity_corrected, roi0_corrected, frame_n
     ref_frame_number = frame number from which the annotations will be taken
 
     """
+    identity_corrected_backup=identity_corrected.copy()
+    
     row=annotations_df.loc[annotations_df["frame_number"]==ref_frame_number].iloc[:1]
     if row.shape[0]==0:
         logger.warning("No annotations for frame %s", ref_frame_number)
-        return annotations_df, roi0_corrected, identity_corrected
+        return annotations_df, identity_corrected, roi0_corrected
 
 
     copied_data=identity_corrected.loc[identity_corrected["frame_number"]==ref_frame_number].copy()
@@ -220,12 +245,12 @@ def copy_annotations(annotations_df, identity_corrected, roi0_corrected, frame_n
 
     # so that the row has data in the following iterations (when copying a copy)
     mark_annotation=pd.DataFrame({
-        "frame_number": [frame_number], "x": [None], "y": [None],  "local_identity": [None],
+        "idx": [None], "frame_number": [frame_number], "x": [None], "y": [None],  "local_identity": [None],
         "contour_id": [None],  "text": ["COPY"], "frame_number0": [None],  "block": [None],  "block_size": [block_size], 
         "panel": [None],  "task": [None], "frame_idx_in_block": [None]
     })
     annotations_df=pd.concat([annotations_df.reset_index(drop=True), mark_annotation], axis=0)
-    return annotations_df, roi0_corrected, identity_corrected
+    return annotations_df, identity_corrected, roi0_corrected
 
 
 def copy_annotations_one_block_back(annotations_df, identity_corrected, roi0_corrected, annotations_to_copy):
@@ -258,6 +283,50 @@ def copy_annotations_one_block_back(annotations_df, identity_corrected, roi0_cor
     roi0_corrected.sort_values("frame_number", inplace=True)
     return identity_corrected, roi0_corrected
 
+def parse_overlapping_annotation(df, match_idx, used_indices, next_idx):
+
+    fragment=df["fragment"].iloc[match_idx]
+    in_frame_index=df["in_frame_index"].iloc[match_idx]
+    # overlaps with a
+    if in_frame_index in used_indices:
+        in_frame_index=next_idx
+
+    used_indices.append(in_frame_index)
+    return in_frame_index, fragment
+
+def process_text_annotations(annotation, metadata, annot_idx_2, fragments_must_break, annotations_to_copy, annotations_to_spatial_copy, crossings):
+    frame_number, in_frame_index, local_identity, fragment=metadata
+
+    text=annotation["text"].iloc[annot_idx_2]
+    if text=="FMB": # fragment must break
+        fragments_must_break.append((frame_number, fragment))
+        pass
+    elif text=="COPY":
+        frame_number0, block, block_size=annotation.loc[annotation["text"]=="COPY", ["frame_number0", "block", "block_size"]].values.flatten()
+        frame_numbers=list(range(frame_number0+block*block_size, frame_number0+block_size+block*block_size))
+
+        for fn in frame_numbers:
+            annotations_to_copy.add(fn)
+    
+    elif text=="SPATIAL-COPY":
+        frame_number0, block, block_size=annotation.loc[annotation["text"]=="SPATIAL-COPY", ["frame_number0", "block", "block_size"]].values.flatten()
+        ref_frame=frame_number0 + block_size//2
+        frame_numbers=list(range(frame_number0+block_size*block, frame_number0+block_size*(block+1)))
+
+        for fn in frame_numbers:
+            annotations_to_spatial_copy.add((fn, ref_frame))
+
+    elif text=="CROSSING":
+        crossings.append((frame_number, fragment))
+
+    if text!="DONE":
+        roi0_row=(frame_number, in_frame_index, annotation["x"].iloc[annot_idx_2], annotation["y"].iloc[annot_idx_2], fragment)
+        ident_row=(frame_number, in_frame_index, local_identity)
+    else:
+        roi0_row=None
+        ident_row=None
+        
+    return (roi0_row, ident_row), fragments_must_break, annotations_to_copy, annotations_to_spatial_copy, crossings
 
 def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df, annotated_contours, last_machine_id, first_frame_number=0, last_frame_number=math.inf):
     """
@@ -294,6 +363,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
         pb=tqdm(total=n_frames, desc="Crossing human annotations and machine data")
 
         for frame_number, df in machine_data_of_modified_frames.groupby("frame_number"):
+
             annotation=annotations_df.loc[annotations_df["frame_number"]==frame_number]
             cap.set(1, frame_number)
             ret, frame = cap.read()
@@ -307,11 +377,9 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                 # raise ValueError("modified frames not supported")
 
             used_indices=[]
-
             for annot_idx_2 in range(annotation.shape[0]):
 
-                contour=annotated_contours[annotation["contour_id"].iloc[annot_idx_2]]
-
+                contour=annotated_contours[annotation["idx"].iloc[annot_idx_2]]
                 if selection_method=="contour":
                     try:
                         match_idx=select_by_contour(contour, contours_list, debug=False)
@@ -319,20 +387,11 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                         logger.warning(error)
                         # logger.debug("More than 1 yolo box overlaps in frame %s and annotation index %s", frame_number, annot_idx_2)
                         match_idx=None
-                    # else:
-                    #     match_idx=select_by_centroid(contour, df[["x", "y"]])
 
                 # annotation overlaps
                 if match_idx is not None:
-                    fragment=df["fragment"].iloc[match_idx]
-                    in_frame_index=df["in_frame_index"].iloc[match_idx]
-                    # overlaps with a
-                    if in_frame_index in used_indices:
-                        in_frame_index=annot_idx_2+last_machine_id
-
-                    used_indices.append(in_frame_index)
-                    local_identity=annotation["local_identity"].iloc[annot_idx_2]
-
+                    in_frame_index, fragment=parse_overlapping_annotation(df, match_idx, used_indices, next_idx=annot_idx_2+last_machine_id)
+                
                 # annotation doesn't overlap with anything
                 else:
                     fragment=None
@@ -340,51 +399,35 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                     while in_frame_index in used_indices:
                         in_frame_index+=1
                     used_indices.append(in_frame_index)
-                    local_identity=annotation["local_identity"].iloc[annot_idx_2]
+                
+                local_identity=annotation["local_identity"].iloc[annot_idx_2]
 
                 if np.isnan(local_identity):
-                    text=annotation["text"].iloc[annot_idx_2]
-                    if text=="FMB": # fragment must break
-                        fragments_must_break.append((frame_number, fragment))
-                        continue
-                    elif text=="COPY":
-                        frame_number0, block, block_size=annotation.loc[annotation["text"]=="COPY", ["frame_number0", "block", "block_size"]].values.flatten()
-                        frame_numbers=list(range(frame_number0+block*block_size, frame_number0+block_size+block*block_size))
+                    (roi0_row, ident_row), fragments_must_break, annotations_to_copy, annotations_to_spatial_copy, crossings=process_text_annotations(
+                        annotation, (frame_number, in_frame_index, local_identity, fragment), annot_idx_2, fragments_must_break, annotations_to_copy, annotations_to_spatial_copy, crossings
+                    )
+                    if roi0_row is not None and ident_row is not None:
+                        roi0_corrected.append(roi0_row)
+                        identity_corrected.append(ident_row)
 
-                        for fn in frame_numbers:
-                            annotations_to_copy.add(fn)
-                    
-                    elif text=="SPATIAL-COPY":
-                        frame_number0, block, block_size=annotation.loc[annotation["text"]=="SPATIAL-COPY", ["frame_number0", "block", "block_size"]].values.flatten()
-                        ref_frame=frame_number0 + block_size//2
-                        frame_numbers=list(range(frame_number0+block_size*block, frame_number0+block_size*(block+1)))
-
-
-                        for fn in frame_numbers:
-                            annotations_to_spatial_copy.add((fn, ref_frame))
-
-                    elif text=="CROSSING":
-                        crossings.append((frame_number, fragment))
-
-                elif match_idx is None:
-                    logger.debug("De novo annotation detected in frame %s with local identity %s", frame_number, local_identity)
-
-
-                roi0_row=(frame_number, in_frame_index, annotation["x"].iloc[annot_idx_2], annotation["y"].iloc[annot_idx_2], fragment)
-                ident_row=(frame_number, in_frame_index, local_identity)
-
-                roi0_corrected.append(roi0_row)
-                identity_corrected.append(ident_row)
-            
+                else:
+                    roi0_row=(frame_number, in_frame_index, annotation["x"].iloc[annot_idx_2], annotation["y"].iloc[annot_idx_2], fragment)
+                    ident_row=(frame_number, in_frame_index, local_identity)
+                    roi0_corrected.append(roi0_row)
+                    identity_corrected.append(ident_row)
+                    if match_idx is None:
+                        logger.debug("De novo annotation detected in frame %s with local identity %s", frame_number, local_identity)
             pb.update(1)
+    
         identity_corrected=pd.DataFrame.from_records(identity_corrected, columns=["frame_number", "in_frame_index", "local_identity"])
         roi0_corrected=pd.DataFrame.from_records(roi0_corrected, columns=["frame_number", "in_frame_index", "x", "y", "fragment"])
 
+        
         identity_corrected, roi0_corrected=spatial_copy_annotations(
             annotations_df,
             identity_corrected,
             roi0_corrected,
-            sorted(list(annotations_to_spatial_copy))           
+            sorted(list(annotations_to_spatial_copy))
         )
 
         identity_corrected, roi0_corrected=copy_annotations_one_block_back(
