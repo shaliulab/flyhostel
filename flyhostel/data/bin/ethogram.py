@@ -1,5 +1,5 @@
 import argparse
-from flyhostel.data.pose.ethogram.ethogram import make_ethogram
+from flyhostel.data.pose.ethogram.inference import inference as make_ethogram
 from flyhostel.data.pose.ethogram.plot import main as draw_ethogram
 
 def get_parser():
@@ -36,10 +36,7 @@ def main():
         output=args.output,
         frame_numbers=args.frame_number,
         postprocess=args.postprocess,
-        # t0=args.t0,
-        correct_by_all_inactive=args.correct_by_all_inactive,
         cache=None,
-        correct_groom_behaviors=args.correct_groom_behaviors,
     )
 
     return None

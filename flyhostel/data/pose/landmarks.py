@@ -166,8 +166,6 @@ class LandmarksLoader:
         landmarks_norm=pd.concat(landmarks_norm, axis=0)
         self.landmarks["specification_norm"]=landmarks_norm["specification"].values
 
-   
-
 
     def compute_if_fly_on_food_patch(self, include_outside=1):
         
@@ -201,7 +199,7 @@ class LandmarksLoader:
         # assert ((across_blobs>0).sum(axis=1)<=1).all()
 
         distances=self.dt[[f"food_{i+1}_dist" for i in range(food_blobs.shape[0])]].values
-        self.dt["food"]=distances.argmin(axis=1)
+        self.dt["food"]=distances.argmin(axis=1)+1
         self.dt["food_distance"]=distances.min(axis=1)
 
 
@@ -222,7 +220,7 @@ class LandmarksLoader:
             j+=1
 
         distances=self.dt[[f"notch_{i+1}_dist" for i in range(notches.shape[0])]].values
-        self.dt["notch"]=distances.argmin(axis=1)
+        self.dt["notch"]=distances.argmin(axis=1)+1
         self.dt["notch_distance"]=distances.min(axis=1)
 
 

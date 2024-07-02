@@ -177,9 +177,6 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         else:
             self.roi_0_table=roi_0_table
 
-
-        self.roi_0_table=roi_0_table
-
     def load_meta_info(self):
         """
         Populate meta_info dictionary with keys:
@@ -415,6 +412,12 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
                 **kwargs)
         except AssertionError as error:
             logger.error(error)
+            logger.error(
+                """Cannot load validated data!
+                If your results rely on data being validated,
+                you cannot use the output of this program until you fix the issue
+                """
+            )
             self.load_centroid_data(
                 *args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs,
                 stride=stride, verbose=False,

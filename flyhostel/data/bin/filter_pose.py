@@ -26,6 +26,7 @@ def filter_experiment(experiment, identity, stride, min_time=MIN_TIME, max_time=
         speed=False,
         sleep=False,
         n_jobs=n_jobs,
+        load_behavior=False,
         **kwargs
     )
     pose=loader.pose_boxcar.copy()

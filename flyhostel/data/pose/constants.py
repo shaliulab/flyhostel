@@ -1,7 +1,9 @@
 import itertools
 import os
 
-import numpy as np
+from motionmapperpy import setRunParameters
+WAVELET_DOWNSAMPLE=setRunParameters().wavelet_downsample
+MOTIONMAPPER_PARAMS=setRunParameters()
 
 
 chunksize=45000
@@ -105,3 +107,14 @@ inactive_states=["inactive", "inactive+pe", "inactive+micromovement", "inactive+
 DEFAULT_FILTERS=["rle", "jump"]
 
 DEG_DATA=os.path.join(os.environ["DEEPETHOGRAM_PROJECT_PATH"], "DATA")
+
+BEHAVIOR_IDX_MAP={
+    "walk": (1,),
+    "groom": (2,),
+    "feed": (3,),
+    "background": (0,),
+    "inactive+micromovement": (5,7),
+    "inactive+rejection": (5,7,9),
+    "inactive+pe": (4,5),
+    "inactive": (5,),
+}
