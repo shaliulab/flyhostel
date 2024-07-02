@@ -20,9 +20,10 @@ from .ai import AIExporter
 from .concatenation import ConcatenationExporter
 from .metadata import MetadataExporter
 from .snapshot import SnapshotExporter
+from .landmarks import LandmarksExporter
 logger = logging.getLogger(__name__)
 
-class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, MetadataExporter, StoreIndexExporter, ABC):
+class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, MetadataExporter, StoreIndexExporter, LandmarksExporter, ABC):
 
     _CLASSES = {0: "head"}
     _AsyncWriter = AsyncSQLiteWriter
