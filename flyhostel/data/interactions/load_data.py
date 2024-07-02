@@ -4,10 +4,6 @@ import pandas as pd
 import numpy as np
 from flyhostel.utils import get_sqlite_file
 
-DATA_PATH=os.environ["MOTIONMAPPER_DATA"]
-
-
-
 def read_animal_position(sqlite3_file, identity, chunks):
 
     placeholders = ', '.join('?' for _ in chunks)
@@ -56,6 +52,8 @@ def add_multiindex(df):
 
 
 def load_animal_dataset(animal):
+    raise NotImplementedError()
+    #DATA_PATH=os.environ["MOTIONMAPPER_DATA"]
 
     identity = int(animal.split("__")[1])
     datasetnames = [

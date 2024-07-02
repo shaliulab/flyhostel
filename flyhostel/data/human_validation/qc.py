@@ -126,7 +126,9 @@ def analyze_video(df, number_of_animals, n_jobs=1):
     logger.debug("Setting index of data")
 
     n_windows=df[["chunk", "frame_number"]].drop_duplicates().shape[0]
-    all_windows=df[["local_identity", "identity", "chunk", "fragment", "modified", "frame_number"]].groupby(["chunk", "frame_number"]).__iter__()
+    all_windows=df[["local_identity", "identity", "chunk", "fragment", "modified", "frame_number"]].groupby([
+        "chunk", "frame_number"
+    ]).__iter__()
     logger.debug("Generating %s windows", n_windows)
 
 
@@ -176,7 +178,6 @@ def analyze_video(df, number_of_animals, n_jobs=1):
         batches.append(
             kwargs[j*batch_size:(j+1)*batch_size]
         )
-    
     logger.debug("Running QC using %s jobs in %s batches of size %s. Saving log to %s", n_jobs, len(batches), batch_size, logfile)
     qc=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
@@ -189,9 +190,12 @@ def analyze_video(df, number_of_animals, n_jobs=1):
     qc=pd.concat(qc, axis=0)
     extra_check=np.bitwise_and(
         qc["inter_qc"],
-        np.bitwise_or(qc["first_frame_idx_qc"], qc["all_id_expected_qc"])
+        np.bitwise_or(
+            qc["first_frame_idx_qc"],
+            qc["all_id_expected_qc"]
+        )
     )
-    
+
     qc["qc"]=np.bitwise_and(
         np.bitwise_and(
             qc["yolov7_qc"],

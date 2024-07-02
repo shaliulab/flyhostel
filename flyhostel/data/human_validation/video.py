@@ -96,7 +96,8 @@ def generate_validation_video(store_path, row, df, number_of_animals, framerate=
 
         experiment=row["experiment"]
         cap.set(1, frame_number_0)
-        output_path_csv=os.path.join(output_folder, f"{experiment}_{frame_number_0}.csv")
+        chunk=frame_number_0//chunksize
+        output_path_csv=os.path.join(output_folder, f"{experiment}_{str(chunk).zfill(6)}_{frame_number_0}.csv")
         accum=0
 
         while True:

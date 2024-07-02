@@ -1,9 +1,10 @@
-import warnings
+import logging
 from abc import ABC, abstractmethod
 import sqlite3
 import os.path
 from tqdm.auto import tqdm
 from .reader import MP4Reader
+logger=logging.getLogger(__name__)
 FLYHOSTEL_SINGLE_VIDEOS="./flyhostel/single_animal/"
 
 class MP4VideoMaker(ABC):
@@ -26,6 +27,30 @@ class MP4VideoMaker(ABC):
     @staticmethod
     def fetch_frame_time(cur, frame_number):
         return
+    
+    def save_coords_to_csv(self, chunks, output):
+        store_path=os.path.join(self._basedir, "metadata.yaml")
+
+        with sqlite3.connect(f"file:{self._flyhostel_dataset}?mode=ro", uri=True) as conn:
+            for chunk in chunks:
+                with MP4Reader(
+                        "flyhostel", connection=conn, store_path=store_path,
+                        number_of_animals=self._number_of_animals,
+                        width=100, height=100, resolution=(100, 100),
+                        background_color=255, chunks=[chunk]
+                    ) as mp4_reader:
+                    data=mp4_reader._data.reset_index()
+
+                    for i, identifier in enumerate(self._identifiers):
+                        output_folder=os.path.join(FLYHOSTEL_SINGLE_VIDEOS, str(identifier).zfill(3))
+                        csv = os.path.join(output_folder, f"{str(chunk).zfill(6)}.csv")
+                        df=data.loc[data[mp4_reader.IDENTIFIER_COLUMN]==identifier].set_index([
+                            "frame_number",
+                            mp4_reader.IDENTIFIER_COLUMN
+                        ])
+                        os.makedirs(output_folder, exist_ok=True)
+                        df.to_csv(csv)
+
 
     def _make_single_video(self, chunks, output, frame_size, resolution, background_color=255, **kwargs):
         width, height = frame_size
@@ -75,7 +100,7 @@ class MP4VideoMaker(ABC):
                                 fn, written_images_=self.write_frame(img, output, chunk, frame_number, 0, resolution_full, index_cur=index_cur, written_images=written_images[0], **kwargs)
                                 written_images[identifier]=written_images_
                                 if fn is not None:
-                                    print(f"Working on chunk 000/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
+                                    logger.debug(f"Working on chunk 000/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
 
 
                             else:
@@ -83,7 +108,7 @@ class MP4VideoMaker(ABC):
                                     fn, written_images_=self.write_frame(img[i], output, chunk, frame_number, identifier, resolution, index_cur=index_cur, written_images=written_images[identifier], **kwargs)
                                     written_images[identifier]=written_images_
                                     if fn is not None:
-                                        print(f"Working on chunk {str(identifier).zfill(3)}/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
+                                        logger.debug(f"Working on chunk {str(identifier).zfill(3)}/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
                                 
                             target_fn=frame_number+mp4_reader.step
 
@@ -116,7 +141,7 @@ class MP4VideoMaker(ABC):
             fn, written_images = self.init_video_writer(basedir=output, frame_size=resolution, identifier=identifier,chunk=chunk, **kwargs)
             if fn is None:
                 return fn, written_images
-            print(f"Working on chunk {chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}")
+            logger.debug("Working on chunk %s. Initialized %s. start_next_chunk = %s", chunk, fn, self.start_next_chunk)
             assert img.shape == resolution[::-1], f"{img.shape} != {resolution[::-1]}"
             assert str(chunk).zfill(6) in fn
 

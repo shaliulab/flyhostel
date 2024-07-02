@@ -1,3 +1,5 @@
+import tempfile
+import logging
 import os.path
 import datetime
 import subprocess
@@ -8,7 +10,7 @@ import warnings
 from abc import ABC
 
 import numpy as np
-import yaml
+import pandas as pd
 
 from .constants import (
     METADATA_FILE,
@@ -20,6 +22,7 @@ from .utils import parse_experiment_properties
 from imgstore.constants import STORE_MD_FILENAME
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 
+logger=logging.getLogger(__name__)
 
 def metadata_not_found(message):
 
@@ -166,6 +169,22 @@ class MetadataExporter(ABC):
         process.communicate()
         print(f"Downloading metadata to {path}")
         return 0
-        # except:
-        #     metadata_not_found(f"Could not download metadata to {path}")
-        #     return 1
+    
+    def update_ethoscope_metadata(self, dbfile):
+        metadata_file=tempfile.NamedTemporaryFile(suffix=".csv", prefix=self._basedir.replace(os.path.sep, "_"))
+        self.download_metadata(metadata_file.name)
+
+        if os.path.exists(metadata_file.name):
+            with open(metadata_file.name, "r", encoding="utf8") as filehandle:
+                ethoscope_metadata_str = filehandle.read()
+            
+            print(pd.read_csv(metadata_file, index_col=0))
+        
+            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                conn.execute(
+                    "DELETE FROM METADATA WHERE field = 'ethoscope_metadata';" 
+                )
+            with sqlite3.connect(dbfile, check_same_thread=False) as conn:
+                conn.execute(
+                    "INSERT INTO METADATA (field, value) VALUES (?, ?);", ("ethoscope_metadata", ethoscope_metadata_str)
+                )

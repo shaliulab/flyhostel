@@ -5,8 +5,6 @@ import logging
 
 logger=logging.getLogger(__name__)
 
-POSE_DATA=os.environ["POSE_DATA"]
-
 class FilesystemInterface(ABC):
 
     basedir=None
@@ -21,9 +19,10 @@ class FilesystemInterface(ABC):
 
 
     def load_datasetnames(self):
+        raise NotImplementedError
 
         datasetnames = []
-        animals=os.listdir(POSE_DATA)
+        animals=os.listdir(None)
         datasetnames=sorted(list(filter(lambda animals: animals.startswith(self.experiment), animals)))
 
         if not datasetnames:

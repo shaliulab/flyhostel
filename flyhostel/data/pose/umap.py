@@ -11,49 +11,20 @@ import plotly.express as px
 from sklearn.model_selection import train_test_split
 from umap import UMAP
 
-from flyhostel.data.pose.ethogram import annotate_bout_duration, annotate_bouts
+from flyhostel.data.pose.ethogram.utils import annotate_bouts, remove_bout_ends_from_dataset
 from flyhostel.data.pose.main import FlyHostelLoader
 from motionmapperpy import setRunParameters
 
 
-
+raise NotImplementedError()
 LTA_DATA=os.environ["LTA_DATA"]
-MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
-OUTPUT_FOLDER=os.path.join(MOTIONMAPPER_DATA, "output")
-MODELS_FOLDER=os.path.join(MOTIONMAPPER_DATA, "models")
 
 logger=logging.getLogger(__name__)
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 STRIDE=setRunParameters().wavelet_downsample
 
-def remove_bout_ends_from_dataset(dataset, n_points, fps):
-    """
-    Set beginning and end of each bout to background, to avoid confusion between human label and wavelet defined behavior
 
-    If the labeling strategy has more temporal resolution than the algorithm used to infer them
-    there can be some artifacts where the signal inferred from a previous or future bout (very close temporally) spills over into the present bout
-    This means the ground truth and inference are less likely to agree at transitions, and such frames should be labeled as such
-    by setting the behavior to background (aka transition)
-     
-
-    Arguments:
-
-        dataset (pd.DataFrame): contains a column called behavior and is sorted chronologically.
-            All rows are equidistant in time. A single animal is present.
-        n_points (int): How many points to remove at beginning AND end of each bout.
-        fps (int): Number of points in this dataset that are contained within one second of recording.
-
-    Returns:
-        dataset (pd.DataFrame): rows at beginning or end of bouts are removed
-    """
-    dataset=annotate_bouts(dataset, variable="behavior")
-    dataset=annotate_bout_duration(dataset, fps=fps)
-    short_behaviors=["pe_inactive"]
-    dataset.loc[((dataset["bout_in"] <= n_points) & (dataset["bout_out"] <= n_points)) | np.bitwise_not(dataset["behavior"].isin(short_behaviors)), "behavior"]="background"
-    del dataset["bout_in"]
-    del dataset["bout_out"]
-    return dataset
 
 
 NUMBER_OF_SAMPLES={"walk": 30_000, "inactive": 10_000, "groom": 30_000}
@@ -62,18 +33,18 @@ def sample_informative_behaviors(pose_annotated_with_wavelets):
 
     # generate a dataset of wavelets and the ground truth for all behaviors
     ##########################################################################
-    pe_inactive=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="pe_inactive"]
+    inactive_pe=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]=="inactive+pe"]
     behaviors=np.unique(pose_annotated_with_wavelets["behavior"]).tolist()
-    for behav in ["unknown", "pe_inactive"]:
+    for behav in ["unknown", "inactive+pe"]:
         if behav in behaviors:
             behaviors.pop(behaviors.index(behav))
 
 
-    dfs=[pe_inactive]
+    dfs=[inactive_pe]
     for behav in behaviors:
         d=pose_annotated_with_wavelets.loc[pose_annotated_with_wavelets["behavior"]==behav].sample(frac=1).reset_index(drop=True)
         samples_available=d.shape[0]
-        if behav=="pe_inactive":
+        if behav=="inactive+pe":
             n_max=samples_available
         else:
             max_seconds=60
@@ -189,7 +160,7 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
     all_labeled_datasets.reset_index().to_feather(os.path.join(output, f"{timestamp}_all_dataset.feather"))
 
     color_mapping = {
-        "pe_inactive": "yellow",
+        "inactive+pe": "yellow",
         "feed": "orange",
         "groom": "green",
         "inactive": "blue",
@@ -198,7 +169,7 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
 
     logger.debug("Generating visualization")
     fig=px.scatter(
-        training_set.loc[training_set["behavior"].isin(["pe_inactive", "feed", "groom", "inactive", "walk"])], x="C_1", y="C_2", color="behavior",
+        training_set.loc[training_set["behavior"].isin(["inactive+pe", "feed", "groom", "inactive", "walk"])], x="C_1", y="C_2", color="behavior",
         hover_data=["id", "chunk", "frame_idx", "frame_number", "behavior"],
         color_discrete_map=color_mapping,
     )
@@ -225,7 +196,7 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
 
 def generate_umap_dataset(pose_annotated, groupby="behavior", min_per_group=1000):
     
-    behavior_target_count="pe_inactive"
+    behavior_target_count="inactive+pe"
     target_count=(pose_annotated[groupby]==behavior_target_count).sum()
     target_count=max(min_per_group, target_count)
     logger.debug("Keeping %s points per %s", target_count, groupby)

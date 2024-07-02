@@ -109,6 +109,7 @@ def draw_fly(canvas, t, dt, id, with_identity=False):
     dt (pd.DataFrame): Must contain columns bp_x and bp_y where bp includes centroid head proboscis abdomen rightWing leftWing and legs
     id (str): Index value to filter draw_fly by
     """
+    raise NotImplementedError("Update body part names")
     dt_animal = dt.loc[id]
 
     row=dt_animal.iloc[np.abs(dt_animal["t"]-t).argmin()]

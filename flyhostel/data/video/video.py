@@ -54,7 +54,7 @@ class SingleVideoMaker(MP4VideoMaker):
         self.background_color = 255
         print(f"Reading {self._flyhostel_dataset}")
 
-        with sqlite3.connect(self._flyhostel_dataset, check_same_thread=False) as conn:
+        with sqlite3.connect(f"file:{self._flyhostel_dataset}?mode=ro", uri=True) as conn:
 
             cur = conn.cursor()
             cmd = "SELECT COUNT(frame_number) FROM ROI_0;"
@@ -134,9 +134,9 @@ class SingleVideoMaker(MP4VideoMaker):
             first_chunk=first_chunk,
         )
         print(f"{basedir}:resolution={frame_size}:framerate={self.framerate}")
-
         txt_file = os.path.join(basedir, f"{str(chunk).zfill(6)}.txt")
         cached_images=0
+        self.txt_file[identifier]=txt_file
         if os.path.exists(txt_file):
             with open(txt_file, "r") as filehandle:
                 try:
@@ -149,8 +149,6 @@ class SingleVideoMaker(MP4VideoMaker):
                 elif cached_images != self.chunksize:
                     cached_images=0
                 
-        self.txt_file[identifier]=txt_file
-
         return self.video_writer[identifier]._capfn, cached_images
 
     def frame_number2chunk(self, frame_number):

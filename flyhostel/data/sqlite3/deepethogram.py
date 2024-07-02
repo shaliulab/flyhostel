@@ -7,11 +7,11 @@ from tqdm.auto import tqdm
 from flyhostel.data.deepethogram import H5Reader
 from flyhostel.data.sqlite3.utils import parse_experiment_properties
 from flyhostel.data.deepethogram.video import build_key
+DEEPETHOGRAM_PROJECT_PATH=os.path.join(os.environ["DEEPETHOGRAM_PROJECT_PATH"], "DATA")
 
 class DeepethogramExporter(ABC):
 
     number_of_animals=None
-    _deepethogram_data=None
     _basedir=None
     _index_dbfile=None
     _store_metadata=None
@@ -56,8 +56,6 @@ class DeepethogramExporter(ABC):
 
     def write_behaviors_table_single_blob(self, dbfile, local_identity, behaviors=None, chunks=None):
 
-        if self._deepethogram_data is None:
-            raise ValueError("Please pass a deepethogram data folder")
 
         _, (flyhostel_id, number_of_animals, date_time) = parse_experiment_properties(self._basedir)
         prefix = build_key(flyhostel_id, number_of_animals, date_time, chunk, local_identity=None)
@@ -68,7 +66,7 @@ class DeepethogramExporter(ABC):
             deepethogram_identity=local_identity
 
         reader = H5Reader.from_outputs(
-            data_dir=self._deepethogram_data, prefix=prefix,
+            data_dir=DEEPETHOGRAM_DATA, prefix=prefix,
             local_identity=deepethogram_identity,
             frequency=self._store_metadata["framerate"]
         )

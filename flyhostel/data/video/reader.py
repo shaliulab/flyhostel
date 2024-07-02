@@ -11,7 +11,7 @@ import numpy as np
 from imgstore.interface import VideoCapture
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from flyhostel.data.yolov7 import letterbox
-
+from flyhostel.utils.filters import one_pass_filter_1d
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class MP4Reader:
         ):
 
         """
-            consumer (str): Either flyhostel or yolov7. If in flyhostel consumer,
+            consumer (str): Either "flyhostel" or "yolov7". If in flyhostel consumer,
                frames are read and returned one frame number at a time,
                with a constant resolution
 
@@ -81,8 +81,13 @@ class MP4Reader:
         self.success=None
         self.roi_0_table=None
         self.identity_table=None
-        
-        self.load_data()
+
+        self._last_frame_indices=[]        
+        if self.connection is not None:
+            self.load_data()
+            self.filter_data()
+        else:
+            self._data=None
 
     def check_validation_tables(self):
         self._cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='IDENTITY_VAL';")
@@ -100,6 +105,7 @@ class MP4Reader:
         else:
             self.roi_0_table="ROI_0"
 
+        logger.info("Reading tables %s and %s", self.identity_table, self.roi_0_table)
 
     def load_data(self):
         self._cur=self.connection.cursor()
@@ -107,7 +113,6 @@ class MP4Reader:
 
         self._cur.execute(self.sqlite_query,(self._chunk,))
         self._data = pd.DataFrame(self._cur.fetchall())
-        self._last_frame_indices=[]
 
         if self._data.shape[0] == 0:
             self.success=False
@@ -123,10 +128,27 @@ class MP4Reader:
             self._data.set_index(["frame_number", self.IDENTIFIER_COLUMN], inplace=True)
             self._data["x"] = np.int32(np.floor(self._data["x"]))
             self._data["y"] = np.int32(np.floor(self._data["y"]))
-            print(f"MP4 reader initialized with step = {self.step}")
+            logger.debug("MP4 reader initialized with step = %s", self.step)
         else:
-            print("MP4 reader failed initializing due to warnings displayed above")
+            logger.debug("MP4 reader failed initializing due to warnings displayed above")
     
+    def filter_data(self):
+        # self.no_filter()
+        self._data=self.rle_filter()
+    
+    def rle_filter(self):
+        out=[]
+        for identity, df in self._data.reset_index().groupby(self.IDENTIFIER_COLUMN):
+            logger.debug("Filtering %s: %s", self.IDENTIFIER_COLUMN, identity)
+            df["x"]=one_pass_filter_1d(df["x"].values.tolist())
+            df["y"]=one_pass_filter_1d(df["y"].values.tolist())
+            out.append(df)
+        
+        df=pd.concat(out, axis=0).set_index(["frame_number", self.IDENTIFIER_COLUMN])
+        return df
+
+    def no_filter(self):
+        pass
 
     @property
     def sqlite_query(self):
@@ -293,7 +315,7 @@ class MP4Reader:
             return None
         
         coords = (x_coord, y_coord)
-        logger.debug(f"frame number: {frame_number}, coords: {coords}")
+        # logger.debug(f"frame number: {frame_number}, coords: {coords}")
 
         return coords
 
@@ -302,11 +324,19 @@ class MP4Reader:
 
         if frame_number is None:
             frame_number = self._cap.frame_number
-            print(f"Reading frame number {frame_number}")
+            logger.debug(f"Reading frame number {frame_number}")
 
         img, (fn, ft) = self._cap.get_image(frame_number)
-        self._frame_number = fn
+        if fn != frame_number:
+            img, (fn, ft) = self._cap.get_image(frame_number)
+
+
         assert fn == frame_number
+        assert img is not None
+        assert img.shape[0] > 0
+
+        self._frame_number = fn
+
         if self._cap._chunk_n != self._chunk:
             self.close()
             return None
@@ -314,11 +344,14 @@ class MP4Reader:
         arr = []
         for identifier in identifiers:
             identifier=identifier
-            centroid = self.get_centroid(frame_number, identifier=identifier)
-            if centroid is None:
-                img_=self._NULL.copy()
+            if self._data is None:
+                img_=img.copy()
             else:
-                img_=self.crop_image(img, centroid)
+                centroid = self.get_centroid(frame_number, identifier=identifier)
+                if centroid is None:
+                    img_=self._NULL.copy()
+                else:
+                    img_=self.crop_image(img, centroid)
             arr.append(img_)
             self._last_frame_indices.append(identifier)
 

@@ -106,7 +106,8 @@ def bsoid_interpolation(experiment, chunks, n_jobs):
 
                     
     animals = load_animals(experiment)
-    pattern=os.path.join(os.environ["POSE_DATA"],  animals[0], "*h5")
+    raise NotImplementedError
+    pattern=os.path.join(os.environ["foo"],  animals[0], "*h5")
 
     number_of_animals=int(experiment.split("_")[1].rstrip("X"))
     assert len(animals) == number_of_animals, f"{len(animals)} != {number_of_animals}"

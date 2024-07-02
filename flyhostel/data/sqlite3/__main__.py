@@ -26,7 +26,6 @@ def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
     print("Initializing exporter")
     dataset = IdtrackeraiExporter(
         basedir,
-        deepethogram_data=os.environ["DEEPETHOGRAM_DATA"],
         framerate=framerate
     )
     if len(tables)== 1 and tables[0] in PRESETS:

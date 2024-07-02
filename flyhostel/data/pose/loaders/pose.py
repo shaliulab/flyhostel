@@ -11,17 +11,17 @@ from flyhostel.data.pose.h5py import load_pose_data_compiled
 from flyhostel.utils import restore_cache, save_cache
 from flyhostel.data.pose.filters import filter_pose, arr2df
 from flyhostel.data.pose.gpu_filters import filter_pose_df
-from flyhostel.data.pose.constants import bodyparts as BODYPARTS
+from flyhostel.data.pose.constants import get_bodyparts
 from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.constants import PARTITION_SIZE
 
+BODYPARTS=get_bodyparts()
 
 logger=logging.getLogger(__name__)
 
 bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in BODYPARTS]))
 bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in BODYPARTS]))
-MOTIONMAPPER_DATA=os.environ["MOTIONMAPPER_DATA"]
 
 try:
     import cupy as cp
@@ -32,6 +32,8 @@ except:
     logger.debug("Cannot load cupy")
 
 class PoseLoader:
+
+    filters=None
 
     def __init__(self, *args, **kwargs):
 
@@ -51,7 +53,6 @@ class PoseLoader:
         self.pose_annotated=None
         self.pose_speed_boxcar=None
         self.pose_boxcar=None
-        self.meta_info=None
 
 
         self.window_size_seconds=0.5
@@ -66,7 +67,7 @@ class PoseLoader:
     def load_store_index(self, cache):
         raise NotImplementedError()
 
-    def load_pose_data(self, identity, min_time=-float("inf"), max_time=float("inf"), time_system="zt", stride=1, cache=None, verbose=False, files=None):
+    def load_pose_data(self, identity, min_time=-float("inf"), max_time=float("inf"), time_system="zt", stride=1, cache=None, verbose=False, files=None, write_only=False):
         
         if min_time>=max_time:
             logger.warning("Passed time interval (%s - %s) is meaningless")
@@ -74,21 +75,28 @@ class PoseLoader:
         self.load_store_index(cache=cache)
         ret=False
         pose=None
+        path=None
     
         if cache is not None:
             path = f"{cache}/{self.experiment}__{str(identity).zfill(2)}_{stride}_pose_data.pkl"
-            ret, out=restore_cache(path)
+            if write_only:
+                ret=False
+            else:
+                logger.debug("Cache: %s", path)
+                ret, out=restore_cache(path)
+                if not ret:
+                    logger.info("%s not found or not loadable", path)
 
-            if ret:
-                (pose, meta_pose)=out
+                if ret:
+                    (pose, meta_pose)=out
 
-         
         if not ret:
-            datasets=[dataset for dataset in self.datasetnames if dataset.endswith(str(identity).zfill(2))]
+            assert files is not None, f"No files passed and could not find {path} in cache"
+            animals=[animal for animal in self.datasetnames if animal.endswith(str(identity).zfill(2))]
             ids=[ident for ident in self.ids if ident.endswith(str(identity).zfill(2))]
-            if len(datasets)==0 or len(ids)==0:
-                logger.error("identity %s not available in POSE_DATA", identity)
-            out=load_pose_data_compiled(datasets, ids, self.lq_thresh, stride=stride, files=files)
+            if len(animals)==0 or len(ids)==0:
+                logger.error("animal with identity %s not available", identity)
+            out=load_pose_data_compiled(animals, ids, self.lq_thresh, stride=stride, files=files)
 
             if out is not None:
                 pose, _, index_pandas=out
@@ -150,13 +158,13 @@ class PoseLoader:
                     -(np.argmax(t[::-1]<max_time)-1)
                 ]
                 pose=pose.loc[
-                    (pose["t"] >= min_fn) & (pose["t"] < max_fn)
+                    (pose["frame_number"] >= min_fn) & (pose["frame_number"] < max_fn)
                 ]
     
         return pose
 
 
-    def boxcar_filter(self, pose, features, bodyparts=BODYPARTS, framerate=150):
+    def boxcar_filter(self, pose, features, bodyparts, framerate=150):
 
         filtered_pose_arr, _ = filter_pose(
             "nanmean", pose, bodyparts,
@@ -205,7 +213,8 @@ class PoseLoader:
                 window_size=window_size,
                 partition_size=PARTITION_SIZE,
                 pad=True,
-                download=True
+                download=True,
+                n_jobs=1
             )
           
         else:
@@ -220,7 +229,7 @@ class PoseLoader:
             pose_annotated=pose.copy()
             pose_annotated["behavior"]="unknown"
         else:
-            pose_annotated=pose.merge(behaviors[["frame_number", "t", "id", "behavior"]], on=["frame_number", "t", "id"], how="left")
+            pose_annotated=pose.merge(behaviors[["frame_number", "id", "behavior"]], on=["frame_number", "id"], how="left")
             pose_annotated.loc[pd.isna(pose_annotated["behavior"]), "behavior"]="unknown"
         return pose_annotated
 
@@ -230,8 +239,8 @@ class PoseLoader:
         f"""
         Export the pose to an .h5 dataset compatible with motionmapper, bsoid, etc
         If the pose dataset is not specified, it will use pose_interpolated by default
-        If the dest_folder is not specified, it will use {MOTIONMAPPER_DATA} by default
         """
+        assert dest_folder is not None
 
         assert len(pose["id"].unique())==1
         bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
@@ -260,18 +269,20 @@ class PoseLoader:
         number_of_bodyparts = m // 2
         # Reshape and transpose the array
         reshaped_array = input_array.reshape(N, number_of_bodyparts, 2).transpose(2, 1, 0)
+        # fist axis contains X-Y
+        # second axis contains bodyparts
+        # third axis contains time
         reshaped_array=reshaped_array[np.newaxis, :]
 
         assert len(frame_number) == reshaped_array.shape[3]
 
-        files=sorted(self.meta_pose[id]["files"])
+        files=sorted(self.meta_pose[id]["files"], key=lambda x: os.path.basename(x))
         
         key=f"{self.experiment}__{str(identity).zfill(2)}"
 
-        if dest_folder is None:
-            dest_folder=MOTIONMAPPER_DATA
 
         folder=f"{dest_folder}/{key}"
+        track_names=self.datasetnames
         os.makedirs(folder, exist_ok=True)
         filename=f"{folder}/{key}.h5"
         print(f"Saving to --> {filename}")
@@ -279,6 +290,11 @@ class PoseLoader:
         f.create_dataset("tracks", data=reshaped_array)
         f.create_dataset("node_names", data=node_names)
         f.create_dataset("files", data=files)
-        # f.create_dataset("frame_number", data=frame_number)
+        i=f.create_dataset("track_names", (len(track_names),), dtype="|S40")
+        i[:]=np.array([e.encode() for e in track_names])
+
+        j=f.create_dataset("filters", (len(self.filters),), dtype="|S50")
+        j[:]=np.array([e.encode() for e in self.filters])
+
         f.close()
         return

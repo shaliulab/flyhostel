@@ -1,95 +1,96 @@
 from abc import ABC, abstractmethod
+import logging
 import os.path
-import hdf5storage
+import h5py
 import numpy as np
 
 import pandas as pd
 from tqdm.auto import tqdm
 
-from flyhostel.data.pose.constants import chunksize
+from flyhostel.data.pose.constants import chunksize, framerate
+
+logger=logging.getLogger(__name__)
+
+class WaveletLoader():
 
 
-LTA_DATA=os.environ["LTA_DATA"]
 
-class WaveletLoader(ABC):
+    def __init__(self, *args, **kwargs):
+        self.datasetnames=[]
+        self.identities=[]
+        self.identity=None
+        self.basedir=None
+        self.experiment=None
+        self.pose_boxcar=None
+        self.deg=None
+        self.dt=None
+        self.wavelets=None
+        super(WaveletLoader, self).__init__(*args, **kwargs)
 
-    datasetnames=[]
-    identities=[]
-    experiment=None
-    pose_boxcar=None
-    deg=None
-    
     @abstractmethod
     def annotate_pose(self, pose, behaviors):
         raise NotImplementedError()
-    
 
-    @staticmethod
-    def get_matfile(datasetname):
-        return os.path.join(LTA_DATA, "Wavelets", datasetname + "-pcaModes-wavelets.mat")
 
-    
+    def get_matfile(self):
+        animal=self.experiment + "__" + str(self.identity).zfill(2)
+        return os.path.join(
+            self.basedir, "motionmapper", str(self.identity).zfill(2),
+            "wavelets/FlyHostel_long_timescale_analysis/Wavelets",
+            animal + "-pcaModes-wavelets.mat"
+        )
 
-    def load_wavelets(self, identity=None, matfile=None):
+
+    def load_wavelets(self, matfile=None, frames=None):
         """
         Load pre-computed wavelet transform of pose
         """
-        wavelets=[]
+        # wavelets=[]
         frequencies=None
         freq_names=None
-
         previous_freq_names=None
-        if matfile is not None:
-            assert len(self.datasetnames)==1
 
-        if identity is None:
-            datasetnames=self.datasetnames
-        else:
-            datasetnames=[self.datasetnames[0]]
+        if matfile is None:
+            matfile=self.get_matfile()
 
+        if not os.path.exists(matfile):
+            logger.error(f"{matfile} not found")
+            return None, (None, None)
 
-        for i, datasetname in enumerate(tqdm(datasetnames, desc='loading wavelet dataset')):
-            if matfile is None:
-                matfile=self.get_matfile(datasetname)
+        logger.debug("Loading %s", matfile)
+        with h5py.File(matfile, "r") as data:
+        # data=hdf5storage.loadmat(matfile)
+            freq_names=[f.decode() for f in data["freq_names"][:]]
 
-            if not os.path.exists(matfile):
-                print(f"{matfile} not found")
-                continue
+            if frames is None:
+                logger.debug("Loading wavelets in all frames")
+                wavelets_single_animal=pd.DataFrame(data["wavelets"][:], columns=freq_names)
+            else:
+                logger.debug("Loading wavelets in %s frames", len(frames))
+                wavelets_single_animal=pd.DataFrame(data["wavelets"][frames, ...], columns=freq_names)
 
-            data=hdf5storage.loadmat(matfile)
-            freq_names=[f.decode() for f in data["freq_names"]]
-
-            wavelets_single_animal=pd.DataFrame(data["wavelets"], columns=freq_names)
-            # wavelets_single_animal["indices"]=data["indices"]
 
             if previous_freq_names is None:
                 previous_freq_names=freq_names
             assert all([a == b for a, b in zip(freq_names, previous_freq_names)])
-            frequencies=data["f"]
-            
-            if identity is None:
-                id=self.ids[i]
-            else:
-                id=self.ids[0]
+            frequencies=data["f"][:]
 
-            wavelets_single_animal["id"]=id
 
-            wavelets_single_animal.set_index("id", inplace=True)
-            wavelets.append(wavelets_single_animal)
-        
-        if len(datasetnames)>1:
-            import ipdb;ipdb.set_trace()
+        wavelets_single_animal["id"]=self.ids[0]
 
-        wavelets=pd.concat(wavelets, axis=0)
+        wavelets_single_animal.set_index("id", inplace=True)
+        # wavelets.append(wavelets_single_animal)
+        wavelets=wavelets_single_animal
+        # wavelets=pd.concat(wavelets, axis=0)
         return wavelets, (frequencies, freq_names)
 
 
 
-    def load_dataset(self, pose=None, wavelets=None, segregate=True, deg=None):
+    def load_dataset(self, feature_types=None, pose=None, wavelets=None, segregate=True, deg=None):
         """"
-        Generate dataset of pose + wavelets 
+        Generate dataset of pose + wavelets + centroid position
 
-        Wavelets are assumed to be pre-computed and stored in LTA_DATA/Wavelets/datasetname-pcaModes-wavelets.mat
+        Wavelets are assumed to be pre-computed and stored in motionmapper/identity/wavelets/FlyHostel_long_timescale_analysis/Wavelets/datasetname-pcaModes-wavelets.mat
         """
 
         # load pose data and annotate it using ground truth
@@ -99,41 +100,57 @@ class WaveletLoader(ABC):
 
         if pose is None:
             pose=self.pose_boxcar.copy()
-            pose=self.annotate_pose(pose, deg)
         else:
             pose=pose.copy()
+        
+        if feature_types is None or "centroid_speed" in feature_types:
+            dt=self.dt[["frame_number", "x", "y"]]
+            dt=dt.loc[(dt["frame_number"]%framerate)==0]
+            dt["diff_x"]=[0]+dt["x"].diff().values[1:].tolist()
+            dt["diff_y"]=[0]+dt["y"].diff().values[1:].tolist()
+            dt["centroid_speed"]=np.sqrt((dt["diff_x"]**2+dt["diff_y"]**2))
+            pose["frame_number_round"]=framerate*(pose["frame_number"]//framerate)
+            pose=pose.merge(dt[["frame_number", "centroid_speed"]].rename({"frame_number": "frame_number_round"}, axis=1), how="left", on="frame_number_round")
+            pose.sort_values("frame_number", inplace=True)
+            pose["centroid_speed"].ffill(inplace=True)
+            pose.drop("frame_number_round", axis=1)
 
+        pose=self.annotate_pose(pose, deg)
         pose["frame_idx"]=pose["frame_number"]%chunksize
         pose["chunk"]=pose["frame_number"]//chunksize
-        
+
 
         # load wavelet transform of the data
         #####################################################
-        out=self.load_wavelets(matfile=wavelets, identity=self.identity)
+        out=self.load_wavelets(matfile=wavelets)
         if out is None:
             raise Exception(f"Wavelets of experiment {self.experiment} cannot be loaded. Did you generate them?")
         else:
             wavelets, (frequencies, freq_names)=out
-    
-        
+            
+        features=freq_names
+
         # merge pose and wavelet information
         # NOTE This assumes the frame number of the wavelet is the same as the pose
+        assert wavelets.shape[0]==pose.shape[0], f"Wavelets has {wavelets.shape[0]} rows, but pose has {pose.shape[0]} rows. They should be the same"
         wavelets["frame_number"]=pose["frame_number"].values
-        
+
         pose.set_index(["id", "frame_number"], inplace=True)
         wavelets.set_index("frame_number", append=True, inplace=True)
-        
-        # wavelets=wavelets.reset_index().set_index(["id", "frame_number"])
+
         pose_with_wavelets=pd.merge(pose, wavelets, left_index=True, right_index=True)
         del wavelets
+    
+        if feature_types is None or "centroid_speed" in feature_types:
+            features+=["centroid_speed"]
         pose_with_wavelets.reset_index(inplace=True)
 
 
         if segregate:
             labeled_dataset = pose_with_wavelets.loc[pose_with_wavelets["behavior"]!="unknown"]
             unknown_dataset = pose_with_wavelets.loc[pose_with_wavelets["behavior"]=="unknown"]
-            return labeled_dataset, unknown_dataset, (frequencies, freq_names)
+            return labeled_dataset, unknown_dataset, (frequencies, freq_names, features)
         else:
-            return pose_with_wavelets, (frequencies, freq_names)
+            return pose_with_wavelets, (frequencies, freq_names, features)
 
 

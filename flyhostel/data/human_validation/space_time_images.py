@@ -1,6 +1,5 @@
 import glob
 import logging
-import argparse
 import os.path
 
 import matplotlib.pyplot as plt
@@ -10,6 +9,10 @@ import joblib
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
+
+NUMBER_OF_ROWS=3
+NUMBER_OF_COLS=3
+RESOLUTION=(1000, 1000)
 
 from flyhostel.data.pose.constants import chunksize
 
@@ -29,14 +32,17 @@ def generate_space_time_image(scene_number, folder, number_of_rows=4, number_of_
     scene_name=os.path.splitext(os.path.basename(video))[0]
 
     frames=[]
-    empty_frame=np.zeros((500, 500, 3), dtype=np.uint8)
+    empty_frame=np.zeros((*RESOLUTION[::-1], 3), dtype=np.uint8)
     assert os.path.exists(video)
+    logger.debug("Opening %s", video)
     cap=cv2.VideoCapture(video)
     count=0
     while True:
         ret, frame=cap.read()
+        if count==0:
+            logger.debug("Reading %s", video)
         if ret:
-            frame=cv2.resize(frame, (500, 500))
+            frame=cv2.resize(frame, RESOLUTION)
             frames.append(frame)
         else:
             frames.append(empty_frame.copy())
@@ -63,11 +69,12 @@ def generate_space_time_image(scene_number, folder, number_of_rows=4, number_of_
 
 
 def generate_space_time_image_all(scenes, folder, n_jobs):
+    logger.debug("Running generate_space_time_image in %s jobs", n_jobs)
     joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             generate_space_time_image
         )(
-            scene_number, folder=folder, number_of_rows=3, number_of_columns=3
+            scene_number, folder=folder, number_of_rows=NUMBER_OF_ROWS, number_of_columns=NUMBER_OF_COLUMNS
         )
        for scene_number in tqdm(scenes)
     )
@@ -113,14 +120,24 @@ def make_space_time_images(folder, experiment, n_jobs):
     manifest_files=glob.glob(os.path.join(folder, "movies", "*.jsonl"))
 
     assert len(mp4_videos)!=0, f"No .mp4 videos found, did you run the make_videos.sh script?"
-    assert len(mp4_videos)==len(manifest_files)
+    video_keys=set([os.path.splitext(path)[0] for path in mp4_videos])
+    manifest_keys=set([os.path.splitext(path)[0] for path in manifest_files])
+
+    if len(mp4_videos)!=len(manifest_files):
+        print("Videos without manifest")
+        for video in list(video_keys.difference(manifest_keys)):
+            print(video)
+        raise Exception(f"{len(mp4_videos)}!={len(manifest_files)}")
+
 
     logger.info("Generating space time images for %s scenes", complex_qc.shape[0])
 
     generate_space_time_image_all(complex_qc["scene"].values.tolist(), folder=folder, n_jobs=n_jobs)
 
+    feather_file=f"{folder}/{experiment}_machine-validation-index-0.013-s.feather"
+    logger.debug("Reading %s", feather_file)
+    df_bin=pd.read_feather(feather_file)
 
-    df_bin=pd.read_feather(f"{folder}/{experiment}_machine-validation-index-0.013-s.feather")
     chunk_time=df_bin.groupby("chunk").first()["t_round"].reset_index().rename({"t_round": "t"}, axis=1)
     chunk_time["zt"]=np.round(chunk_time["t"]/3600, 2)
     chunk_time["t"]=np.round(chunk_time["t"], 2)
@@ -131,6 +148,7 @@ def make_space_time_images(folder, experiment, n_jobs):
     complex_qc=complex_qc.merge(chunk_time, on=["chunk"])
     mean_length_per_chunk=mean_length_per_chunk.merge(chunk_time, on=["chunk"])
     
+    logger.debug("Saving graphics")
     plt.bar(mean_length_per_chunk["t"]/3600, mean_length_per_chunk["length"])
     plt.savefig(os.path.join(folder, f"{experiment}_scene_len_per_chunk.png"))
     plt.clf()
@@ -139,17 +157,3 @@ def make_space_time_images(folder, experiment, n_jobs):
     plt.savefig(os.path.join(folder, f"{experiment}_scene_count.png"))
     plt.clf()
 
-
-def get_parser():
-    ap=argparse.ArgumentParser()
-    ap.add_argument("--experiment", type=str, required=True)
-    ap.add_argument("--folder", type=str, required=True)
-    ap.add_argument("--n-jobs", dest="n_jobs", type=int, default=-2)
-    return ap
-
-
-def main():
-    
-    ap = get_parser()
-    args=ap.parse_args()
-    make_space_time_images(args.folder, args.experiment, args.n_jobs)

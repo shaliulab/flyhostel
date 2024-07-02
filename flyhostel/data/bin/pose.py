@@ -1,5 +1,5 @@
 """
-Interface between flyhostel outputs abd B-SOID
+Interface between SLEAP and downstream behavior pipelines
 """
 
 import argparse
@@ -8,9 +8,6 @@ import sqlite3
 import os.path
 import joblib
 from flyhostel.data.pose.export import pipeline, load_concatenation_table, parse_number_of_animals
-from flyhostel.data.pose.preprocess import main as preprocess
-
-POSE_DATA=os.environ["POSE_DATA"]
 
 
 def main():
@@ -21,7 +18,7 @@ def main():
 
     No imputation is performed
     .h5 files must be available under basedir/flyhostel/single_animal/id/
-    files are saved to whatever $POSE_DATA points to
+    files are saved to the --output folder
     """
 
     ap = argparse.ArgumentParser()
@@ -32,7 +29,8 @@ def main():
     group.add_argument("--dbfile", type=str, help="Path to .db file")
     ap.add_argument("--chunks", type=int, nargs="+", required=False, default=None)
     ap.add_argument("--n-jobs", type=int, default=1)
-    ap.add_argument("--output", default=POSE_DATA, type=str)
+    ap.add_argument("--write-only", action="store_true", default=False, help="If passed, detected cache files are ignored, the computation is performed and the cache file is overwritten")
+    ap.add_argument("--output", default=None, required=True, type=str)
     args=ap.parse_args()
 
 
@@ -64,7 +62,10 @@ def main():
     with sqlite3.connect(dbfile) as conn:
         cur=conn.cursor()
         number_of_animals=parse_number_of_animals(cur)
-        concatenation=load_concatenation_table(cur, basedir)
+        if number_of_animals==1:
+            concatenation=load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION")
+        else:
+            concatenation=load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VAL")
 
 
     if args.identity is None:
@@ -77,7 +78,7 @@ def main():
         joblib.delayed(
             pipeline
         )(
-            experiment_name, identity, concatenation, args.chunks, output=args.output
+            experiment_name, identity, concatenation, args.chunks, output=args.output#, write_only=args.write_only
         )
         for identity in identities
     )

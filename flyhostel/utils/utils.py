@@ -4,22 +4,40 @@ import logging
 import os.path
 import yaml
 import re
-import pickle
 import shutil
 import glob
+import sys
 import sqlite3
 import joblib
 from confapp import conf
-from tqdm import tqdm
 import numpy as np
-
-
 import pandas as pd
 
+
+logger=logging.getLogger(__name__)
+
+if sys.version_info > (3, 8):
+    import pickle
+else:
+    logger.warning("Python version < 3.8 detected. Loading pickle5 instead of pickle")
+    import pickle5 as pickle
 
 from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG, ANALYSIS_FOLDER
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
 logger = logging.getLogger(__name__)
+
+def get_dbfile(basedir):
+    dbfile=os.path.join(
+        basedir,
+        "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:]) + ".db"
+    )
+    assert os.path.exists(dbfile), f"{dbfile} not found"
+    return dbfile
+
+def get_basedir(experiment):
+    tokens = experiment.split("_")
+    basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
+    return basedir
 
 def add_suffix(filename, suffix=""):
 
@@ -164,33 +182,44 @@ def load_metadata_prop(prop, animal=None, dbfile=None):
     if dbfile is None:
         dbfile = get_sqlite_file(animal)
 
-    with sqlite3.connect(dbfile) as connection:
-        cursor = connection.cursor()
-        cursor.execute(f"SELECT value FROM METADATA WHERE field = '{prop}';")
-        prop = cursor.fetchone()[0]
-    return prop
+    try:
+        with sqlite3.connect(dbfile) as connection:
+            cursor = connection.cursor()
+            cursor.execute(f"SELECT value FROM METADATA WHERE field = '{prop}';")
+            prop = cursor.fetchone()[0]
+    except sqlite3.OperationalError as error:
+        logger.error("%s METADATA table cannot be read". dbfile)
+        raise error
+    else:
+        return prop
 
 def load_roi_width(dbfile):
-    with sqlite3.connect(dbfile) as conn:
-        cursor=conn.cursor()
+    try:
+        with sqlite3.connect(dbfile) as conn:
+            cursor=conn.cursor()
 
-        cursor.execute(
+            cursor.execute(
+                """
+            SELECT w FROM ROI_MAP;
             """
-        SELECT w FROM ROI_MAP;
-        """
-        )
-        [(roi_width,)] = cursor.fetchall()
-        cursor.execute(
+            )
+            [(roi_width,)] = cursor.fetchall()
+            cursor.execute(
+                """
+            SELECT h FROM ROI_MAP;
             """
-        SELECT h FROM ROI_MAP;
-        """
-        )
-        [(roi_height,)] = cursor.fetchall()
+            )
+            [(roi_height,)] = cursor.fetchall()
 
-    roi_width=int(roi_width)
-    roi_height=int(roi_height)
-    roi_width=max(roi_width, roi_height)
-    return roi_width
+        roi_width=int(roi_width)
+        roi_height=int(roi_height)
+        roi_width=max(roi_width, roi_height)
+    except sqlite3.OperationalError as error:
+        logger.error("%s ROI_MAP table cannot be read", dbfile)
+        raise error
+    
+    else:
+        return roi_width
 
 def parse_identity(id):
     return int(id.split("|")[1])
@@ -212,11 +241,13 @@ def get_local_identities_from_experiment(experiment, frame_number):
     table=get_local_identities(dbfile, [frame_number])
     return table
 
-def get_local_identities(dbfile, frame_numbers):
+
+def get_local_identities_v1(dbfile, frame_numbers, identity_table="IDENTITY"):
 
     with sqlite3.connect(dbfile) as conn:
         cursor = conn.cursor()
-        query = "SELECT frame_number, identity, local_identity FROM identity WHERE frame_number IN ({})".format(
+        query = "SELECT frame_number, identity, local_identity FROM {} WHERE frame_number IN ({})".format(
+            identity_table,
             ','.join(['?'] * len(frame_numbers))
         )
         cursor.execute(query, frame_numbers)
@@ -225,6 +256,36 @@ def get_local_identities(dbfile, frame_numbers):
     
     table=pd.DataFrame.from_records(table, columns=["frame_number", "identity", "local_identity"])
     return table
+
+def get_local_identities_v2(dbfile, frame_numbers, identity_table=None):
+    chunksize=get_chunksize(dbfile)
+    chunks=(np.array(frame_numbers)//chunksize).tolist()
+
+    with sqlite3.connect(dbfile) as conn:
+        cursor = conn.cursor()
+        query = "SELECT * FROM CONCATENATION_VAL;"
+        cursor.execute(query)
+        table = cursor.fetchall()
+    
+    table=pd.DataFrame.from_records(table, columns=["id", "chunk", "identity", "local_identity"])
+    table["local_identity"]=table["local_identity"].astype(np.int32)
+    table["identity"]=table["identity"].astype(np.int32)
+    
+    table=table.loc[table["chunk"].isin(chunks)]
+    table["frame_number"]=table["chunk"]*chunksize
+
+    return table
+
+
+def get_local_identities(dbfile, *args, **kwargs):
+    try:
+        return get_local_identities_v2(dbfile, *args, **kwargs)
+    except sqlite3.OperationalError as error:
+        logger.debug("%s is not human validated", dbfile)
+        logger.debug(error)
+        return get_local_identities_v1(dbfile, *args, **kwargs)
+
+
 
 def get_chunksize(dbfile):
     with sqlite3.connect(dbfile) as conn:
@@ -244,8 +305,10 @@ def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
         local_identity=local_identity.item()
         single_animal_video = os.path.join(os.path.dirname(dbfile), "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
     
+    if single_animal_video is None:
+        logger.warning("identity %s not found in chunk %s", identity, chunk)
+    
     return single_animal_video
-
 
 
 def restore_cache(path):

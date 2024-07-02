@@ -40,7 +40,7 @@ def make_video(pose, id, filename, frame_numbers, output_folder="."):
     )
 
 
-def annotate_chunk(experiment, behavior, chunk, identity, input_video, pose=None, output_video="./output.mp4", with_pose=False, frame_numbers=None, **kwargs):
+def annotate_chunk(experiment, behavior_df, chunk, identity, input_video, pose=None, output_video="./output.mp4", with_pose=False, frame_numbers=None, **kwargs):
 
     output_folder=os.path.dirname(output_video)
    
@@ -52,7 +52,7 @@ def annotate_chunk(experiment, behavior, chunk, identity, input_video, pose=None
     if output_video is None:
         output_video=os.path.join(output_folder, f"{key}_scored.mp4")
 
-    dt_scored=behavior.loc[behavior["frame_number"].isin(frame_numbers), ["id", "identity", "frame_number", "frame_idx", "behavior"]]
+    dt_scored=behavior_df.loc[behavior_df["frame_number"].isin(frame_numbers), ["id", "identity", "frame_number", "frame_idx", "behavior"]]
     
     dt_scored=dt_scored.loc[dt_scored["identity"]==int(identity)].drop("identity", axis=1)
     assert dt_scored.shape[0] > 0, f"No data found for {experiment}__{str(identity).zfill(2)}"

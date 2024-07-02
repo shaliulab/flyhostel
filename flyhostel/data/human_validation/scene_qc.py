@@ -6,7 +6,6 @@ This helps users tell which scenes are very unlikely to have mistakes or are may
 The features extracted are documented in scene_qc
 """
 
-import argparse
 import os.path
 import logging
 import math
@@ -16,8 +15,10 @@ import glob
 import yaml
 from tqdm.auto import tqdm
 import joblib
+import numpy as np
 import pandas as pd
 import cupy as cp
+
 
 from .qc import all_id_expected_qc
 from flyhostel.data.interactions.neighbors_gpu import compute_distance_between_ids, find_closest_pair
@@ -34,19 +35,24 @@ def all_id_expected_qc_scene(scene, number_of_animals):
 
 def scene_qc(scene, number_of_animals):
     """
-        min_distance (float): Minimum distance observed between any two animals in the same frame
-        gap_n_frames (int): Number of frames where the only broken fragment is broken.
-            if infinite, more than 1 fragment is broken, if -1, the scene spans >2 chunks
-        gap_distance (float): Pixels traveled by the animal in the frames where the only fragment is broken
-            if infinite, more than 1 fragment is broken, if -1, the scene spans >2 chunks
-        max_velocity (float): Maximum velocity observed by any animal between two consecutive frames
-            if infinite, the number of animals in eacah frame does not match the expectation for at least one frame
-        between_chunks (bool): If true, the scene spans >2 chunks
-        broken (int): Whether all animals are found in all frames (0) or not (1)
-        length (int): Number of frames making up the scene
-        maintains_id (int): In scene where only 1 fragment is broken (giving 2 fragments), whether the 2 fragments have the same id or not
-        n_failed_fragments (int): Number of fragments that dont span the whole scene,
-            which indicates they are broken due to some challenging behavior of the animal 
+        Arguments:
+            scene (pd.DataFrame): Dataset of animal positions (centroid_x and centroid_y) over time (frame_number) with identity annotation (id) and fragment annotation (fragment)
+            number_of_animals (int)
+
+        Returns:
+            min_distance (float): Minimum distance observed between any two animals in the same frame
+            gap_n_frames (int): Number of frames where the only broken fragment is broken.
+                if infinite, more than 1 fragment is broken, if -1, the scene spans >2 chunks
+            gap_distance (float): Pixels traveled by the animal in the frames where the only fragment is broken
+                if infinite, more than 1 fragment is broken, if -1, the scene spans >2 chunks
+            max_velocity (float): Maximum velocity observed by any animal between two consecutive frames
+                if infinite, the number of animals in eacah frame does not match the expectation for at least one frame
+            between_chunks (bool): If true, the scene spans >2 chunks
+            broken (int): Whether all animals are found in all frames (0) or not (1)
+            length (int): Number of frames making up the scene
+            maintains_id (int): In scene where only 1 fragment is broken (giving 2 fragments), whether the 2 fragments have the same id or not
+            n_failed_fragments (int): Number of fragments that dont span the whole scene,
+                which indicates they are broken due to some challenging behavior of the animal 
     """
 
     all_valid_ids=all_id_expected_qc_scene(scene, number_of_animals)
@@ -54,13 +60,17 @@ def scene_qc(scene, number_of_animals):
     gap_n_frames, gap_distance, between_chunks, maintains_id, n_failed_fragments=fragment_gap_qc(scene)
     scene_length=len(scene["frame_number"].unique())
     counts=scene.value_counts("id")
-    if (counts==scene_length).all():
-        broken=0
-        max_velocity=max_velocity_qc_ideal(scene, number_of_animals=number_of_animals)
-    else:
-        broken=1
-        max_velocity=max_velocity_qc_not_ideal(scene)
-    
+    try:
+        if (counts==scene_length).all():
+            broken=0
+            max_velocity=max_velocity_qc_ideal(scene, number_of_animals=number_of_animals)
+        else:
+            broken=1
+            max_velocity=max_velocity_qc_not_ideal(scene)
+    except Exception as error:
+        print(scene)
+        raise error
+        
     return {
         "all_valid_ids": all_valid_ids,
         "min_distance": min_distance, "max_velocity": max_velocity,
@@ -70,13 +80,21 @@ def scene_qc(scene, number_of_animals):
     }
 
 def min_distance_between_animals_qc(scene):
+    if isinstance(scene, cp.ndarray):
+        nx=cp
+    else:
+        nx=np
+
     ids=scene["id"].unique().tolist()
     distance_matrix=compute_distance_between_ids(scene, ids)
     distance, (i, j) = find_closest_pair(distance_matrix, time_axis=2, partner_axis=1)
     i=i.tolist()
     j=j.tolist()
-    k=int(cp.argmin(distance))
-    min_distance=distance_matrix[k, i[k], j[k]].get().item()
+    k=int(nx.argmin(distance))
+    if nx is np:
+        min_distance=distance_matrix[k, i[k], j[k]].item()
+    elif nx is cp:
+        min_distance=distance_matrix[k, i[k], j[k]].get().item()
 
     focal_id=ids[k]
 
@@ -239,20 +257,3 @@ def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
 
         qc=pd.concat(qc, axis=0)
         qc.to_csv(os.path.join(folder, "scene_qc.csv"))
-
-
-def get_parser():
-
-    ap=argparse.ArgumentParser()
-    ap.add_argument("--experiment", type=str, required=True)
-    ap.add_argument("--folder", type=str, required=True)
-    ap.add_argument("--n-jobs", default=-2, type=int)
-    ap.add_argument("--sample-size", default=None, type=int, required=False)
-    return ap
-
-
-def main():
-
-    ap=get_parser()
-    args=ap.parse_args()
-    annotate_scene_quality(args.experiment, args.folder, args.n_jobs, sample_size=args.sample_size)

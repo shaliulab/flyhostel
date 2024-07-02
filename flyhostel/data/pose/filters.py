@@ -15,13 +15,17 @@ logger=logging.getLogger(__name__)
 CHUNK_SECONDS=30*60
 CHUNK_FRAMES=CHUNK_SECONDS*FRAMERATE
 
-
 try:
     import cupy as cp
 except:
     logger.warning("cupy not installed")
 
-def filter_pose(filter_f, pose, bodyparts, window_size=0.5, min_window_size=100, min_supporting_points=3, features=["x", "y"], useGPU=-1):
+def filter_pose(
+        filter_f, pose, bodyparts,
+        window_size=0.5, min_window_size=100,
+        min_supporting_points=3, features=["x", "y"],
+        useGPU=-1
+    ):
     """
     Arguments:
         pose (pd.DataFrame): contains columns t (seconds), frame_number and bp_x, bp_y
@@ -224,11 +228,15 @@ def interpolate_pose(pose, columns=None, seconds: Union[None, Dict, float, int]=
 
     if isinstance(seconds, float) or isinstance(seconds, int):
         interpolation_limit=max(1, int(seconds*pose_framerate))
-        pose[columns]=pose[columns].interpolate(method="linear", limit_direction="both", inplace=True, limit=interpolation_limit)
+        # pose[columns].interpolate(method="linear", limit_direction="both", inplace=True, limit=interpolation_limit)
+        pose[columns].ffill(inplace=True, limit=interpolation_limit)
+        pose[columns].bfill(inplace=True, limit=interpolation_limit)
 
     elif seconds is None:
         before=time.time()
-        pose[columns]=pose[columns].interpolate(method="linear", limit_direction="both", limit=None)
+        # pose[columns]=pose[columns].interpolate(method="linear", limit_direction="both", limit=None)
+        pose[columns].ffill(inplace=True)
+        pose[columns].bfill(inplace=True)
         after=time.time()
         logger.debug("interpolate took %s seconds for colums %s with limit None", after-before, columns)
 
@@ -251,7 +259,12 @@ def interpolate_pose(pose, columns=None, seconds: Union[None, Dict, float, int]=
 
 def impute_proboscis_to_head(pose, selection=None):
     if selection is None:
-        selection=pose["proboscis_likelihood"].isna()
+        selection=np.bitwise_and(pose["proboscis_likelihood"].isna(), ~pose["head_likelihood"].isna())
     for coord in ["x", "y"]:
         pose.loc[selection, f"proboscis_{coord}"]=pose.loc[selection, f"head_{coord}"]
+
+    assert np.bitwise_and(
+        pose["proboscis_x"].isna(),
+        ~pose["head_x"].isna()
+    ).sum() == 0, f"Proboscis interpolation to head position failed"
     return pose

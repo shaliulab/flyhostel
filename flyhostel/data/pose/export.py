@@ -7,6 +7,7 @@ import numpy as np
 import joblib
 import pandas as pd
 import h5py
+from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 
 MINS=.5
 
@@ -37,7 +38,6 @@ def make_link(analysis_file, directory, dry_run=False):
         return
 
     assert os.path.isdir(directory)
-    # videos/FlyHostel2/1X/2023-05-23_14-00-00/flyhostel/single_animal/000/000260.mp4.predictions.h5
     tokens = analysis_file.split(os.path.sep)
     flyhostel_id, number_of_animals, date_time, _, _, local_identity, filename = tokens[-7:]
     new_link = os.path.join(directory, f"{flyhostel_id}_{number_of_animals}_{date_time}_{local_identity}", filename)
@@ -101,18 +101,9 @@ def load_file(file):
     return node_names, tracks, score, file
 
 def load_files(files, n_jobs=1):
-
-    # files=sorted(files)
-    # files_ = []
-    # for f in files:
-    #     local_identity=int(os.path.basename(os.path.dirname(f)))
-    #     chunk=int(os.path.basename(f).split(".")[0])
-    #     if local_identity == 0:
-    #         print(f"local identity = 0 in chunk {chunk}")
-    #         continue
-    #     files_.append(f)
-    # files=files_
-
+    """
+    Load a collection of SLEAP .h5 files
+    """
 
     print(f"{len(files)} files will be loaded")
     Output = joblib.Parallel(n_jobs=n_jobs)(
@@ -133,7 +124,7 @@ def load_files(files, n_jobs=1):
     template_score = None
 
     dataset_count = 0
-    for node_names, dataset, score, file in Output:
+    for i, (node_names, dataset, score, file) in enumerate(Output):
         if dataset is not None:
             dataset_count += 1
             if template_dataset is None:
@@ -141,6 +132,9 @@ def load_files(files, n_jobs=1):
                 template_dataset[:]=np.nan
                 template_score = score.copy()
                 template_score[:] = np.nan
+
+        assert dataset.shape[3]==CHUNKSIZE, f"{file} is missing pose estimates (found {dataset.shape[3]} instead of {CHUNKSIZE})"
+              
             
         datasets.append(dataset)
         point_scores.append(score)
@@ -175,6 +169,7 @@ def generate_single_file(node_names, datasets, point_scores, files, dest_file):
     dataset = np.concatenate(datasets, axis=3)
     point_scores = np.concatenate(point_scores, axis=2)
 
+    track_names=["individual_0"]
     with h5py.File(dest_file, 'w') as file:
         node_names_d=file.create_dataset("node_names", (len(node_names), ), dtype='|S12')
         node_names_d[:]=node_names_bytes
@@ -183,6 +178,10 @@ def generate_single_file(node_names, datasets, point_scores, files, dest_file):
         
         tracks_d=file.create_dataset("tracks", dataset.shape)
         tracks_d[:]=dataset
+        
+
+        i=file.create_dataset("track_names", (len(track_names),), dtype="|S12")
+        i[:]=np.array([e.encode() for e in track_names])
 
         point_scores_d=file.create_dataset("point_scores", point_scores.shape)
         point_scores_d[:]=point_scores
@@ -203,20 +202,20 @@ def infer_analysis_path(basedir, local_identity, chunk, number_of_animals):
     else:
         return os.path.join(basedir, "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
 
-def load_concatenation_table(cur, basedir):
+def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VAL"):
     cur.execute("SELECT value FROM METADATA where field ='idtrackerai_conf';")
     conf=cur.fetchone()[0]
     number_of_animals=int(json.loads(conf)["_number_of_animals"]["value"])
 
 
-    cur.execute("PRAGMA table_info('CONCATENATION');")
+    cur.execute(f"PRAGMA table_info('{concatenation_table}');")
     header=[row[1] for row in cur.fetchall()]
 
-    cur.execute("SELECT * FROM CONCATENATION;")
+    cur.execute(f"SELECT * FROM {concatenation_table};")
     records=cur.fetchall()
     concatenation=pd.DataFrame.from_records(records, columns=header)
     concatenation["dfile"] = [
-        infer_analysis_path(basedir, row["local_identity"], row["chunk"], number_of_animals=number_of_animals)
+        infer_analysis_path(basedir, int(row["local_identity"]), str(int(float(row["chunk"]))).zfill(6), number_of_animals=number_of_animals)
         for i, row in concatenation.iterrows()
     ]
     return concatenation

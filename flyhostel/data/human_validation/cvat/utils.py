@@ -1,21 +1,15 @@
+import logging
 import os.path
 import sqlite3
-
 import pandas as pd
 
+from flyhostel.utils.utils import get_dbfile, get_basedir
 
-def get_dbfile(basedir):
-    dbfile=os.path.join(
-        basedir,
-        "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:]) + ".db"        
-    )
-    assert os.path.exists(dbfile), f"{dbfile} not found"
-    return dbfile
+logger=logging.getLogger(__name__)
 
-def get_basedir(experiment):
-    tokens = experiment.split("_")
-    basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
-    return basedir
+
+
+
 
 def get_number_of_animals(experiment):
     tokens = experiment.split("_")
@@ -40,19 +34,22 @@ def load_tracking_data(basedir, frame_numbers):
     tracking_data=roi0.drop("id", axis=1).merge(ident.drop("id", axis=1), on=["frame_number", "in_frame_index"])
     return tracking_data
 
-def load_data(basedir, where=""):
+def load_machine_data(basedir, where=""):
     dbfile=get_dbfile(basedir)
     with sqlite3.connect(dbfile) as conn:
-        roi_0_table=pd.read_sql_query(sql=f"SELECT frame_number, in_frame_index, x, y, fragment, modified, class_name FROM ROI_0 {where};", con=conn)
-        identity_table=pd.read_sql_query(sql=f"SELECT frame_number, in_frame_index, local_identity FROM IDENTITY {where};", con=conn)
-        # store_index_table=pd.read_sql_query(sql=f"SELECT frame_number, frame_time FROM STORE_INDEX {where};", con=conn)
+        cmd=f"SELECT * FROM ROI_0 {where};"
+        logger.debug(cmd)
+        roi_0_table=pd.read_sql_query(sql=cmd, con=conn)
+        logger.debug("Done")
 
-    roi_0_table["validated"]=False
-    identity_table["validated"]=False    
-    return identity_table, roi_0_table#, store_index_table
-    
-    
-def annotate_crossings(ident):
+        cmd=f"SELECT * FROM IDENTITY {where};"
+        logger.debug(cmd)
+        identity_table=pd.read_sql_query(sql=cmd, con=conn)
+        logger.debug("Done")
+
+    return identity_table, roi_0_table
+
+def annotate_crossings(ident, roi0, crossings):
     ident_crossings=ident.groupby(["frame_number", "in_frame_index"]).size().reset_index()
     ident_crossings.columns=["frame_number", "in_frame_index", "size"]
     ident_crossings["is_a_crossing"]=False

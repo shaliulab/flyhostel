@@ -1,3 +1,4 @@
+import os.path
 from abc import ABC
 import logging
 
@@ -21,6 +22,7 @@ def cross_with_video_data(dt):
     dt_chunk=dt[["chunk", "identity", "id"]].drop_duplicates()
     dt_chunk["video"]=None
     dt_chunk["dbfile"]=None
+    dt_chunk["local_identity"]=None
 
  
     for i, row in tqdm(dt_chunk.iterrows()):
@@ -35,16 +37,17 @@ def cross_with_video_data(dt):
     dt_chunk["frame_number"]=dt_chunk["chunk"]*chunksize
  
     for i, row in tqdm(dt_chunk.iterrows()):
-        dt_chunk["video"].loc[i]=get_single_animal_video(row["dbfile"], row["frame_number"], table=table, identity=row["identity"], chunksize=chunksize)
+        video=get_single_animal_video(row["dbfile"], row["frame_number"], table=table, identity=row["identity"], chunksize=chunksize)
+        print(i, row["identity"], row["chunk"], video)
+        dt_chunk["video"].loc[i]=video
+        dt_chunk["local_identity"].loc[i]=int(os.path.basename(os.path.dirname(video)))
 
-    # dt_chunk_all=[]
-    # for i, row in dt_chunk.iterrows():
-    #     for frame_idx in range(chunksize):
-    #         row["frame_number"]=row["chunk"]*chunksize+frame_idx
-    #         dt_chunk_all.append(row)
-    
-    # dt_chunk=pd.concat(dt_chunk_all, axis=0)            
-    dt=dt.merge(dt_chunk[["dbfile", "id", "video", "chunk"]], on=["id", "chunk"], how="left")
+    dt=dt.merge(dt_chunk[["dbfile", "id", "video", "chunk", "local_identity"]], on=["id", "chunk"], how="left")
+
+    dt["frame_idx"]=dt["frame_number"]%chunksize
+    assert dt.duplicated(["id", "frame_idx", "video"]).sum() == 0
+    dt=dt.loc[~dt["video"].isna()]
+    dt["video"]=[video.replace("//", "/") for video in dt["video"]]
     return dt
 
 class CrossVideo(ABC):

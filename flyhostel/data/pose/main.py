@@ -1,9 +1,13 @@
 import time
+import io
+import shutil
+import itertools
+import h5py
 import glob
 import time
 import os.path
 import logging
-
+import sqlite3
 logger = logging.getLogger(__name__)
 
 import pandas as pd
@@ -16,9 +20,12 @@ from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from imgstore.interface import VideoCapture
 from flyhostel.data.pose.loaders.wavelets import WaveletLoader
 from flyhostel.data.pose.loaders.behavior import BehaviorLoader
+from flyhostel.data.pose.landmarks import LandmarksLoader
+
 from flyhostel.data.pose.loaders.pose import PoseLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import ROI_WIDTH_MM
 from flyhostel.data.pose.sleep import SleepAnnotator
 from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
@@ -26,6 +33,7 @@ from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
 from motionmapperpy import setRunParameters
 wavelet_downsample=setRunParameters().wavelet_downsample
+pd.set_option("display.max_columns", 100)
 
 def dunder_to_slash(experiment):
     tokens = experiment.split("_")
@@ -34,15 +42,21 @@ def dunder_to_slash(experiment):
 
 # keep only interactions where the distance between animals is max mm_max mm
 
-POSE_DATA=os.environ["POSE_DATA"]
-
-
 from flyhostel.data.pose.sleap import draw_video_row
 from flyhostel.data.deg import DEGLoader
 from flyhostel.data.pose.video_crosser import CrossVideo
 
+def make_int_or_str(values):
+    out=[]
+    for val in values:
+        try:
+            out.append(str(int(val)))
+        except ValueError:
+            out.append(val)
+    return out
 
-class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose):
+
+class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader):
     """
     Analyse microbehavior produced in the flyhostel
 
@@ -78,7 +92,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
 
 
     # to load DEG human made labels (ground_truth)
-    
+
     # if identity is None, all available identities in the loader are loaded
     loader.load_deg_data(identity=None)
     # now loader.deg is populated
@@ -86,7 +100,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
     """
 
     def __init__(self, experiment, identity, *args, lq_thresh=1, roi_width_mm=ROI_WIDTH_MM, n_jobs=1, chunks=None,
-                 roi_0_table="ROI_0", identity_table="IDENTITY", **kwargs
+                 roi_0_table=None, identity_table=None, **kwargs
         ):
         super(FlyHostelLoader, self).__init__(*args, **kwargs)
 
@@ -104,7 +118,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.identity=int(identity)
         self.lq_thresh = lq_thresh
         self.n_jobs=n_jobs
-        self.datasetnames=self.load_datasetnames()
+        self.datasetnames=[experiment + "__" + str(identity).zfill(2)]
         self.ids = self.make_ids(self.datasetnames)
 
         if self.identity is not None:
@@ -120,16 +134,16 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.stride=None
 
         self.roi_width = load_roi_width(self.dbfile)
-        
+
         # because the arena is circular
         self.roi_height = self.roi_width
-    
+
         self.framerate= int(float(load_metadata_prop(dbfile=self.dbfile, prop="framerate")))
         self.roi_width_mm=roi_width_mm
         self.px_per_mm=self.roi_width/roi_width_mm
 
         self.pose=None
-    
+
         self.dt=None
         self.neighbors_df=None
         self.dt_sleep=None
@@ -144,8 +158,65 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.rejections=None
         self.dt_sleep_2fps=None
         self.analysis_data=None
-        self.identity_table=identity_table
-        self.roi_0_table=roi_0_table
+
+
+        self.load_meta_info()
+        if identity_table is None:
+            if self.number_of_animals==1:
+                self.identity_table="IDENTITY"
+            else:
+                self.identity_table="IDENTITY_VAL"
+        else:
+            self.identity_table=identity_table
+
+        if roi_0_table is None:
+            if self.number_of_animals==1:
+                self.roi_0_table="ROI_0"
+            else:
+                self.roi_0_table="ROI_0_VAL"
+        else:
+            self.roi_0_table=roi_0_table
+
+    def load_meta_info(self):
+        """
+        Populate meta_info dictionary with keys:
+        
+        * t_after_ref: Number of seconds between start time and ZT0. Add it to an imgstore timestamp to get the ZT time
+        """
+
+        self.meta_info={}
+        assert os.path.exists(self.dbfile), f"{self.dbfile} does not exist"
+        with sqlite3.connect(self.dbfile) as conn:
+            start_time=int(float(pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'date_time';", con=conn)["value"].values.item()))
+            start_time=start_time-start_time%3600
+            start_time=start_time%(24*3600)
+            metadata_str=pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'ethoscope_metadata'", con=conn)["value"].values.tolist()[0]
+
+        metadata=pd.read_csv(io.StringIO(metadata_str)).iloc[:, 1:]
+
+        try:
+            metadata_single_animal=metadata.loc[metadata["identity"]==self.identity]
+            if metadata_single_animal.shape[0]==0:
+                raise KeyError
+        except KeyError:
+            metadata_single_animal=metadata.loc[metadata["region_id"]==self.identity]
+        
+        if metadata_single_animal.shape[0]!=1:
+            logger.error("%s rows for identity %s in %s", metadata_single_animal.shape[0], self.identity, self.dbfile)
+            raise Exception
+
+
+        reference_hour=(metadata_single_animal["reference_hour"]*3600).item()
+        
+        
+        metadata_single_animal["identity"]=make_int_or_str(metadata_single_animal["identity"])
+        metadata_single_animal["region_id"]=make_int_or_str(metadata_single_animal["region_id"])
+        metadata_single_animal["number_of_animals"]=make_int_or_str(metadata_single_animal["number_of_animals"])
+        self.metadata=metadata_single_animal
+        self.number_of_animals=int(self.metadata["number_of_animals"].iloc[0])
+
+        self.meta_info={"t_after_ref": start_time-reference_hour}
+
 
     def __str__(self):
         return f"{self.experiment}__{str(self.identity).zfill(2)}"
@@ -194,30 +265,26 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
             return self.sleep_annotation_inactive(*args, **kwargs)
         elif source=="centroids":
             return flyhostel_sleep_annotation(*args, **kwargs)
-        
+
 
     def compile_analysis_data(self):
         data=self.dt.copy()
         meta=data.meta.copy()
         centroid_columns=data.columns.tolist()
         data=data.loc[data["frame_number"] % wavelet_downsample == 0]
+        behavior_columns=["behavior",  "score", "bout_in", "bout_out", "bout_count", "duration"]
 
         if self.behavior is None:
             logger.warning("Behavior not computed for %s", self)
-            data["behavior"]=np.nan
-            data["score"]=np.nan
-            data["bout_in"]=np.nan
-            data["bout_out"]=np.nan
-            data["duration"]=np.nan
+            for column in behavior_columns:
+                data[column]=np.nan
         else:
-            data=data.merge(self.behavior, on=["id", "frame_number"], how="left")
+            data=data.merge(self.behavior.drop("t", axis=1, errors="ignore"), on=["id", "frame_number"], how="left")
 
-
-        fields = centroid_columns + ["behavior",  "score", "bout_in", "bout_out", "bout_count", "duration"]
+        fields = centroid_columns + behavior_columns
         data=data[fields]
         data=to_behavpy(data, meta)
         self.analysis_data=data
-
         return data
 
 
@@ -249,24 +316,35 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         if sleep:
             pass
 
-    def load_and_process_data(self, *args, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, cache=None, files=None, **kwargs):
+    def load_and_process_data(self, *args, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, cache=None, files=None, load_behavior=True, load_deg=True, write_only=False, **kwargs):
+        """
+        Loads centroid, pose, deg and behavior datasets of this fly
+        """
         if files is not None:
             self.datasetnames=[os.path.splitext(os.path.basename(file))[0] for file in files]
             self.ids=self.make_ids(self.datasetnames)
 
-        self.load_data(min_time=min_time, max_time=max_time, stride=stride, cache=cache, files=files)
+        before=time.time()
+        self.load_data(min_time=min_time, max_time=max_time, stride=stride, cache=cache, files=files, load_behavior=load_behavior, load_deg=load_deg, write_only=write_only)
+        after=time.time()
+        print(f"{after-before} seconds loading data")
+
         if self.dt is None:
             logger.warning("No centroid data for %s__%s", self.experiment, str(self.identity).zfill(2))
         if self.pose is None:
             logger.warning("No pose data for %s__%s", self.experiment, str(self.identity).zfill(2))
 
         # processing happens with stride = 1 and original framerate (150)
-        self.process_data(*args, min_time=min_time, max_time=max_time, stride=stride, cache=cache, **kwargs)
+        before=time.time()
+        self.process_data(*args, min_time=min_time, max_time=max_time, stride=stride, write_only=write_only, cache=cache, **kwargs)
+        after=time.time()
+        print(f"{after-before} seconds processing data")
+
         self.apply_stride_all(stride=stride)
         self.stride=stride
-    
+
     def apply_stride_all(self, stride=1):
-        
+
         for df_name in ["pose", "pose_boxcar", "pose_speed", "pose_speed_boxcar"]:
             df=getattr(self, df_name)
             if df is None:
@@ -307,39 +385,79 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         logger.debug("Loading store index took %s seconds", after-before)
 
 
-    def load_data(self, *args, identity=None, min_time=-float('inf'), max_time=+float('inf'), stride=1, n_jobs=1, cache=None, files=None, **kwargs):
+    def load_data(
+        self, *args, identity=None, min_time=-float('inf'), max_time=+float('inf'), stride=1, n_jobs=1, cache=None, files=None,
+        load_behavior=True, load_deg=True, write_only=False,
+        **kwargs
+    ):
         self.load_store_index(cache=cache)
         if identity is None:
             identities=[self.identity]
             identity=self.identity
-            
+
             if self.identity is None:
                 identities=[int(id.split("|")[1]) for id in self.ids]
         else:
             identities=[identity]
 
-    
         logger.info("Loading centroid data")
-        self.load_centroid_data(
-            *args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs,
-            stride=stride, verbose=False,
-            cache=None,
-            reference_hour=np.nan,
-            identity_table=self.identity_table,
-            roi_0_table=self.roi_0_table,
-            **kwargs)
-       
+        try:
+            self.load_centroid_data(
+                *args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs,
+                stride=stride, verbose=False,
+                cache=None,
+                reference_hour=np.nan,
+                identity_table=self.identity_table,
+                roi_0_table=self.roi_0_table,
+                **kwargs)
+        except AssertionError as error:
+            logger.error(error)
+            logger.error(
+                """Cannot load validated data!
+                If your results rely on data being validated,
+                you cannot use the output of this program until you fix the issue
+                """
+            )
+            self.load_centroid_data(
+                *args, identity=identity, min_time=min_time, max_time=max_time, n_jobs=n_jobs,
+                stride=stride, verbose=False,
+                cache=None,
+                reference_hour=np.nan,
+                identity_table="IDENTITY",
+                roi_0_table="ROI_0",
+                **kwargs)
+
         logger.info("Loading pose data")
         for ident in identities:
-            self.load_pose_data(*args, identity=ident, min_time=min_time, max_time=max_time, verbose=False, cache=cache, files=files, **kwargs)
+            self.load_pose_data(*args, identity=ident, min_time=min_time, max_time=max_time, verbose=False, cache=cache, files=files, write_only=write_only, **kwargs)
         logger.info("Loading DEG data")
-        self.load_deg_data(*args, identity=identity, ground_truth=True, stride=stride, verbose=False, cache=None, **kwargs)
-        
-        logger.info("Loading behavior data")
-        self.load_behavior_data(self.experiment, identity, self.pose_boxcar, cache=cache)
+        if load_deg:
+            self.load_deg_data(*args, identity=identity, ground_truth=True, stride=stride, verbose=False, cache=cache, **kwargs)
+
+        if load_behavior:
+            logger.info("Loading behavior data")
+            self.load_behavior_data(self.experiment, identity, self.pose_boxcar, cache=cache)
 
     def load_fast(self, cache):
-        self.load_centroid_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None, reference_hour=np.nan)
+        try:
+            self.load_centroid_data(
+                identity=self.identity,
+                identity_table=self.identity_table,
+                roi_0_table=self.roi_0_table,
+                min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None,
+                reference_hour=np.nan
+            )
+
+        except AssertionError as error:
+            logger.error(error)
+            self.load_centroid_data(
+                identity=self.identity,
+                identity_table="IDENTITY",
+                roi_0_table="ROI_0",
+                min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None,
+                reference_hour=np.nan,
+            )
+
         self.load_pose_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)
         self.process_data(stride=1, cache=cache)
         self.load_deg_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)
@@ -353,7 +471,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
     def load_centroid_data(self, *args, identity=None, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, reference_hour=np.nan, cache=None, **kwargs):
 
         if cache is not None:
-            logger.warning("Supplied cache will be ignored. ethoscopy cached will be used instead")
+            logger.warning("Supplied cache will be ignored. ethoscopy cache will be used instead")
 
         if identity is None:
             identity=self.identity
@@ -366,7 +484,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
             dt.reset_index(inplace=True)
             if stride != 1:
                 dt=dt.iloc[::stride]
-    
+
             dt["frame_number"]=dt["frame_number"].astype(np.int32)
             dt["id"]=pd.Categorical(dt["id"])
             self.dt=dt
@@ -374,7 +492,104 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         else:
             logger.warning("No centroid data database found for %s %s", self.experiment, identity)
 
-    
+
     def draw_videos(self, index):
         for i, row in index.iterrows():
             draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos")
+
+    def get_pose_file_h5py(self, pose_name="filter_rle-jump"):
+        animal=self.experiment + "__" + str(self.identity).zfill(2)
+        pose_file=os.path.join(
+            self.basedir, "motionmapper",
+            str(self.identity).zfill(2),
+            f"pose_{pose_name}",
+            animal,
+            animal + ".h5"
+        )
+        return pose_file
+
+    def load_filtered_pose(self, partition):
+        logger.warning("Please change load_filtered_pose to load_finished_pose. Pass a pose_name to select which pose")
+        return self.load_finished_pose(partition=partition, pose_name="filter_rle-jump")
+
+
+    def load_finished_pose(self, partition=None, pose_name="filter_rle-jump"):
+        pose_file=self.get_pose_file_h5py(pose_name=pose_name)
+        # pose_file=self.manage_backup_copies(pose_file, fail=False)
+
+        try:
+            with h5py.File(pose_file, "r") as f:
+                files=[e.decode() for e in f["files"][:]]
+            chunks=[int(os.path.basename(file).split(".")[0]) for file in files]
+            first_fn=chunks[0]*CHUNKSIZE
+            if partition is not None:
+                partition_frames=slice(partition.start-first_fn, partition.stop-first_fn)
+            else:
+                partition_frames=None
+            
+            before=time.time()
+            with h5py.File(pose_file, "r", locking=True) as f:               
+                if partition_frames is None:
+                    out_x = pd.DataFrame(f["tracks"][0, 0, ...].T)
+                    out_y = pd.DataFrame(f["tracks"][0, 1, ...].T)
+                else:
+                    logger.debug("Loading filtered pose %s frames from %s to %s", partition.stop-partition.start, partition.start, partition.stop)
+                    out_x = pd.DataFrame(f["tracks"][0, 0, :, partition_frames].T)
+                    out_y = pd.DataFrame(f["tracks"][0, 1, :, partition_frames].T)
+                bodyparts=[bp.decode() for bp in f["node_names"][:]]
+            after=time.time()
+            logger.debug("h5py.File loaded %s rows of X and Y data from %s in %s seconds", out_x.shape[0], pose_file, np.round(after-before, 2))
+
+        except Exception as error:
+            logger.error("Cannot open %s", pose_file)
+            raise error
+    
+        assert np.all(np.diff(chunks)==1)
+        local_identities=[int(file.split("/")[-2]) for file in files]
+
+        bodyparts_xy = list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
+        out_x.columns=bodyparts_xy[::2]
+        out_y.columns=bodyparts_xy[1::2]
+        pose=pd.concat([out_x, out_y], axis=1)[bodyparts_xy]
+        del out_x
+        del out_y
+
+        local_identities=np.array(list(itertools.chain(*[[lid, ] * CHUNKSIZE for lid in local_identities])))[partition_frames]
+        f_idxs=np.array(list(itertools.chain(*[list(range(0, CHUNKSIZE, 1)) for _ in chunks])))[partition_frames]
+        chunks=np.array(list(itertools.chain(*[[chunk, ] * CHUNKSIZE for chunk in chunks])))[partition_frames]
+        
+        
+        pose["identity"]=self.identity
+        pose["local_identity"]=local_identities
+        pose["chunk"]=chunks
+        pose["frame_idx"]=f_idxs
+        pose["frame_number"]=pose["chunk"]*CHUNKSIZE + pose["frame_idx"]
+        pose["id"]=self.experiment[:26] + "|" + str(self.identity).zfill(2)
+        return pose
+    
+    def manage_backup_copies(self, file, fail=False):
+        if validate_h5py_file(file):
+            shutil.copy(file, f"{file}.backup")
+            return file
+        else:
+            if not fail and os.path.exists(f"{file}.backup"):
+                shutil.copy(f"{file}.backup", file)
+                return self.manage_backup_copies(file, fail=True)
+            else:
+                raise OSError(f"{file} is corrupted")
+                
+
+
+def validate_h5py_file(file):
+    try:
+        with h5py.File(file, 'r') as f:
+            print(f"File {file} integrity passed")
+            pass
+        return True
+    except Exception as e:
+        print(f"File {file} integrity check failed: {e}")
+        return False
+    
+
+
+            

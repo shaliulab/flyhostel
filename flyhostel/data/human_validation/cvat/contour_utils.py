@@ -21,7 +21,9 @@ def select_by_contour(contour, contours_list, debug=False):
     if scores.sum()==0:
         match_idx=None
     elif (scores==1).sum()>1:
-        raise ValueError("The annotated contour fully is fully contained in more than 2 yolo boxes")
+        raise ValueError(f"The annotated contour is fully contained in {(scores==1).sum()} yolo boxes")
+    elif any(np.diff(scores[scores>0])==0):
+        raise ValueError(f"The annotated contour equally overlaps with {(np.diff(scores[scores>0])==0).sum()+1} yolo boxes")
     else:
         match_idx=np.argmax(scores)
     return match_idx
@@ -108,9 +110,9 @@ def rle_to_blob(*args, frame_width, frame_height, number_of_cols, original_resol
     return frame_idx_in_block, (x, y), contour
 
 
-def contour_to_centroid(contour, frame_width, frame_height):    
-    x, y= _getCentroid(contour) 
-    return round(x, 2), round(y, 2)   
+def contour_to_centroid(contour, frame_width, frame_height):
+    x, y= _getCentroid(contour)
+    return round(x, 2), round(y, 2)
     
 
 def contour_to_frame_idx_in_block(contour, frame_width, frame_height, number_of_cols, original_resolution):

@@ -82,6 +82,9 @@ def generate_label(df):
 
     
 def annotate_for_validation(experiment, output_folder, time_window_length=1, format=".png", n_jobs=20, interval=None, cache=False):
+    """
+    Generate movies capturing each scene where validation may be needed based on heuristics and QC
+    """
 
     tokens=experiment.split("_")
     suffix="/".join([tokens[0], tokens[1], "_".join(tokens[2:4])])
@@ -91,7 +94,7 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
     basedir=f"/flyhostel_data/videos/{suffix}"
     store_path=os.path.join(basedir, "metadata.yaml")
     dbfile=os.path.join(basedir, experiment + ".db")
-    assert os.path.exists(dbfile)
+    assert os.path.exists(dbfile), f"{dbfile} not found"
 
     tracking_fields=["modified", "fragment", "x", "y"]
     field="local_identity"
@@ -107,6 +110,8 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
     if os.path.exists(output_path_feather_df) and cache:
         logger.debug("Loading %s", output_path_feather_df)
         df=pd.read_feather(output_path_feather_df)
+        if interval is not None:
+            df=df.loc[(df["frame_number"] >= interval[0]) & (df["frame_number"] < interval[1])]
     else:
         os.makedirs(output_folder, exist_ok=True)
         df=load_data(dbfile, tracking_fields, interval=interval)
@@ -116,37 +121,41 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
         if cache:
             df.reset_index(drop=True).to_feather(output_path_feather_df)
 
-    if os.path.exists(output_path_feather_bin) and cache and False:
+    if os.path.exists(output_path_feather_bin) and cache:
         df_bin=pd.read_feather(output_path_feather_bin)
-        qc_fail=pd.read_csv(output_path_csv)
+        if interval is not None:
+            df_bin=df_bin.loc[(df_bin["frame_number"] >= interval[0]) & (df_bin["frame_number"] < interval[1])]
+
     else:
         
         logger.debug("Binning into %s second windows", time_window_length)
         df_bin=bin_windows(df, time_window_length=time_window_length)
 
-        logger.debug("Running QC of experiment %s", experiment)
-        qc, tests=analyze_video(df_bin.copy(), number_of_animals, n_jobs=n_jobs)
-        logger.info("%s %% of %s passes QC", round(100*qc["qc"].mean(), 2), experiment)
+    logger.debug("Running QC of experiment %s", experiment)
+    
+    qc, tests=analyze_video(df_bin.copy(), number_of_animals, n_jobs=n_jobs)
+    logger.info("%s %% of %s passes QC", round(100*qc["qc"].mean(), 2), experiment)
 
-        df_bin=df_bin.drop(tests, axis=1, errors="ignore").merge(qc[["frame_number", "chunk"] + tests], on=["chunk", "frame_number"], how="left")
-   
-        qc_rle=pd.DataFrame.from_records(encode([str(e)[0] for e in qc["qc"].values]), columns=["status", "length"])
-        qc_rle["duration"]=qc_rle["length"]*time_window_length
-        qc_rle["experiment"]=experiment
+    df_bin=df_bin.drop(tests, axis=1, errors="ignore").merge(qc[["frame_number", "chunk"] + tests], on=["chunk", "frame_number"], how="left")
+
+    qc_rle=pd.DataFrame.from_records(encode([str(e)[0] for e in qc["qc"].values]), columns=["status", "length"])
+    qc_rle["duration"]=qc_rle["length"]*time_window_length
+    qc_rle["experiment"]=experiment
 
 
-        qc_rle["index"]=[0] + qc_rle["length"].cumsum().tolist()[:-1]
-        qc_rle["frame_number"]=qc["frame_number"].iloc[qc_rle["index"]].values
-        qc_rle["chunk"]=qc["chunk"].iloc[qc_rle["index"]].values
+    qc_rle["index"]=[0] + qc_rle["length"].cumsum().tolist()[:-1]
+    qc_rle["frame_number"]=qc["frame_number"].iloc[qc_rle["index"]].values
+    qc_rle["chunk"]=qc["chunk"].iloc[qc_rle["index"]].values
 
-        for qc_col in tests:
-            qc_rle[qc_col]=qc[qc_col].iloc[qc_rle["index"]].values
-            
-        qc_fail=qc_rle.loc[qc_rle["status"]=="F"]
+    for qc_col in tests:
+        qc_rle[qc_col]=qc[qc_col].iloc[qc_rle["index"]].values
         
-        if cache:
-            df_bin.to_feather(output_path_feather_bin)
-            qc_fail.to_csv(output_path_csv)
+    qc_fail=qc_rle.loc[qc_rle["status"]=="F"]
+    
+    if cache and not os.path.exists(output_path_feather_bin):
+        df_bin.to_feather(output_path_feather_bin)
+    
+    qc_fail.to_csv(output_path_csv)
 
     kwargs=[]
 
@@ -159,7 +168,8 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
             (df["frame_number"]>=frame_number_0) &
             (df["frame_number"]<=frame_number_last)
         ]
-        kwargs.append({"row": row, "tracking_data": tracking_data})
+        if df.shape[0]>0:
+            kwargs.append({"row": row, "tracking_data": tracking_data})
 
     logger.debug("Will generate %s videos", len(kwargs))
 
