@@ -81,6 +81,11 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
             self.write_ai_table(dbfile, chunks=chunks)
             print("AI done")
 
+        if "LANDMARKS" in tables:
+            self.write_landmarks_table(dbfile, chunks=chunks)
+            print("LANDMARKS done")
+
+
 
     @property
     def number_of_animals(self):
@@ -107,6 +112,9 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
             self.init_ai_table(dbfile, reset=reset)
         if "CONCATENATION" in tables:
             self.init_concatenation_table(dbfile, reset=reset)
+        if "LANDMARKS" in tables:
+            self.init_landmarks_table(dbfile, reset=reset)
+
 
 
     def build_blobs_collection(self, chunk):
