@@ -1,9 +1,17 @@
 import itertools
 import os
+import logging
 
-from motionmapperpy import setRunParameters
-WAVELET_DOWNSAMPLE=setRunParameters().wavelet_downsample
-MOTIONMAPPER_PARAMS=setRunParameters()
+logger=logging.getLogger(__name__)
+
+try:
+    from motionmapperpy import setRunParameters
+    WAVELET_DOWNSAMPLE=setRunParameters().wavelet_downsample
+    MOTIONMAPPER_PARAMS=setRunParameters()
+except ModuleNotFoundError:
+    logger.warning("motionmapper not available")
+    WAVELET_DOWNSAMPLE=None
+    MOTIONMAPPER_PARAMS=None
 
 
 chunksize=45000
@@ -17,19 +25,16 @@ ZT0_HOUR=11
 
 # Bodyparts
 bodyparts_wo_joints = [
-    'thorax', 'abdomen', 'foreLeft_Leg', 'foreRightLeg', 'head', 'leftWing',
-    'midLeftLeg', 'midRightLeg', 'proboscis', 'rearLeftLeg',
-    'rearRightLeg', 'rightWing'
+    "thorax", "abdomen", "head", "proboscis",
+    "rW", "lW",
+    "fRL","mRL","rRL",
+    "fLL","mLL","rLL",      
 ]
 
 WITH_JOINTS=True
 def get_bodyparts():
     if WITH_JOINTS:
-        bodyparts=[
-            "thorax", "abdomen", "head", "proboscis",
-            "rW", "lW",
-            "fRL","mRL","rRL",
-            "fLL","mLL","rLL",
+        bodyparts=bodyparts_wo_joints + [
             "fRLJ","mRLJ","rRLJ",
             "fLLJ","mLLJ","rLLJ",       
         ]
@@ -40,8 +45,8 @@ def get_bodyparts():
 bodyparts=get_bodyparts()
 
 
-legs = [bp for bp in bodyparts if "leg" in bp.lower()]
-wings = [bp for bp in bodyparts if "wing" in bp.lower()]
+legs = [bp for bp in bodyparts if "L" in bp.lower()]
+wings = [bp for bp in bodyparts if "W" in bp.lower()]
 core = ["thorax", "abdomen", "head", "proboscis"]
 
 
