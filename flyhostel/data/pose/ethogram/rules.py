@@ -18,12 +18,18 @@ def apply_bg_limit(df, replace, idx):
     
     
 def apply_groom_limit(df, replace, idx):
+    """
+    does not modify prediction
+    """
     rows=(df["prediction"].isin(["groom"])) & (df["duration_pred"]<5)
     df.loc[rows, "rule"]=idx
     df.loc[rows, "prediction2"]=replace
     return df
 
 def apply_inactive_micromovement_limit(df, micromovement_behavior, idx):
+    """
+    does not modify prediction
+    """
     rows=(df["prediction2"].isin([micromovement_behavior])) & (df["duration_pred"]>5)
     df.loc[rows, "rule"]=idx
     df.loc[rows, "prediction2"]=df.loc[rows, "prediction"]
@@ -31,6 +37,9 @@ def apply_inactive_micromovement_limit(df, micromovement_behavior, idx):
 
 
 def apply_inactive_pe_limit(df, replace, idx):
+    """
+    does not modify prediction
+    """
     rows=(df["prediction"].isin(["inactive+pe"])) & (df["duration_pred"]>5)
     df.loc[rows, "rule"]=idx
     df.loc[rows, "prediction2"]=replace
@@ -38,16 +47,22 @@ def apply_inactive_pe_limit(df, replace, idx):
 
 
 def apply_inactive2feed(df, interval, replace, idx):
+    """
+    does not modify prediction
+    """
     rows=(df["prediction"].isin(["inactive"])) & (df["rule"]==0) & (df["proboscis"]>=0.6) & (df["food_distance"] > interval[0])&(df["food_distance"] < interval[1])
     df.loc[rows, "rule"]=idx
     df.loc[rows, "prediction2"]=replace
     return df
 
 def apply_proboscis_requirement(df, replace):
-    rows=(df["prediction"]=="inactive+pe")&(df["proboscis"]==0)
+    """
+    does modify prediction
+    """
+    rows=(df["prediction"]=="inactive+pe")&(df["head_proboscis_distance"]==0|df["proboscis"]==0)
     # df.loc[rows, "rule"]=idx
     df.loc[rows, "prediction"]=replace
-    rows=(df["prediction"]=="feed")&(df["proboscis"]==0)
+    rows=(df["prediction"]=="feed")&(df["head_proboscis_distance"]==0|df["proboscis"]==0)
     # df.loc[rows, "rule"]=idx
     df.loc[rows, "prediction"]=replace
     return df
