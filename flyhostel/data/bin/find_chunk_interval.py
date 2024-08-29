@@ -10,6 +10,7 @@ def get_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("basedir", type=str)
     ap.add_argument("flyhostel_db", type=str)
+    ap.add_argument("concatenation_table_name", type=str, default=None)
     return ap
 
 def main():
@@ -19,6 +20,7 @@ def main():
     args=ap.parse_args()
     basedir = args.basedir
     flyhostel_db = args.flyhostel_db
+    concatenation_table_name=args.concatenation_table_name
 
     experiment2="_".join(basedir.split(os.path.sep)[-3:])
 
@@ -37,10 +39,11 @@ def main():
         
     metadata=loader.get_simple_metadata().iloc[0]
 
-    if metadata["number_of_animals"]==1:
-        concatenation_table_name="CONCATENATION"
-    else:
-        concatenation_table_name="CONCATENATION_VAL"
+    if concatenation_table_name is None:
+        if metadata["number_of_animals"]==1:
+            concatenation_table_name="CONCATENATION"
+        else:
+            concatenation_table_name="CONCATENATION_VAL"
 
     with sqlite3.connect(f'file:{flyhostel_db}?mode=ro', uri=True) as conn:
         cur=conn.cursor()

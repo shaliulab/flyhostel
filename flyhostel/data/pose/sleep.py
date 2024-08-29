@@ -78,7 +78,6 @@ def sleep_annotation_inactive(
     dt, _, _=bin_behavior_table_v2(data, time_window_length=time_window_length, x_var="t")
     dt=postprocessing(dt, time_window_length)
     logger.debug("Asserting inactive state")
-    # import ipdb; ipdb.set_trace()
     behavior_data=np.array(["all_inactive" if "inactive" in behavior or behavior == "background" else "active" for behavior in dt["behavior"]])
     logger.debug("Computing moving state")
     dt["moving"]=np.bitwise_not(behavior_data=="all_inactive")
@@ -86,7 +85,6 @@ def sleep_annotation_inactive(
     if min_time_immobile_2 is None:
         dt["asleep"]=sleep_contiguous(dt["moving"], min_valid_time=min_time_immobile, fs=1/time_window_length)
     else:
-        # import ipdb; ipdb.set_trace()
         dt["nm"]=sleep_contiguous(dt["moving"], min_valid_time=min_time_immobile_2, fs=1/time_window_length)
         real_movement_bout=sleep_contiguous(dt["nm"], min_valid_time=max_time_mobile, fs=1/time_window_length)
         dt["nm2"]=dt["nm"].copy()
@@ -96,7 +94,6 @@ def sleep_annotation_inactive(
         ]=True
         dt["asleep"]=sleep_contiguous(~dt["nm2"], min_valid_time=min_time_immobile, fs=1/time_window_length)
 
-    # import ipdb; ipdb.set_trace()
     logger.debug("sleep_annotation_inactive Done")
     del dt["id"]
     return dt

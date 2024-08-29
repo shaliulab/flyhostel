@@ -19,8 +19,11 @@ logger=logging.getLogger(__name__)
 if sys.version_info > (3, 8):
     import pickle
 else:
-    logger.warning("Python version < 3.8 detected. Loading pickle5 instead of pickle")
-    import pickle5 as pickle
+    try:
+        import pickle
+    except:
+        logger.warning("Python version < 3.8 detected. Loading pickle5 instead of pickle")
+        import pickle5 as pickle
 
 from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG, ANALYSIS_FOLDER
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE

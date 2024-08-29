@@ -28,7 +28,7 @@ setup(
         "matplotlib",
         "pyaml",
         "imgstore-shaliulab>=0.4.0",
-        "pandas<=1.3.5",
+        "pandas",
         "confapp-shaliulab",
         "scikit-learn",
         "recordtype",
@@ -37,6 +37,8 @@ setup(
         "hdf5storage",
         "yolov7tools==1.1",
         "vidio",
+        # "sleap-io",
+        # "movement",
         #"cupy>=12.2.0",
         #"cudf>=23.10.02",
     ],
@@ -53,6 +55,7 @@ setup(
             "draw-ethogram=flyhostel.data.bin.ethogram:draw_ethogram",
             "compute-interactions=flyhostel.data.bin.interactions:main",
             "filter-pose=flyhostel.data.bin.filter_pose:main",
+            "export-filter-pose=flyhostel.data.bin.export_filter_pose:main",
             "preprocess-pose=flyhostel.data.bin.pose:preprocess",
             "annotate-video=flyhostel.data.bin.movie:main",
             "list-frames-with-no-animals=flyhostel.data.sqlite3.missing_animals:main",
@@ -65,6 +68,7 @@ setup(
             "fh-make-video=flyhostel.data.bin.video:main",
             "fh-make-csv=flyhostel.data.bin.video:save_csv",            
             "find-chunk-interval=flyhostel.data.bin.find_chunk_interval:main",
+
             ]
     },
 )

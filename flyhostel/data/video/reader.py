@@ -109,7 +109,7 @@ class MP4Reader:
 
     def load_data(self):
         self._cur=self.connection.cursor()
-        self.check_validation_tables()  
+        self.check_validation_tables()
 
         self._cur.execute(self.sqlite_query,(self._chunk,))
         self._data = pd.DataFrame(self._cur.fetchall())
