@@ -33,21 +33,12 @@ def inference(
     if not postprocess:
         logger.warning("Postprocessing behaviors is required")
     micromovement_behavior="inactive+micromovement"
-
     
     loader=FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
     assert loader.identity_table is not None
     assert loader.roi_0_table is not None
     
     dataset=process_animal(loader=loader, **kwargs, load_deg_data=False).reset_index()
-
-    # dataset=dataset.loc[
-    #     (dataset["frame_number"]>6948465)&\
-    #     (dataset["frame_number"]<=6950465)
-    # ]
-
-    print(np.round(loader.dt.loc[loader.dt["frame_number"]==6949465, ["x", "y"]].values, decimals=2))
-
 
     logger.debug("Read dataset of shape %s", dataset.shape)
     dataset["chunk"]=dataset["frame_number"]//CHUNKSIZE
@@ -68,7 +59,7 @@ def inference(
         "x", "y","food_distance", "notch_distance",
         "score", "prediction", "rule", "prediction2",
         "bout_in_pred", "bout_out_pred", "bout_count_pred", "duration_pred",
-        "proboscis", "head_proboscis_distance"
+        "proboscis", "head_proboscis_distance", "centroid_speed", "centroid_speed_1s", "orientation"
         ] + behaviors.tolist()
 
     if "behavior" in dataset.columns:
@@ -78,19 +69,18 @@ def inference(
         has_gt=False
     
     # 1. RF inference
-    # import ipdb; ipdb.set_trace()
     predictions=inference_(
         dataset, "behavior", model_path=model_path,
         inactive_states=["inactive", micromovement_behavior, "inactive+pe", "inactive+rejection"]
     )
+
     # Save results
     feather_out=os.path.join(output, "dataset.feather")
-    # feather_input=os.path.join(output, "input.feather")
+
     behaviors_suffix="_prob"
     for col in predictions.columns:
         if col.endswith(behaviors_suffix):
             predictions[col.replace(behaviors_suffix, "")]=predictions[col]
-
 
     logger.info("Saving to ---> %s", feather_out)
     final_cols=[]
@@ -166,7 +156,7 @@ def inference_(dataset, label, model_path, inactive_states):
     logger.debug("Annotating bout structure")
     preds.drop(["bout_in_pred", "bout_out_pred","bout_count_pred","duration_pred"], axis=1, inplace=True, errors="ignore")
     preds=preds.groupby("id").apply(lambda df: annotate_bout_info(df, FRAMERATE//WAVELET_DOWNSAMPLE, behavior=behavior_col, prediction="prediction2")).reset_index(drop=True)
-    
+    os.remove("backup.feather")
     return preds
 
 

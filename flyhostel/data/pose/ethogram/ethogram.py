@@ -308,7 +308,7 @@ def make_ethogram(
     dataset[final_cols].reset_index(drop=True).to_feather(feather_out)
 
     # dataset[["frame_number", "chunk", "frame_idx"] + features].reset_index(drop=True).to_feather(feather_input)
-    save_deg_prediction_file(experiment, dataset, features)
+    # save_deg_prediction_file(experiment, dataset, features)
 
 
 def postprocess_behaviors(dataset, percentile=1, column="behavior", behaviors=None):

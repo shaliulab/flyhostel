@@ -59,10 +59,10 @@ def apply_proboscis_requirement(df, replace):
     """
     does modify prediction
     """
-    rows=(df["prediction"]=="inactive+pe")&(df["head_proboscis_distance"]==0|df["proboscis"]==0)
+    rows=(df["prediction"]=="inactive+pe")&((df["head_proboscis_distance"]==0)|(df["proboscis"]==0))
     # df.loc[rows, "rule"]=idx
     df.loc[rows, "prediction"]=replace
-    rows=(df["prediction"]=="feed")&(df["head_proboscis_distance"]==0|df["proboscis"]==0)
+    rows=(df["prediction"]=="feed")&((df["head_proboscis_distance"]==0)|(df["proboscis"]==0))
     # df.loc[rows, "rule"]=idx
     df.loc[rows, "prediction"]=replace
     return df

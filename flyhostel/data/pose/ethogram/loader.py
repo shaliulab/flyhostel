@@ -19,6 +19,7 @@ from flyhostel.data.pose.main import FlyHostelLoader
 from motionmapperpy import setRunParameters
 
 from flyhostel.data.pose.distances import compute_distance_features_pairs
+from flyhostel.data.pose.orientation import compute_orientation
 
 wavelet_downsample=setRunParameters().wavelet_downsample
 DEFAULT_FILTERS="rle-jump"
@@ -116,7 +117,7 @@ def load_deg(loader):
 
 
 
-def load_scores(loader, files=None):
+def load_scores(loader, files=None, frame_numbers=None):
     if files is None:
         pose_file=os.path.join(loader.basedir, f"motionmapper/{str(loader.identity).zfill(2)}/pose_raw/{loader.experiment}__{str(loader.identity).zfill(2)}/{loader.experiment}__{str(loader.identity).zfill(2)}.h5")
     else:
@@ -154,7 +155,6 @@ def compute_bp_speeds(pose):
     return pose
 
 def compute_bp_speed(dt, bp):
-    
         
     diff=np.diff(dt[[f"{bp}_x", f"{bp}_y"]].values, axis=0)
     dist=np.sqrt((diff**2).sum(axis=1))
@@ -187,14 +187,16 @@ def compute_bp_speed(dt, bp):
     return dt
 
 
-
-
 def load_pose(
         loader, chunksize, files=None, frame_numbers=None, load_distance_travelled_features=False,
         load_inter_bp_distance_features=True,
         load_bp_speeds=True,
         load_angle_speeds=True,
-        annotate_proboscis_visibility_timings=True, downsample=1, filters="rle-jump"):
+        annotate_proboscis_visibility_timings=True,
+        annotate_orientation=True,
+        downsample=1,
+        filters="rle-jump"
+    ):
     """
     Populate loader.pose and loader.first_fn
     """
@@ -257,6 +259,9 @@ def load_pose(
     if annotate_proboscis_visibility_timings:
         pose=compute_proboscis_visibility_timing(pose)
 
+    if annotate_orientation:
+        pose=compute_orientation(pose)
+
 
     if load_inter_bp_distance_features:
         pose=compute_distance_features_pairs(pose, DISTANCE_FEATURES_PAIRS)
@@ -310,8 +315,9 @@ def compute_centroid_speed(dt):
     speed=np.concatenate([[0], dist/deltaT])
     dt["centroid_speed"]=speed
     missing_data=np.isnan(speed)
-    if np.sum(missing_data)>0:
-        logger.warning("Missing data for id %s in frames %s", dt["id"].iloc[0], dt.loc[missing_data, "frame_number"])
+    n_frames_missing=np.sum(missing_data)
+    if n_frames_missing > 0:
+        logger.warning("Missing data for id %s in %s frames %s", dt["id"].iloc[0], n_frames_missing, dt.loc[missing_data, "frame_number"])
         dt["centroid_speed"].ffill(inplace=True)
 
     dt["t_round"]=1*(dt["t"]//1)
@@ -331,7 +337,7 @@ def load_landmarks(loader):
     loader.compute_if_fly_on_notch()
 
 
-def load_centroids(loader, load_centroid_speed=True):
+def load_centroids(loader, frame_numbers=None, load_centroid_speed=True):
 
     loader.load_centroid_data(
         identity=loader.identity,
@@ -339,6 +345,10 @@ def load_centroids(loader, load_centroid_speed=True):
         roi_0_table=loader.roi_0_table,
         cache="/flyhostel_data/cache"
     )
+    if frame_numbers is not None:
+        logger.debug("Filtering centroid data to include only %s frames", len(frame_numbers))
+        loader.dt=loader.dt.loc[loader.dt["frame_number"].isin(frame_numbers)]
+    
     dt=loader.dt
     
     if load_centroid_speed:
@@ -357,6 +367,7 @@ def load_animal_data(
         files=None,
         raw_files=None,
         chunksize=45000,
+        frame_numbers=None,
         downsample=5
     ):
     """
@@ -371,11 +382,11 @@ def load_animal_data(
     if load_wavelets_data:
         assert load_pose_data
 
-    load_centroids(loader)   
+    load_centroids(loader, frame_numbers=frame_numbers)
     load_landmarks(loader)
 
     if load_scores_data:
-        load_scores(loader, files=raw_files)
+        load_scores(loader, files=raw_files, frame_numbers=frame_numbers)
 
     if load_deg_data:
         load_deg(loader)
@@ -390,8 +401,11 @@ def load_animal_data(
             labeled_frames_wt=None
         
     else:
-        labeled_frames=None
-        wt_frames=None
+        labeled_frames=frame_numbers
+        if frame_numbers is not None:
+            wt_frames=frame_numbers[frame_numbers % downsample == 0] // downsample
+        else:
+            wt_frames=None        
         labeled_frames_wt=None
 
     if load_pose_data:
@@ -428,7 +442,7 @@ def check_missing_data(self, features):
 
 
 def compile_dataset(loader, out=None):
-    
+   
     if loader.deg is None:
         loader.data=loader.pose.copy()
     elif loader.pose is None:
@@ -441,7 +455,6 @@ def compile_dataset(loader, out=None):
         loader.dt[["id", "frame_number", "x", "y", "centroid_speed_1s", "centroid_speed"] + ["notch_distance", "food_distance", "notch", "food"]],
         on=["frame_number", "id"], how="left"
     )
-    loader.data.loc[loader.data["frame_number"]==6949465, ["x", "y"]].values
     check_missing_data(loader, ["notch", "notch_distance"])
     check_missing_data(loader, ["food", "food_distance"])
     check_missing_data(loader, ["centroid_speed", "centroid_speed_1s"])
@@ -462,7 +475,7 @@ def compile_dataset(loader, out=None):
 
 def process_animal(
         loader, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, downsample=wavelet_downsample, files=None, raw_files=None, wavelet_file=None,
-        load_deg_data=True, load_pose_data=True, load_wavelets_data=True, load_scores_data=True, on_fail="raise"
+        load_deg_data=True, load_pose_data=True, load_wavelets_data=True, load_scores_data=True, load_time_data=True, on_fail="raise", **kwargs
     ):
     try:
         if cache is None:
@@ -484,14 +497,14 @@ def process_animal(
                 load_deg_data=load_deg_data, load_pose_data=load_pose_data, load_wavelets_data=load_wavelets_data,
                 load_scores_data=load_scores_data,
                 filters=filters, downsample=downsample, chunksize=chunksize,
-                wavelet_file=wavelet_file, files=files, raw_files=raw_files
+                wavelet_file=wavelet_file, files=files, raw_files=raw_files, **kwargs
             )
             if load_deg_data and loader.deg is None:
                 logger.warning("Data could not be loaded for %s", loader)
                 return None
             data=compile_dataset(loader, out)
                 
-        if "t" not in data.columns:
+        if load_time_data and "t" not in data.columns:
             loader.load_store_index(cache=cache)
             loader.store_index["t"]=loader.store_index["frame_time"]+loader.meta_info["t_after_ref"]
             data=data.merge(loader.store_index[["frame_number", "t"]], on="frame_number")

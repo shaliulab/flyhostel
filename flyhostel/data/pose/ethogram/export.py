@@ -78,7 +78,7 @@ def save_deg_prediction_file(experiment, dataset, features, group_name="motionma
 
         P=dataset_this_chunk[behaviors].values
         P = np.repeat(P, WAVELET_DOWNSAMPLE, axis=0)
-        assert P.shape[0] == CHUNKSIZE
+        assert P.shape[0] == CHUNKSIZE, f"{P.shape[0] != CHUNKSIZE}"
 
         features_data=dataset_this_chunk[features].values
         features_data = np.repeat(features_data, WAVELET_DOWNSAMPLE, axis=0)
