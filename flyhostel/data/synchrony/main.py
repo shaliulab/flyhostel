@@ -8,6 +8,8 @@ DEFAULT_LAGS=[-50, -40, -30, -20,-10, 0, 10, 20, 30, 40, 50]
 def compute_synchrony(dt_sleep, lags, interval=None, feature="asleep", FUN=annotator, FUN_metric=cross_correlation):
     """
     Compute synchrony in the behavior of a group of flies using the pearson correlation
+    The average pairwise correlation between every pair of flies in the dataset is used as proxy of synchrony
+
 
     Args:
         dt_sleep (pd.DataFrame): Contains columns id, t, and whatever feature is provided in the args
@@ -31,7 +33,6 @@ def compute_synchrony(dt_sleep, lags, interval=None, feature="asleep", FUN=annot
 
     corrs, pairs=FUN(df, lags=lags, feature=feature, FUN=FUN_metric)
     for lag in tqdm(lags, desc="Computing corr at lag"):
-        # import ipdb; ipdb.set_trace()
         all_corrs["lag"].append(lag)
         all_corrs["corr"].append(np.mean(corrs[lag]))
         raw_corr["corr"].extend(corrs[lag])

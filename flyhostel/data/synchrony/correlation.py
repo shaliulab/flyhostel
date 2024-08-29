@@ -1,4 +1,5 @@
 import itertools
+import pandas as pd
 import numpy as np
 from scipy.stats import kendalltau
 
@@ -50,17 +51,144 @@ def cross_correlation(df, col1, col2, lag=0):
     )
     return np.corrcoef(series1[selected], series2[selected])[0, 1]
 
+def preprocess(df, col1, col2, lag):
+    if lag == 0:
+        series1=df[col1]
+        series2=df[col2]
+    else:
+        series1 = pd.Series(df[col1].tolist()[lag:] + df[col1].tolist()[:lag])
+        series2 = pd.Series(df[col2].tolist()[(-lag):] + df[col2].tolist()[:(-lag)])
 
-def annotator(df, lags, feature="asleep", FUN=cross_correlation):
+    selected=np.where(np.bitwise_and(
+        np.bitwise_not(series1.isna()),
+        np.bitwise_not(series2.isna()),
+    ))[0]
+
+    n_points=selected.sum().item()
+
+    series1=series1.iloc[selected].values.flatten()
+    series2=series2.iloc[selected].values.flatten()
+
+    return series1, series2, n_points
+
+def postprocess(annotation, lag):
+    corr=[e[0] for e in annotation[0][lag]]
+    N=[e[1] for e in annotation[0][lag]]
+    pairs=annotation[1]
+    data=pd.DataFrame({"N": N, "correlation": corr})
+    data["id1"]=[e[0] for e in pairs]
+    data["id2"]=[e[1] for e in pairs]
+    data["lag"]=lag
+    return data
+
+
+def euclidean_distance(df, col1, col2, lag=0, nan=0):
+    """
+    Compute euclidean distance between two columns of a DataFrame with a given lag.
+
+    Parameters:
+    - df: pandas DataFrame.
+    - col1: The name of the first column.
+    - col2: The name of the second column.
+    - lag: The lag introduced. Positive values will lag col2. Lag unit is not time, but data point
+
+    Returns:
+    - Cross-correlation value.
+    """
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    distance=np.sqrt(((series1-series2)**2).sum())
+    if isinstance(distance, pd.Series):
+        if len(distance) > 1:
+            print(col1, col2)
+            # print(series2)
+            print(df[col2])
+            
+        distance=distance.item()
+        
+
+    if np.isnan(distance):
+        distance=nan
+    return distance, n_points
+
+
+
+def cross_correlationv2(df, col1, col2, lag=0, nan=0):
+    """
+    Compute cross-correlation between two columns of a DataFrame with a given lag.
+
+    Parameters:
+    - df: pandas DataFrame.
+    - col1: The name of the first column.
+    - col2: The name of the second column.
+    - lag: The lag introduced. Positive values will lag col2. Lag unit is not time, but data point
+
+    Returns:
+    - Cross-correlation value.
+    """
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    pearson=np.corrcoef(series1, series2)[0, 1]
+    if np.isnan(pearson):
+        pearson=nan
+    return pearson, n_points
+
+
+def agreement(df, col1, col2, lag=0, nan=0):
+    """
+    Compute level of agreement between two columns of a DataFrame with a given lag.
+
+    Parameters:
+    - df: pandas DataFrame.
+    - col1: The name of the first column.
+    - col2: The name of the second column.
+    - lag: The lag introduced. Positive values will lag col2. Lag unit is not time, but data point
+
+    Returns:
+    - Agreement value.
+    """
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    agreement=(series1==series2).mean()
+
+    if np.isnan(agreement):
+        agreement=nan
+    return agreement, n_points
+
+
+
+
+def mean_squared_difference(df, col1, col2, lag=0, nan=0):
+    """
+    Compute cross-correlation between two columns of a DataFrame with a given lag.
+
+    Parameters:
+    - df: pandas DataFrame.
+    - col1: The name of the first column.
+    - col2: The name of the second column.
+    - lag: The lag introduced. Positive values will lag col2. Lag unit is not time, but data point
+
+    Returns:
+    - Cross-correlation value.
+    """
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    msq_diff=((series1-series2)**2).mean()
+
+    if np.isnan(msq_diff):
+        msq_diff=nan
+    return msq_diff, n_points
+
+def annotator(df, lags, feature="asleep", FUN=cross_correlation, auto=False, **kwargs):
     corrs={}
     wide_table=df.reset_index().pivot_table(index=['t'], columns='id', values=feature)
     ids=wide_table.columns.tolist()
     pairs=list(itertools.combinations(ids, 2))
+    if auto:
+        for id in ids:
+            pairs.append((id, id))
 
     for lag in lags:
         corrs[lag]=[
-            FUN(wide_table, id1, id2, lag=lag)
+            FUN(wide_table, id1, id2, lag=lag, **kwargs)
             for id1, id2 in pairs
         ]
+
         
     return corrs, pairs
