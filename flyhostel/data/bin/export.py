@@ -14,7 +14,8 @@ def get_parser(ap=None):
         help="Framerate of the output data. If input data is 160 fps and passed framerate is 2, then 79 frames / half second will be skipped"
     )
 
-    ap.add_argument("--reset", action="store_true", default=False, help="If an existing dbfile is found, remove and make it from scratch")
+    ap.add_argument("--reset", action="store_true", default=False, dest="reset", help="If an existing dbfile is found, remove and make it from scratch")
+    ap.add_argument("--no-reset", action="store_false", default=False, dest="reset", help="If an existing dbfile is found, remove and make it from scratch")
     return ap
 
 
