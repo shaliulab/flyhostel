@@ -1,4 +1,5 @@
 import itertools
+import traceback
 import logging
 import codetiming
 
@@ -32,6 +33,9 @@ def compute_distance_between_ids(df, identities, **kwargs):
     max_fn=df["frame_number"].max()
     identities=sorted(identities)
 
+
+    df.reset_index(drop=True).to_feather("df_position.feather")
+
     for id1, id2 in itertools.combinations(identities, 2):
         with codetiming.Timer(text=f"Done computing distance between {id1} and {id2} in " + "{:.4f} seconds", logger=logger.debug):
             distances.append(
@@ -45,6 +49,7 @@ def compute_distance_between_ids(df, identities, **kwargs):
             )
             pairs.append((id1, id2))
     
+    
     distance_matrix=[]
     for animal1 in identities:
         this_animal_distances=[]
@@ -57,9 +62,9 @@ def compute_distance_between_ids(df, identities, **kwargs):
             this_animal_distances.append(cp.asnumpy(distances[selector]))
         
         distance_matrix.append(np.stack(this_animal_distances))
+        del this_animal_distances
     
     del distances
-    del this_animal_distances
 
     distance_matrix=np.stack(distance_matrix)
     
@@ -67,7 +72,7 @@ def compute_distance_between_ids(df, identities, **kwargs):
 
 
 
-def compute_distance_between_pairs(df, id1, id2, min_fn=None, max_fn=None, useGPU=True):
+def compute_distance_between_pairs(df, id1, id2, min_fn=None, max_fn=None, useGPU=True, step=1):
     """
     Com
     
@@ -101,14 +106,26 @@ def compute_distance_between_pairs(df, id1, id2, min_fn=None, max_fn=None, useGP
             summ+=summand
     
     distance=xf.Series(index=summ.index, data=nx.sqrt(summ.values.flatten()))
+    # NOTE
+    # this happens if the same identity is present more than once in the same frame
+    # which occurs if the validation was not perfect
+    duplicates=distance.index.duplicated()
+    if duplicates.sum()>0:
+        logger.error(f"The following frame numbers have duplicated ids: {distance.index[distance.index.duplicated()]}")
+        distance=distance.index[~duplicates]
 
     if min_fn is None:
-        min_fn = distance.index.min()
+        min_fn = df["frame_number"].min()
     if max_fn is None:
-        max_fn = distance.index.max()
-    
+        max_fn = df["frame_number"].max()
+
     # full_range_index = cudf.RangeIndex(start=min_index, stop=max_index + 1)
-    distance = distance.reindex(nx.arange(min_fn, max_fn+1, 1, dtype=distance.index.dtype), fill_value=nx.inf).values
+    try:
+        distance = distance.reindex(nx.arange(min_fn, max_fn+step, step, dtype=distance.index.dtype), fill_value=nx.inf).values
+    except Exception as error:
+        raise error
+    
+    logger.debug("Filled in %s %% of values with inf", 100*nx.isinf(distance).mean())
     return distance
 
 

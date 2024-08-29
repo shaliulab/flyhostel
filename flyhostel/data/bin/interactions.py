@@ -1,5 +1,6 @@
 import argparse
 from flyhostel.data.interactions.main import compute_experiment_interactions
+from flyhostel.data.pose.constants import bodyparts_wo_joints as BODYPARTS
 
 def get_parser():
     ap=argparse.ArgumentParser()
@@ -14,4 +15,7 @@ def get_parser():
 def main():
     ap=get_parser()
     args=ap.parse_args()
-    compute_experiment_interactions(args.experiment, args.number_of_animals, args.output, args.dist_max_mm, args.min_interaction_duration)
+    compute_experiment_interactions(
+        group, bodyparts=BODYPARTS, number_of_animals=args.number_of_animals,
+        output=args.output, dist_max_mm=args.dist_max_mm, min_interaction_duration=args.min_interaction_duration
+    )

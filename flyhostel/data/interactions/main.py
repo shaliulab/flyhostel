@@ -245,6 +245,9 @@ def analyze_group(group, pose_name, bodyparts, framerate=30, useGPU=True, interv
     
     if partition_size is None:
         partitions=[None]
+        fn0s=[interval[0]]
+        fn1s=[interval[-1]]
+        
     
     else:
         partition_size=min(partition_size, interval[1]-interval[0])
@@ -293,10 +296,11 @@ def analyze_group(group, pose_name, bodyparts, framerate=30, useGPU=True, interv
             # interactions_full_cpu["t"].interpolate(method="linear", limit_direction="both", inplace=True)
             # use all t
 
-            touch_interactions=infer_touch(pose_cpu, mask=interactions_full_cpu[["id", "nn", "frame_number", "distance_bodypart_mm"]], bodyparts=bodyparts, n_jobs=n_jobs)
-            logger.debug("%s touch events detected", touch_interactions.shape[0])
-
-            if touch_interactions.shape[0]>0:
+            touch_interactions=None
+            # touch_interactions=infer_touch(pose_cpu, mask=interactions_full_cpu[["id", "nn", "frame_number", "distance_bodypart_mm"]], bodyparts=bodyparts, n_jobs=n_jobs)
+            
+            if touch_interactions is not None and touch_interactions.shape[0]>0:
+                logger.debug("%s touch events detected", touch_interactions.shape[0])
                 interactions_full_cpu=interactions_full_cpu.merge(
                     touch_interactions,
                     on=["id", "nn", "frame_number"],
@@ -309,13 +313,12 @@ def analyze_group(group, pose_name, bodyparts, framerate=30, useGPU=True, interv
                     # in the rows of the other interaction pair
                     how="left"
                 ).sort_values(["id", "frame_number"])
-                interactions_full_cpu=flatten_data(interactions_full_cpu)
 
             else:
                 interactions_full_cpu["edge_distance"]=np.inf
 
         logger.debug("Collected %s rows of interaction data in partition %s/%s", n_rows, i+1, len(partitions))
-
+        interactions_full_cpu=flatten_data(interactions_full_cpu)
 
         if interactions is not None:
             all_interactions.append(interactions)
@@ -509,8 +512,6 @@ def initialize_group(experiment, pose_name, number_of_animals=None, identities=N
         identities=range(1, number_of_animals+1)
 
     animals=[f"{experiment}__{str(identity).zfill(2)}" for identity in identities]
-
-
     print("Interaction kwargs")
     interaction_kwargs={k: all_kwargs[k] for k in ["dist_max_mm", "min_interaction_duration", "min_time_between_interactions"] if k in all_kwargs}
     for k, v in interaction_kwargs.items():

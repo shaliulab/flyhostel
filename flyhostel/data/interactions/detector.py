@@ -135,20 +135,20 @@ class InteractionDetector(FilesystemInterface):
             neighbors=neighbors.sort_values(["id", "nn", "frame_number"])
 
             # annotate interaction start and end
-            min_steps_between=int(self.min_time_between_interactions*FRAMERATE)
-            neighbors=annotate_interaction_location_all(neighbors, min_steps_between, nx=nx, xf=xf)
+            # min_steps_between=int(self.min_time_between_interactions*FRAMERATE)
+            # neighbors=annotate_interaction_location_all(neighbors, min_steps_between, nx=nx, xf=xf)
 
-            # time each interaction by counting in how many frames is it detected
-            neighbors=neighbors.merge(
-                neighbors.groupby(["id", "nn", "interaction"]).size().reset_index(name="frames"),
-                on=["id", "nn", "interaction"],
-                how="left"
-            ).sort_values(["id", "nn", "frame_number"])
-            neighbors["duration"]=neighbors["frames"]/framerate
-            interactions=neighbors.loc[(neighbors["duration"]>=self.min_interaction_duration)]
+            # # time each interaction by counting in how many frames is it detected
+            # neighbors=neighbors.merge(
+            #     neighbors.groupby(["id", "nn", "interaction"]).size().reset_index(name="frames"),
+            #     on=["id", "nn", "interaction"],
+            #     how="left"
+            # ).sort_values(["id", "nn", "frame_number"])
+            # neighbors["duration"]=neighbors["frames"]/framerate
+            # interactions=neighbors.loc[(neighbors["duration"]>=self.min_interaction_duration)]
 
 
-            return interactions, pose_absolute
+            return neighbors, pose_absolute
         else:
             return neighbors, pose_absolute
 
