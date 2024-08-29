@@ -13,3 +13,6 @@
 [submodule "libraries/imgstore"]
 	path = libraries/imgstore
 	url = git@github.com:shaliulab/imgstore
+[submodule "libraries/confapp"]
+	path = libraries/confapp
+	url = git@github.com:shaliulab/confapp

@@ -10,8 +10,8 @@ from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
 
-NUMBER_OF_ROWS=3
-NUMBER_OF_COLS=3
+NUMBER_OF_ROWS=1
+NUMBER_OF_COLS=1
 RESOLUTION=(1000, 1000)
 
 from flyhostel.data.pose.constants import chunksize
@@ -65,7 +65,7 @@ def generate_space_time_image(scene_number, folder, number_of_rows=4, number_of_
                 np.hstack(frames[start:end])
             )
         img=np.vstack(img)
-        cv2.imwrite(f"{output_folder}/{scene_name}_{str(block).zfill(3)}.png", img)
+        cv2.imwrite(f"{output_folder}/{scene_name}_{str(block).zfill(6)}.png", img)
 
 
 def generate_space_time_image_all(scenes, folder, n_jobs):
@@ -74,7 +74,7 @@ def generate_space_time_image_all(scenes, folder, n_jobs):
         joblib.delayed(
             generate_space_time_image
         )(
-            scene_number, folder=folder, number_of_rows=NUMBER_OF_ROWS, number_of_columns=NUMBER_OF_COLUMNS
+            scene_number, folder=folder, number_of_rows=NUMBER_OF_ROWS, number_of_columns=NUMBER_OF_COLS
         )
        for scene_number in tqdm(scenes)
     )

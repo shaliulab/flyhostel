@@ -196,7 +196,9 @@ def bin_windows(df, time_window_length=1):
     """
     df["t_round"]=time_window_length*(df["t"]//time_window_length)
 
-    df_bin=df[["t_round","local_identity", "identity", "chunk", "fragment", "modified"]].drop_duplicates()
+    df_bin=df.drop_duplicates(["t_round","local_identity", "identity", "chunk", "fragment", "modified"])[[
+        "t_round","local_identity", "identity", "chunk", "fragment", "modified", "x", "y"
+    ]]
 
     df_bin=df_bin.merge(
         df[["t_round", "frame_number", "chunk", "frame_idx"]].groupby(["t_round", "chunk"]).first().reset_index(),

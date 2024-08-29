@@ -95,7 +95,13 @@ def generate_validation_video(store_path, row, df, number_of_animals, framerate=
         frame_number_last=df["frame_number"].iloc[-1]
 
         experiment=row["experiment"]
-        cap.set(1, frame_number_0)
+        try:
+            cap.set(1, frame_number_0)
+        except Exception as error:
+            logger.error("Cannot set FRAME_POS to %s on video %s", frame_number_0, store_path)
+            raise error
+
+
         chunk=frame_number_0//chunksize
         output_path_csv=os.path.join(output_folder, f"{experiment}_{str(chunk).zfill(6)}_{frame_number_0}.csv")
         accum=0

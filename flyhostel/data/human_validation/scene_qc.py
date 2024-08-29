@@ -59,11 +59,13 @@ def scene_qc(scene, number_of_animals):
     min_distance, (focal_id, partner_id)=min_distance_between_animals_qc(scene)
     gap_n_frames, gap_distance, between_chunks, maintains_id, n_failed_fragments=fragment_gap_qc(scene)
     scene_length=len(scene["frame_number"].unique())
+    # count how many times each id appears
     counts=scene.value_counts("id")
     try:
+        # if all available ids appear in all frames
         if (counts==scene_length).all():
             broken=0
-            max_velocity=max_velocity_qc_ideal(scene, number_of_animals=number_of_animals)
+            max_velocity=max_velocity_qc_ideal(scene, number_of_animals)
         else:
             broken=1
             max_velocity=max_velocity_qc_not_ideal(scene)
@@ -105,11 +107,23 @@ def min_distance_between_animals_qc(scene):
     return min_distance, (focal_id, partner_id)
 
 def max_velocity_qc_ideal(scene, number_of_animals):
-    scene_length=len(scene["frame_number"].unique())
-    
+    """
+    Return the maximum distance traveled by any animal
+    between any pair of consecutive frames in the scene 
+    """
 
+    scene_length=len(scene["frame_number"].unique())
     coords=scene.sort_values(["frame_number", "id"])[["centroid_x", "centroid_y"]].values
-    coords=coords.reshape(scene_length, number_of_animals, -1)
+    number_of_found_animals=len(scene["id"].unique())
+    if number_of_animals!=number_of_found_animals:
+        logger.warning("Number of animals found in scene starting in %s != %s", scene["frame_number"].iloc[0], number_of_animals)
+        number_of_animals=number_of_found_animals
+
+    try:
+        coords=coords.reshape(scene_length, number_of_animals, -1)
+    except Exception as error:
+        logger.error("max_velocity_qc_ideal has failed processing scene starting in %s", scene["frame_number"].iloc[0])
+        raise error
     distance=((cp.diff(coords, axis=0)**2).sum(axis=2)**0.5)
     return distance.max().get().item()
 

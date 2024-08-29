@@ -23,6 +23,7 @@ from flyhostel.utils.utils import get_chunksize
 logger=logging.getLogger(__name__)
 from flyhostel.data.human_validation.cvat.constants import cvat_username, cvat_host, cvat_password
 
+DEBUG=True
 def download_task_annotations(task_number, redownload=False):
 
     unzipped_folder=f"task_{task_number}"
@@ -59,7 +60,7 @@ def download_task_annotations(task_number, redownload=False):
     return annotations, images, categories
 
 
-def load_task_annotations(annotations, images, categories, basedir, frame_width=500, frame_height=500, number_of_rows=3, number_of_cols=3):
+def load_task_annotations(annotations, images, categories, basedir, frame_width=1000, frame_height=1000, number_of_rows=1, number_of_cols=1):
     """
     Returns:
 
@@ -77,7 +78,10 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
 
 
     block_size=number_of_rows*number_of_cols
-    for i, annotation in enumerate(annotations):
+    seen_lids={}
+    i=0
+
+    for annotation in annotations:
         panel=annotation["image_id"]
         contour_id=annotation["id"]
 
@@ -85,7 +89,8 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
             images["id"]==panel
         ]
         image_filename=image["file_name"].item()
-        frame_number=int(
+        # frame_number0 = first frame of the scene
+        frame_number0=int(
             os.path.splitext(os.path.basename(image_filename))[0].split("_")[-2]
         )
         block=int(
@@ -96,14 +101,17 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
             categories["id"]==annotation["category_id"], "name"
         ].item()
         try:
-            identity=int(category)
+            local_identity=int(category)
             text=None
         except:
             text=category
-            identity=None
+            local_identity=None
 
-        if isinstance(annotation["segmentation"], dict):
+        is_mask=isinstance(annotation["segmentation"], dict) and "counts" in annotation["segmentation"]
+        
+        if is_mask:
             try:
+                # if mask
                 frame_idx_in_block, center, contour=rle_to_blob(
                     rle=annotation["segmentation"], shape=annotation["segmentation"]["size"],
                     frame_width=frame_width, frame_height=frame_height,
@@ -115,17 +123,38 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
                 raise error
 
         else:
+            polygon=annotation["segmentation"]
+            if not polygon:
+                # user created a rectangle (a polygon with 4 points)\
+                # which is stored in the bbox entry
+                if annotation["bbox"]:
+                    x, y, w, h=annotation["bbox"]
+                    polygon=[(x, y), (x+w, y), (x+w, y+h), (x, y+h)]
+                else:
+                    raise ValueError("No ROI found")
+
             frame_idx_in_block, center, contour=polygon_to_blob(
-                polygon=annotation["segmentation"],
+                polygon=polygon,
                 frame_width=frame_width, frame_height=frame_height,
                 number_of_cols=number_of_cols,
                 original_resolution=original_resolution,
             )
 
-        frame_number0=int(image_filename.split("_")[-2])
+
         frame_number=frame_number0+frame_idx_in_block + block*block_size
-        parsed_annot.append((i, frame_number, *center, identity, contour_id, text, frame_number0, block, block_size, panel-1, frame_idx_in_block))
+        if frame_number not in seen_lids:
+            seen_lids[frame_number]=[]
+    
+        if local_identity is not None:
+            if local_identity in seen_lids[frame_number]:
+                # logger.debug("local identity %s already seen in %s", local_identity, frame_number)
+                continue
+            else:
+                seen_lids[frame_number].append(local_identity)
+
+        parsed_annot.append((i, frame_number, *center, local_identity, contour_id, text, frame_number0, block, block_size, panel-1, frame_idx_in_block))
         contours.append(contour)
+        i+=1
 
     annotations_df=pd.DataFrame.from_records(parsed_annot, columns=["idx", "frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel", "frame_idx_in_block"])
 
@@ -171,10 +200,9 @@ def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
     return annotations_df, contours
 
 
-def get_annotation(basedir, task_number, **kwargs):
+def get_annotation(basedir, task_number, number_of_cols=1, number_of_rows=1, **kwargs):
     annotations, images, categories=download_task_annotations(task_number, **kwargs)
     
-    number_of_cols=number_of_rows=3
     assert len(images["width"].unique())==1
     frame_width=images["width"].unique()[0]//number_of_cols
 
@@ -368,6 +396,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
             cap.set(1, frame_number)
             ret, frame = cap.read()
             frame=frame[:,:,0]
+            # this replicates the execution of the idtrackerai preprocessing, but not YOLOv7
             contours_list = process_frame(frame, config)
 
             selection_method="contour"
@@ -380,27 +409,29 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
             for annot_idx_2 in range(annotation.shape[0]):
 
                 contour=annotated_contours[annotation["idx"].iloc[annot_idx_2]]
+                local_identity=annotation["local_identity"].iloc[annot_idx_2]
+                
                 if selection_method=="contour":
-                    try:
-                        match_idx=select_by_contour(contour, contours_list, debug=False)
-                    except ValueError as error:
-                        logger.warning(error)
-                        # logger.debug("More than 1 yolo box overlaps in frame %s and annotation index %s", frame_number, annot_idx_2)
-                        match_idx=None
+                    match_idx, n=select_by_contour(contour, contours_list, debug=False)
+                    if match_idx is None:
+                        logger.debug("Could not select by contour in frame %s", frame_number)
+
+                    # elif frame_number==13532157:
+                    #     print(annotation.iloc[annot_idx_2], df.iloc[match_idx])
 
                 # annotation overlaps
                 if match_idx is not None:
                     in_frame_index, fragment=parse_overlapping_annotation(df, match_idx, used_indices, next_idx=annot_idx_2+last_machine_id)
                 
-                # annotation doesn't overlap with anything
+                # annotation doesn't overlap with a clear machine made contour
                 else:
                     fragment=None
                     in_frame_index=annot_idx_2+last_machine_id
                     while in_frame_index in used_indices:
                         in_frame_index+=1
                     used_indices.append(in_frame_index)
-                
-                local_identity=annotation["local_identity"].iloc[annot_idx_2]
+                    if DEBUG and ~np.isnan(local_identity):
+                        print(frame_number, in_frame_index, local_identity)
 
                 if np.isnan(local_identity):
                     (roi0_row, ident_row), fragments_must_break, annotations_to_copy, annotations_to_spatial_copy, crossings=process_text_annotations(
@@ -411,12 +442,19 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                         identity_corrected.append(ident_row)
 
                 else:
+                    # if frame_number in list(range(7753639, 7753655)):# and np.isnan(in_frame_index):
                     roi0_row=(frame_number, in_frame_index, annotation["x"].iloc[annot_idx_2], annotation["y"].iloc[annot_idx_2], fragment)
                     ident_row=(frame_number, in_frame_index, local_identity)
+                    
+
                     roi0_corrected.append(roi0_row)
                     identity_corrected.append(ident_row)
-                    if match_idx is None:
+                    if n==0:
                         logger.debug("De novo annotation detected in frame %s with local identity %s", frame_number, local_identity)
+                    elif n!=1:
+                        logger.debug("Multiple winners detected in frame %s with local identity %s", frame_number, local_identity)
+
+
             pb.update(1)
     
         identity_corrected=pd.DataFrame.from_records(identity_corrected, columns=["frame_number", "in_frame_index", "local_identity"])
@@ -437,8 +475,6 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
             sorted(list(annotations_to_copy))
         )
 
-
-
     finally:
         if cap is not None:
             cap.release()
@@ -447,17 +483,19 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     roi0_corrected["validated"]=True
     identity_corrected["validated"]=True
     roi0_corrected["chunk"]=roi0_corrected["frame_number"]//chunksize
-
+    
     if fragments_must_break:
         max_fragment_identifier_per_chunk=roi0_corrected.groupby("chunk").agg({"fragment": np.max}).reset_index()
 
         for frame_number, fragment in fragments_must_break:
             chunk=frame_number//chunksize
-            new_identifier=max_fragment_identifier_per_chunk.loc[max_fragment_identifier_per_chunk["chunk"]==chunk, "fragment"].item()+1
-
-            logger.warning("Fragment %s after frame number %s becomes fragment %s", fragment, frame_number, new_identifier)
-            roi0_corrected.loc[(roi0_corrected["frame_number"]>frame_number)&(roi0_corrected["chunk"]==chunk)&(roi0_corrected["fragment"]==fragment), "fragment"]=new_identifier
-            max_fragment_identifier_per_chunk.loc[max_fragment_identifier_per_chunk["chunk"]==chunk, "fragment"]+=1
+            if fragment is None:
+                roi0_corrected.loc[(roi0_corrected["frame_number"]==frame_number)&(roi0_corrected["chunk"]==chunk), "fragment"]=np.nan
+            else:
+                new_identifier=max_fragment_identifier_per_chunk.loc[max_fragment_identifier_per_chunk["chunk"]==chunk, "fragment"].item()+1
+                logger.warning("Fragment %s after frame number %s becomes fragment %s", fragment, frame_number, new_identifier)
+                roi0_corrected.loc[(roi0_corrected["frame_number"]>frame_number)&(roi0_corrected["chunk"]==chunk)&(roi0_corrected["fragment"]==fragment), "fragment"]=new_identifier
+                max_fragment_identifier_per_chunk.loc[max_fragment_identifier_per_chunk["chunk"]==chunk, "fragment"]+=1
 
     identity_corrected=annotate_crossings(identity_corrected, roi0_corrected, crossings)
 
@@ -475,5 +513,5 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
 
     identity_corrected["annotation_id"]=[f"{row['frame_number']}_{row['in_frame_index']}" for _, row in identity_corrected.iterrows()]
     roi0_corrected["annotation_id"]=[f"{row['frame_number']}_{row['in_frame_index']}" for _, row in roi0_corrected.iterrows()]
-
+    
     return identity_corrected, roi0_corrected, score_dist

@@ -13,6 +13,8 @@ logger=logging.getLogger(__name__)
 # 3 fragment
 # 4 modified
 # 5 frame_number
+# 6 x
+# 7 y
 
 identity_idx=0
 chunk_idx=2
@@ -30,8 +32,17 @@ def intra_qc(window, number_of_animals):
         modified is set to 0 (meaning YOLOv7 has not processed the frame)
         The number of detected animals matches the expected number of animals
     """
-    return yolov7_qc(window) and all_found_qc(window, number_of_animals) and all_id_expected_qc(window, number_of_animals)
+    return yolov7_qc(window) and all_found_qc(window, number_of_animals) and all_id_expected_qc(window, number_of_animals) and nms_qc(window)
 
+def nms_qc(window):
+    """
+    Return True if two objects have the same centroid (non maximal suppresion failure)
+    """
+
+    x_y=window[:, 6:7]
+    u, c = np.unique(x_y, return_counts=True, axis=0)
+    duplicates=np.sum(c > 1)
+    return not duplicates
 
 def yolov7_qc(window):
     """
@@ -126,7 +137,7 @@ def analyze_video(df, number_of_animals, n_jobs=1):
     logger.debug("Setting index of data")
 
     n_windows=df[["chunk", "frame_number"]].drop_duplicates().shape[0]
-    all_windows=df[["local_identity", "identity", "chunk", "fragment", "modified", "frame_number"]].groupby([
+    all_windows=df[["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].groupby([
         "chunk", "frame_number"
     ]).__iter__()
     logger.debug("Generating %s windows", n_windows)
