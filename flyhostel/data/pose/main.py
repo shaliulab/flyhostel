@@ -132,7 +132,6 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.store_index=None
         self.chunks=chunks
         self.stride=None
-
         self.roi_width = load_roi_width(self.dbfile)
 
         # because the arena is circular
@@ -215,7 +214,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         self.metadata=metadata_single_animal
         self.number_of_animals=int(self.metadata["number_of_animals"].iloc[0])
 
-        self.meta_info={"t_after_ref": start_time-reference_hour}
+        self.meta_info={"t_after_ref": start_time-reference_hour} # seconds
 
 
     def __str__(self):
@@ -366,6 +365,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         if cache is not None:
             path = os.path.join(cache, f"{self.experiment}_store_index.pkl")
             ret, self.store_index = restore_cache(path)
+            ret=False
             if ret:
                 return
         before=time.time()
@@ -386,7 +386,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
 
 
     def load_data(
-        self, *args, identity=None, min_time=-float('inf'), max_time=+float('inf'), stride=1, n_jobs=1, cache=None, files=None,
+        self, *args, identity=None, min_time=None, max_time=None, stride=1, n_jobs=1, cache=None, files=None,
         load_behavior=True, load_deg=True, write_only=False,
         **kwargs
     ):
@@ -436,33 +436,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
 
         if load_behavior:
             logger.info("Loading behavior data")
-            self.load_behavior_data(self.experiment, identity, self.pose_boxcar, cache=cache)
-
-    def load_fast(self, cache):
-        try:
-            self.load_centroid_data(
-                identity=self.identity,
-                identity_table=self.identity_table,
-                roi_0_table=self.roi_0_table,
-                min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None,
-                reference_hour=np.nan
-            )
-
-        except AssertionError as error:
-            logger.error(error)
-            self.load_centroid_data(
-                identity=self.identity,
-                identity_table="IDENTITY",
-                roi_0_table="ROI_0",
-                min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=None,
-                reference_hour=np.nan,
-            )
-
-        self.load_pose_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)
-        self.process_data(stride=1, cache=cache)
-        self.load_deg_data(identity=self.identity, min_time=-float('inf'), max_time=+float('inf'), stride=1, cache=cache)
-        self.load_behavior_data(self.experiment, identity=self.identity, pose=self.pose_boxcar, cache=cache)
-
+            self.load_behavior_data(self.experiment, identity, min_time=min_time, max_time=max_time)
 
     def make_movie(self, ts=None, frame_numbers=None, **kwargs):
         return make_pose_movie(self.basedir, self.dt_with_pose, ts=ts, frame_numbres=frame_numbers, **kwargs)

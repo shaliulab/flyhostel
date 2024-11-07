@@ -44,7 +44,7 @@ def simplify_columns(index, pose, id):
     return pose
 
 
-def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1):
+def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_time=None, max_time=None, store_index=None):
     """
     Load dataset TODO
     """
@@ -56,46 +56,81 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1):
     chunksize=CHUNKSIZE
 
     for animal_id, datasetname in enumerate(datasetnames):
-        h5_file=files[animal_id]
-        
-        identity=int(os.path.splitext(os.path.basename(h5_file))[0].split("__")[1])
+        this_animal_files=files[animal_id]
 
-        if not os.path.exists(h5_file):
-            print(f"{h5_file} not found")
+        if isinstance(this_animal_files, str):
+            h5_file_raw=this_animal_files
+            h5_file_filtered=h5_file_raw
+        elif len(this_animal_files)==1:
+            h5_file_raw=this_animal_files[0]
+            h5_file_filtered=h5_file_raw
+        else:
+            h5_file_filtered, h5_file_raw=this_animal_files
+        
+        identity=int(os.path.splitext(os.path.basename(h5_file_filtered))[0].split("__")[1])
+
+        if not os.path.exists(h5_file_filtered):
+            print(f"{h5_file_filtered} not found")
             continue
 
-        logger.debug("Opening %s", h5_file)
-        with h5py.File(h5_file) as filehandle:
-            
-            before=time.time()
-            n_files=filehandle["files"].shape[0]
-            n_chunks=filehandle["tracks"].shape[3]/chunksize
-            if n_files > n_chunks:
-                raise Exception(f"{n_files} files should contain {round(n_chunks, 5)} of data. Some chunk may be incomplete")
+        filehandle_raw=h5py.File(h5_file_raw)
+        logger.debug("Opening %s", h5_file_filtered)
+        filehandle=h5py.File(h5_file_filtered)
+        
+        before=time.time()
+        first_chunk=int(os.path.basename(filehandle["files"][0].decode()).split(".")[0])
+        first_frame_number=first_chunk*chunksize
 
-            pose=filehandle["tracks"][0, :, :, ::stride]
-            after=time.time()
-            logger.debug("Load pose coordinates in %s seconds", round(after-before, 1))
-            scores=filehandle["point_scores"][0, :, ::stride]
-            after2=time.time()
-            logger.debug("Load scores in %s seconds", round(after2-after, 1))
-            bps = [bp.decode() for bp in filehandle["node_names"][:]]
+        if min_time is not None:
+            # select the first frame_number whose t is greater or equal than min time
+            fn0=store_index.loc[store_index["t"]>=min_time, "frame_number"].iloc[0]
+        else:
+            fn0=0
+        if max_time is not None:
+            # select the first frame number whose t is greater than max time
+            fn1=store_index.loc[store_index["t"]>max_time, "frame_number"].iloc[0]
+        else:
+            fn1=filehandle["tracks"].shape[3]
+        
+        fn0=max(0, fn0-first_frame_number)
+        fn1=max(1, fn1-first_frame_number)
+        
+        
+        frame_numbers=np.arange(fn0, fn1, stride) + first_frame_number
 
-            chunks=[int(os.path.basename(path.decode()).split(".")[0]) for path in filehandle["files"]]
-            local_identity=[int(os.path.basename(os.path.dirname(path.decode()))) for path in filehandle["files"]]
-            local_identity=list(itertools.chain(*[[e for _ in range(chunksize)] for e in local_identity]))
-            analysis_files=list(itertools.chain(*[[e for _ in range(chunksize)] for e in filehandle["files"]]))
+        n_files=filehandle["files"].shape[0]
+        n_chunks=filehandle["tracks"].shape[3]/chunksize
+        if n_files > n_chunks:
+            raise Exception(f"{n_files} files should contain {round(n_chunks, 5)} of data. Some chunk may be incomplete")
 
-            local_identity=local_identity[::stride]
-            analysis_files=analysis_files[::stride]
+        pose=filehandle["tracks"][0, :, :, fn0:fn1:stride]
+        after=time.time()
+        logger.debug("Load pose coordinates in %s seconds", round(after-before, 1))
+        scores=filehandle_raw["point_scores"][0, :, fn0:fn1:stride]
+        after2=time.time()
+        logger.debug("Load scores in %s seconds", round(after2-after, 1))
+        bps = [bp.decode() for bp in filehandle["node_names"][:]]
 
-            frame_numbers=list(itertools.chain(*[np.arange(
-                chunk*chunksize,
-                (chunk+1)*chunksize,
-                1
-            ) for chunk in chunks]))
-            frame_numbers=frame_numbers[::stride]
+        # chunks=[int(os.path.basename(path.decode()).split(".")[0]) for path in filehandle["files"]]
+        local_identity=[int(os.path.basename(os.path.dirname(path.decode()))) for path in filehandle["files"]]
+        local_identity=list(itertools.chain(*[[e for _ in range(chunksize)] for e in local_identity]))
+        analysis_files=list(itertools.chain(*[[e for _ in range(chunksize)] for e in filehandle["files"]]))
 
+        local_identity=local_identity[fn0:fn1:stride]
+        analysis_files=analysis_files[fn0:fn1:stride]
+
+        # frame_numbers=list(itertools.chain(*[np.arange(
+        #     chunk*chunksize,
+        #     (chunk+1)*chunksize,
+        #     1
+        # ) for chunk in chunks]))
+        # frame_numbers=frame_numbers[::stride]
+        
+        filehandle.close()
+        try:
+            filehandle_raw.close()
+        except:
+            pass
 
         index=pd.DataFrame({
             "frame_number": frame_numbers,
@@ -134,7 +169,7 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1):
         before=time.time()
         pose_df = pd.DataFrame(data)
         after=time.time()
-        logger.debug("Initialize pd.DataFrame in %s seconds", round(after-before, 1))
+        logger.debug("Initialize pose pd.DataFrame from Python dictionary in %s seconds", round(after-before, 1))
         # STOP adding the pose_df with fancy multiindex to h5s_pandas to save memory
         # columns=pose_df.columns
         # multiindex_columns = pd.MultiIndex.from_product([["SLEAP"], bps, coordinates], names=['scorer', 'bodyparts', 'coordinates'])

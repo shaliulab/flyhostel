@@ -140,13 +140,11 @@ def rle_to_blob(*args, frame_width, frame_height, number_of_cols, original_resol
     # Find contours
     contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-    assert len(contours)==1
+    assert len(contours)==1, "This annotation is segmented into >1 contour. Does it have a hole in it?"
     contour=contours[0]
     frame_idx_in_block=contour_to_frame_idx_in_block(contour, frame_width, frame_height, number_of_cols)
     contour=reproject_contour(contour, frame_width, frame_height, original_resolution)
     x, y=contour_to_centroid(contour)
-    # x=int(x / frame_width * original_resolution[0])
-    # y=int(y / frame_height * original_resolution[1])
     
     return frame_idx_in_block, (x, y), contour
 

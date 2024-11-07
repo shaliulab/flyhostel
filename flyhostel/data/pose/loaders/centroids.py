@@ -3,6 +3,7 @@ import time
 from functools import partial
 import tempfile
 
+import pandas as pd
 import numpy as np
 from ethoscopy import link_meta_index, load_flyhostel, behavpy, flyhostel_sleep_annotation
 from ethoscopy import flyhostel_sleep_annotation as flyhostel_sleep_annotation_primitive
@@ -18,7 +19,7 @@ local = '/flyhostel_data/videos'
 flyhostel_cache='/flyhostel_data/cache'
 time_window_length=10
 
-def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=-float('inf'), max_time=+float('inf'), time_system="zt", n_jobs=20, verbose=False, reference_hour=np.nan, **kwargs):
+def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=None, max_time=None, time_system="zt", n_jobs=20, verbose=False, reference_hour=np.nan, **kwargs):
     
     meta_loc=tempfile.NamedTemporaryFile(suffix=".csv", prefix="flyhostel").name
 
@@ -36,10 +37,12 @@ def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=-
                 raise Exception("> 1 animals matches experiment %s and identity %s", experiment, identity)
 
         if meta.shape[0]==0:
-            logger.warning("Experiment %s {} and identity %s not found in %s", experiment, identity, meta_loc)
+            logger.warning("Experiment %s and identity %s not found in %s", experiment, identity, meta_loc)
             return None, {}
 
         meta["experiment"]=experiment
+        meta=pd.DataFrame(meta)
+
     else:
         assert all([field in metadata.columns for field in ["flyhostel_date", "flyhostel_number", "number_of_animals"]])
         metadata["date"] = metadata["flyhostel_date"]

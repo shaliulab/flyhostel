@@ -308,7 +308,6 @@ def load_wavelets(loader, filters, frames, wavelet_file=None):
 
 def compute_centroid_speed(dt):
 
-        
     diff=np.diff(dt[["x", "y"]].values, axis=0)
     dist=np.sqrt((diff**2).sum(axis=1))
     deltaT=np.diff(dt["t"])
@@ -317,7 +316,10 @@ def compute_centroid_speed(dt):
     missing_data=np.isnan(speed)
     n_frames_missing=np.sum(missing_data)
     if n_frames_missing > 0:
-        logger.warning("Missing data for id %s in %s frames %s", dt["id"].iloc[0], n_frames_missing, dt.loc[missing_data, "frame_number"])
+        logger.warning(
+            "Missing data for id %s in %s frames %s",
+            dt["id"].iloc[0], n_frames_missing, dt.loc[missing_data, "frame_number"]
+        )
         dt["centroid_speed"].ffill(inplace=True)
 
     dt["t_round"]=1*(dt["t"]//1)
@@ -328,7 +330,6 @@ def compute_centroid_speed(dt):
 
     dt=dt.merge(centroid_speed_1s, on="t_round", how="left")
     return dt
-
 
 
 def load_landmarks(loader):

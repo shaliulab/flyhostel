@@ -92,8 +92,8 @@ min_score={
 
 bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
 bodyparts_speed=list(itertools.chain(*[[bp + "_speed"] for bp in bodyparts]))
-MIN_TIME=float("-inf")
-MAX_TIME=float("+inf")
+MIN_TIME=None
+MAX_TIME=None
 
 MAX_JUMP_MM=1
 JUMP_WINDOW_SIZE_SECONDS=0.5

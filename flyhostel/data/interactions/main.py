@@ -1,7 +1,8 @@
 import h5py
 import itertools
 import logging
-import os.path  
+import os.path
+import time
 import pandas as pd
 import numpy as np
 import cupy as cp
@@ -66,11 +67,10 @@ def compute_experiment_interactions_v1(experiment, number_of_animals, output=Non
     return interactions, pose_absolute
 
 
-
 def load_animal_pair_data(animals, pose_name, **kwargs):
     experiments=[animal.split("__")[0] for animal in animals]
     identities=[int(animal.split("__")[1]) for animal in animals]
-        
+
     loaders=[
         FlyHostelLoader(
             experiment=experiment,
@@ -86,7 +86,14 @@ def load_animal_pair_data(animals, pose_name, **kwargs):
     for fly in loaders:
         animal=fly.experiment + "__" + str(fly.identity).zfill(2)
 
-        pose_file=os.path.join(fly.basedir, "motionmapper", str(fly.identity).zfill(2), f"pose_{pose_name}", animal, animal + ".h5")
+        pose_file=os.path.join(
+            fly.basedir, "motionmapper",
+            str(fly.identity).zfill(2),
+            f"pose_{pose_name}",
+            animal, animal + ".h5"
+        )
+        assert os.path.exists(pose_file)
+
         try:
             with h5py.File(pose_file, "r") as f:
                 keys=f.keys()
@@ -97,45 +104,43 @@ def load_animal_pair_data(animals, pose_name, **kwargs):
             failed=True
     if failed:
         raise ValueError("Corrupted files")
-    
 
     group=FlyHostelGroup.from_list(loaders, protocol="centroids", **kwargs)
-    # for key, fly in group.flies.items():
-    #     fly.load_behavior_data(experiment=fly.experiment, identity=fly.identity)
     return group
 
 
-def infer_interactions_by_id_pairs(group, dt, pose, framerate=30, xf=cudf):
-    raise NotImplementedError()
-    try:
+def infer_interactions_by_id_pairs(group, dt, pose, framerate=30):
+
+
+    if isinstance(dt, cudf.DataFrame):
+        xf=cudf
         ids=dt["id"].to_pandas().unique()
-    except:
+    else:
+        xf=pd
         ids=dt["id"].unique()
 
-    interactions_full=[]
+    pose_absolute=[]
     interactions=[]
 
     for id1, id2 in itertools.combinations(ids, 2):
-        print(id1, id2)
-        interactions_full_d, interactions_d=infer_interactions(
+        interactions_, pose_absolute_=infer_interactions(
             group,
             dt.loc[dt["id"].isin([id1, id2])],
             pose.loc[pose["id"].isin([id1, id2])],
-            framerate=framerate,
         )
-        if interactions_full_d is not None:
-            interactions_full.append(interactions_full_d)
-        if interactions_d is not None:
-            interactions.append(interactions_d)
+        if interactions_ is not None:
+            interactions.append(interactions_)
+        if pose_absolute_ is not None:
+            pose_absolute.append(pose_absolute_)
 
-    interactions_full=xf.concat(interactions_full, axis=0)
     interactions=xf.concat(interactions, axis=0)
-    return interactions_full, interactions
+    pose_absolute=xf.concat(pose_absolute, axis=0)
+
+    return interactions, pose_absolute
+
 
 def infer_touch(pose, mask, bodyparts, n_jobs=1):
     mask=flatten_data(mask)
-
-
     df = pose.merge(mask[["id", "frame_number", "nn"]], on=["id", "frame_number"], how="inner")
     df = preprocess_data(df, bodyparts=bodyparts)
 
@@ -148,6 +153,15 @@ def infer_touch(pose, mask, bodyparts, n_jobs=1):
     return touch_interactions
 
 def flatten_data(df):
+    """
+    Represent every pairwise interaction twice,
+    once per animal involved    
+    """
+    if isinstance(df, cudf.DataFrame):
+        xf=cudf
+    else:
+        xf=pd
+
     paired_df=df.rename({"id": "nn", "nn": "id"}, axis=1)
     if all(c in paired_df.columns for c in ["id_bodypart", "nn_bodypart"]):
         paired_df.rename({
@@ -156,290 +170,179 @@ def flatten_data(df):
         }, axis=1, inplace=True)
 
 
-    df=pd.concat([
+    df=xf.concat([
         df, paired_df
     ], axis=0).sort_values("frame_number")
     return df
 
 
-def infer_interactions_by_time_partitions(group, dt, pose, partition_size=None, framerate=30, xf=cudf, keep_pose=False):
+def infer_interactions_by_time_partitions(
+        group, dt,
+        pose_name,
+        partition_size=None,
+        framerate=30,
+        keep_pose=False
+    ):
 
-    interactions_full=[]
+    """
+    Call infer_interactions for one temporal partition of the dataset at a time 
+    """
+
+    if isinstance(dt, cudf.DataFrame):
+        xf=cudf
+        useGPU=True
+    else:
+        xf=pd
+        useGPU=False
+
     interactions=[]
     pose_absolute=[]
 
-    min_fn=pose["frame_number"].min()
-    max_fn=pose["frame_number"].max()
+    min_fn=dt["frame_number"].min()
+    max_fn=dt["frame_number"].max()
+    print(min_fn, max_fn)
+    interval=(min_fn, max_fn)
+    partition_size=min(partition_size, interval[1]-interval[0])
+    fn0s=np.arange(interval[0], interval[1], partition_size)
+    fn1s=fn0s+partition_size
+    partitions=[slice(fn0, fn1) for fn0, fn1 in zip(fn0s, fn1s)]
 
-    if partition_size is None:
-        intervals=[(min_fn, max_fn+1)]
-    else:
-        fn0s=np.arange(min_fn, max_fn+partition_size, partition_size)
-        fn1s=fn0s+partition_size
-        intervals=zip(fn0s, fn1s)
+    for i, partition in tqdm(enumerate(partitions), desc="Infering interactions"):
 
-    for fn0, fn1 in tqdm(intervals, desc="Infering interactions"):
-        pose_dataset=pose.loc[(pose["frame_number"]>=fn0)&(pose["frame_number"]<fn1)]
+        before=time.time()
+        print(f"Partition {i}: {partition}")
+        pose_dataset=group.load_pose_data(
+            framerate=framerate,
+            pose_name=pose_name,
+            partition=partition,
+            useGPU=useGPU
+        )
+
+        if useGPU:
+            assert isinstance(pose_dataset, cudf.DataFrame)
+
         if pose_dataset.shape[0]==0 and DEBUG:
-            logger.warning("No pose data found from %s to %s", fn0, fn1)
+            logger.warning(
+                "No pose data found from %s to %s",
+                partition.start,
+                partition.stop
+            )
             continue
 
-        interactions_full_d, interactions_d, pose_absolute_d=infer_interactions(
+        centroid_dataset=dt.loc[
+            (dt["frame_number"]>=partition.start)&(dt["frame_number"]<partition.stop)
+        ]
+        after=time.time()
+
+        logger.debug("%s seconds to filter partition data", after-before)
+        interactions_, pose_absolute_=infer_interactions(
             group,
-            dt.loc[(dt["frame_number"]>=fn0)&(dt["frame_number"]<fn1)],
+            centroid_dataset,
             pose_dataset,
             framerate=framerate,
         )
 
-        if interactions_full_d is not None:
-            interactions_full.append(xf.DataFrame(interactions_full_d))
+        if interactions_ is not None:
+            interactions.append(xf.DataFrame(interactions_))
         else:
-            logger.warning("No interactions detected between %s and %s", fn0, fn1)
-        if interactions_d is not None:
-            interactions.append(xf.DataFrame(interactions_d))
-        if pose_absolute_d is not None:
-            pose_absolute.append(xf.DataFrame(pose_absolute_d))
+            logger.warning(
+                "No interactions detected between %s and %s",
+                partition.start,
+                partition.stop,
+            )
+        if pose_absolute_ is not None and keep_pose:
+            pose_absolute.append(xf.DataFrame(pose_absolute_))
 
-    if len(interactions_full)==0:
-        interactions_full=None
-    else:
-        interactions_full=xf.concat(interactions_full, axis=0)
+        logger.debug(
+            "Collected %s rows of interaction data in partition %s/%s",
+            interactions_.shape[0], i+1, len(partitions)
+        )
 
+    # put together all partitions
     if len(interactions)==0:
         interactions=None
     else:
         interactions=xf.concat(interactions, axis=0)
 
-    if keep_pose:
-        if len(pose_absolute)==0:
-            pose_absolute=None
-        else:
-            pose_absolute=xf.concat(pose_absolute, axis=0)
-    else:
-        del pose_absolute
+    if len(pose_absolute)==0:
         pose_absolute=None
-
-    return interactions_full, interactions, pose_absolute
-
-
-def analyze_group(group, pose_name, bodyparts, framerate=30, useGPU=True, interval=None, partition_size=None, n_jobs=1, **kwargs):
-    if useGPU:
-        xf=cudf
-        nx=cp
     else:
-        xf=pd
-        nx=np
+        pose_absolute=xf.concat(pose_absolute, axis=0)
 
+    return interactions, pose_absolute
+
+def analyze_group(
+        group, pose_name, bodyparts, framerate=15,
+        useGPU=True, interval=None,
+        partition_size=None, n_jobs=1,
+        **kwargs
+    ):
+    """
+    Detect interactions between animals in a group
+    """
+
+    # load the x y coordinates of the centroids of each animal over time
     dt=group.load_centroid_data(framerate=framerate, useGPU=useGPU)
-    behavior_data=group.load_behavior_data(framerate=framerate, useGPU=useGPU)
-
-
-    all_interactions=[]
-    all_interactions_full=[]
+    if useGPU:
+        assert isinstance(dt, cudf.DataFrame)
 
     if interval is None:
         interval=(
             dt["frame_number"].min(),
             dt["frame_number"].max()+1
         )
-    
-    if partition_size is None:
-        partitions=[None]
-        fn0s=[interval[0]]
-        fn1s=[interval[-1]]
-        
-    
-    else:
-        partition_size=min(partition_size, interval[1]-interval[0])
-        fn0s=np.arange(interval[0], interval[1], partition_size)
-        fn1s=fn0s+partition_size
-        partitions=[slice(fn0, fn1) for fn0, fn1 in zip(fn0s, fn1s)]
 
-    for i, partition in enumerate(partitions):
-        print(f"Partition {i}: {fn0s[i]}-{fn1s[i]}")
-        pose=group.load_pose_data(
+    # interactions
+    interactions, pose=\
+        infer_interactions_by_time_partitions(
+            group, dt, pose_name=pose_name,
             framerate=framerate,
-            # bodyparts=bodyparts,
-            pose_name=pose_name, partition=partition, useGPU=useGPU
+            partition_size=partition_size,
+            keep_pose=True
         )
-        
 
-        if partition_size is None:
-            interactions_full, interactions, pose_absolute=infer_interactions_by_id_pairs(group, dt, pose, framerate=framerate, xf=xf)
-        else:
-            interactions_full, interactions, pose_absolute=infer_interactions_by_time_partitions(group, dt, pose, framerate=framerate, xf=xf, keep_pose=True)
-        
-        if interactions_full is None:
-            n_rows=0
-        else:
-            n_rows=interactions_full.shape[0]
-            # interactions_full=xf.concat([
-            #     interactions_full, interactions_full.rename({"id": "nn", "nn": "id"}, axis=1)
-            # ], axis=0).sort_values("frame_number")
+    interactions=flatten_data(interactions)
+    group.interactions=interactions
+    if len(interactions)==0:
+        return None
 
-            try:
-                pose_cpu=pose_absolute.to_pandas()
-            except:
-                pose_cpu=pose_absolute
-            
-            # assert touch
-            if isinstance(interactions_full, cudf.DataFrame):
-                interactions_full_cpu=interactions_full.to_pandas()
-            else:
-                interactions_full_cpu=interactions_full
-    
-            # we interpolate time because otherwise it takes too long
-            # it does not matter because the frame numbers are still accurate
-
-            # index=dt.loc[dt["frame_number"]%FRAMERATE==0].to_pandas()
-            # interactions_full_cpu=interactions_full_cpu.merge(index[["id", "frame_number", "t"]], on=["id", "frame_number"], how="left")
-            # interactions_full_cpu["t"].interpolate(method="linear", limit_direction="both", inplace=True)
-            # use all t
-
-            touch_interactions=None
-            # touch_interactions=infer_touch(pose_cpu, mask=interactions_full_cpu[["id", "nn", "frame_number", "distance_bodypart_mm"]], bodyparts=bodyparts, n_jobs=n_jobs)
-            
-            if touch_interactions is not None and touch_interactions.shape[0]>0:
-                logger.debug("%s touch events detected", touch_interactions.shape[0])
-                interactions_full_cpu=interactions_full_cpu.merge(
-                    touch_interactions,
-                    on=["id", "nn", "frame_number"],
-                    # NOTE
-                    # how left is needed because touch_interactions is "flat data"
-                    # (represents the same pair wise interaction twice per frame)
-                    # but interactions_full_cpu is not flat
-                    # (each interaction is represented once per frame)
-                    # outer would duplicate the dataset and set cells to NaN
-                    # in the rows of the other interaction pair
-                    how="left"
-                ).sort_values(["id", "frame_number"])
-
-            else:
-                interactions_full_cpu["edge_distance"]=np.inf
-
-        logger.debug("Collected %s rows of interaction data in partition %s/%s", n_rows, i+1, len(partitions))
-        interactions_full_cpu=flatten_data(interactions_full_cpu)
-
-        if interactions is not None:
-            all_interactions.append(interactions)
-        if interactions_full_cpu is not None:
-            all_interactions_full.append(xf.DataFrame(interactions_full_cpu))
-    
-    if len(all_interactions_full)==0:
-        group.dt=None
-        group.dt_sleep=None
-        group.interactions_full=None
-        group.interactions=None
-        group.behavior=None
-        
-        return group
-        
-    interactions_full=xf.concat(all_interactions_full, axis=0)
-    interactions=xf.concat(all_interactions, axis=0)
-    
-
-    # try:
-    #     ids=dt["id"].to_pandas().unique()
-    # except:
-    #     ids=dt["id"].unique()
-
-    # interactions_full=[]
-    # interactions=[]
-
-    # for id1, id2 in itertools.combinations(ids, 2):
-    #     print(id1, id2)
-    #     interactions_full_d, interactions_d=infer_interactions(
-    #         group,
-    #         dt.loc[dt["id"].isin([id1, id2])],
-    #         pose.loc[pose["id"].isin([id1, id2])],
-    #         framerate=framerate,
-    #     )
-    #     if interactions_full_d is not None:
-    #         interactions_full.append(interactions_full_d)
-    #     if interactions_d is not None:
-    #         interactions.append(interactions_d)
-
-
-    dt_sleep=annotate_sleep(dt, **kwargs)
-    dt_sleep["frame_number"]=dt_sleep["frame_number"].astype(np.int32)
-    dt_sleep.sort_values(["frame_number", "id"], inplace=True)
-    
     group.dt=dt
     group.pose=pose
-    group.dt_sleep=dt_sleep
-    group.interactions=interactions
-    group.interactions_full=interactions_full
-    group.behavior=behavior_data
-    
+    group.interactions=interactions.to_pandas()
+    del interactions
     return group
 
 
-def annotate_sleep(dt, FUN=flyhostel_sleep_annotation, time_window_length=10, min_time_immobile=300, velocity_correction_coef=0.0015, mask=None, **kwargs):
-    try:
-        dt_cpu=dt.to_pandas()
-    except:
-        dt_cpu=dt
-    
-
-    dt_sleep=[]
-    for id, df in dt_cpu.groupby("id"):
-        
-        if mask is None:
-            animal_mask=None
-        else:
-            animal_mask=mask.loc[mask["id"]==id].drop("id", axis=1)
-        x=FUN(
-            df, min_time_immobile=min_time_immobile,
-            time_window_length=time_window_length,
-            velocity_correction_coef=velocity_correction_coef,
-            mask=animal_mask,
-            **kwargs
-        )
-        x["id"]=id
-
-        dt_sleep.append(
-            x
-        )
-    dt_sleep=pd.concat(dt_sleep, axis=0)
-    index=dt_cpu[["t", "frame_number"]]
-    index["t"]=time_window_length*(index["t"]//time_window_length)
-    index=index.groupby("t").first().reset_index()
-    if "frame_number" not in dt_sleep.columns:
-        dt_sleep=dt_sleep.merge(index, on="t")
-    return dt_sleep
-
-
-def infer_interactions(group, dt, pose, bodyparts=BODYPARTS, framerate=30):
-    interactions_full, pose_absolute = group.find_interactions(
+def infer_interactions(group, dt, pose, framerate, bodyparts=BODYPARTS):
+    interactions, pose_absolute = group.find_interactions(
         dt, pose,
-        bodyparts=bodyparts,
         framerate=framerate,
-        useGPU=True
+        bodyparts=bodyparts,
+        using_bodyparts=False,
     )
-    if interactions_full is None or interactions_full.shape[0]==0:
-        return None, None
-    interactions_full["chunk"]=interactions_full["frame_number"]//CHUNKSIZE
-    interactions_full["frame_idx"]=interactions_full["frame_number"]%CHUNKSIZE
+    # if interactions_full is None or interactions_full.shape[0]==0:
+    #     return None, None, None
+    interactions["chunk"]=interactions["frame_number"]//CHUNKSIZE
+    interactions["frame_idx"]=interactions["frame_number"]%CHUNKSIZE
+
+    # # interactions_full has one row per pairwise interaction and frame
+    # pairwise_interactions=group.interactions_by_closest_point(interactions_full)
+
+    # # pairwise_interactions has one row per pairwise interaction t the closest point
+    # interactions=group.flatten_interactions(pairwise_interactions)
     
-    # interactions_full has one row per pairwise interaction and frame
-    pairwise_interactions=group.interactions_by_closest_point(interactions_full)
-    
-    # pairwise_interactions has one row per pairwise interaction t the closest point
-    interactions=group.flatten_interactions(pairwise_interactions)
-    
-    # interactions has two rows per pairwise interaction (one for each member)
-    interactions["animal"]=[group.animals[group.ids.index(id)] for id in interactions["id"]]
-    return interactions_full, interactions, pose_absolute
+    # # interactions has two rows per pairwise interaction (one for each member)
+    # interactions["animal"]=[group.animals[group.ids.index(id)] for id in interactions["id"]]
+    return interactions, pose_absolute
 
 def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10):
+
+    assert group.dt_sleep is not None
 
     legs=[bp for bp in BODYPARTS if "L" in bp]
     core=["head", "thorax", "abdomen"]
 
-    try:
-        interactions=group.interactions.to_pandas()
-    except:
-        interactions=group.interactions.copy()
+    interactions=group.interactions
     
     ids=sorted(interactions["id"].unique())
     print(f"ids: {ids}")
@@ -457,9 +360,14 @@ def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10
     # this is useful so that the sleep state at the time of the interaction can be defined based on the behavior
     # from a little bit before in time
 
-
     # annotate sleep state of the interaction
-    hits=pd.merge_asof(interactions, dt_sleep, by="id", on="frame_number", direction="backward", tolerance=FRAMERATE*time_window_length)
+    hits=pd.merge_asof(
+        interactions,
+        dt_sleep, by="id",
+        on="frame_number",
+        direction="backward",
+        tolerance=FRAMERATE*time_window_length
+    )
 
     # remove all data until the first annotation of sleep
     first_non_na=hits.groupby("id").apply(lambda df: df.iloc[np.where(~df["asleep"].isna())[0][0]])[["frame_number"]].reset_index()
@@ -481,10 +389,26 @@ def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10
     return hits
 
 
-def compute_experiment_interactions(group, bodyparts, pose_name="filter_rle-jump", framerate=15, partition_size=None, n_jobs=1, interval=None, **all_kwargs):
+def compute_experiment_interactions(
+        group, bodyparts,
+        pose_name="filter_rle-jump",
+        framerate=15,
+        partition_size=None,
+        n_jobs=1,
+        interval=None,
+        **all_kwargs
+    ):
+    """
+    CLI entry point
+
+    """
 
     print("Sleep kwargs")
-    sleep_kwargs={k: all_kwargs[k] for k in ["min_time_immobile", "time_window_length", "velocity_correction_coef"] if k in all_kwargs}
+
+    sleep_kwargs={k: all_kwargs[k] for k in [
+        "min_time_immobile", "time_window_length",
+        "velocity_correction_coef"
+    ] if k in all_kwargs}
     for k, v in sleep_kwargs.items():
         print(f"{k}: {v}")
 
@@ -498,13 +422,13 @@ def compute_experiment_interactions(group, bodyparts, pose_name="filter_rle-jump
         interval=interval,
         **sleep_kwargs
         )
-    
-    annotation_kwargs={k: all_kwargs[k] for k in ["asleep_annotation_age", "time_window_length"] if k in all_kwargs}
-    if group.interactions is not None:
-        hits=annotate_interactions(group, **annotation_kwargs)
-    else:
-        hits=None
-    return group, hits
+
+    # annotation_kwargs={k: all_kwargs[k] for k in ["asleep_annotation_age", "time_window_length"] if k in all_kwargs}
+    # if group.interactions is not None:
+    #     hits=annotate_interactions(group, **annotation_kwargs)
+    # else:
+    #     hits=None
+    return group
 
 
 def initialize_group(experiment, pose_name, number_of_animals=None, identities=None, **all_kwargs):

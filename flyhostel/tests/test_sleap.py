@@ -7,7 +7,6 @@ basedir="./static_data/test_sleap/videos/FlyHostel1/5X/2023-05-23_14-00-00/"
 
 dataset=IdtrackeraiExporter(
     basedir=basedir,
-    deepethogram_data=None,
     framerate=None
 )
 

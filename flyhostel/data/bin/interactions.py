@@ -15,6 +15,7 @@ def get_parser():
 def main():
     ap=get_parser()
     args=ap.parse_args()
+    raise NotImplementedError
     compute_experiment_interactions(
         group, bodyparts=BODYPARTS, number_of_animals=args.number_of_animals,
         output=args.output, dist_max_mm=args.dist_max_mm, min_interaction_duration=args.min_interaction_duration

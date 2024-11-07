@@ -67,12 +67,14 @@ class PoseLoader:
     def load_store_index(self, cache):
         raise NotImplementedError()
 
-    def load_pose_data(self, identity, min_time=-float("inf"), max_time=float("inf"), time_system="zt", stride=1, cache=None, verbose=False, files=None, write_only=False):
+    def load_pose_data(self, identity, min_time=None, max_time=None, time_system="zt", stride=1, cache=None, verbose=False, files=None, write_only=False):
         
-        if min_time>=max_time:
+        if min_time is not None and max_time is not None and min_time>=max_time:
             logger.warning("Passed time interval (%s - %s) is meaningless")
 
         self.load_store_index(cache=cache)
+        self.store_index["t"]=self.store_index["frame_time"] + self.meta_info["t_after_ref"]
+
         ret=False
         pose=None
         path=None
@@ -96,7 +98,8 @@ class PoseLoader:
             ids=[ident for ident in self.ids if ident.endswith(str(identity).zfill(2))]
             if len(animals)==0 or len(ids)==0:
                 logger.error("animal with identity %s not available", identity)
-            out=load_pose_data_compiled(animals, ids, self.lq_thresh, stride=stride, files=files)
+            
+            out=load_pose_data_compiled(animals, ids, self.lq_thresh, stride=stride, files=files, min_time=min_time, max_time=max_time, store_index=self.store_index)
 
             if out is not None:
                 pose, _, index_pandas=out
@@ -149,7 +152,7 @@ class PoseLoader:
 
         if len(pose) > 0:
             
-            if min_time > float("-inf") or max_time < float("+inf"):
+            if min_time is not None and max_time is not None:
                 t=self.store_index["frame_time"]+self.meta_info["t_after_ref"]
                 min_fn=self.store_index["frame_number"].iloc[
                     np.argmax(t>=min_time)

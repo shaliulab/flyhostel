@@ -30,7 +30,7 @@ class FlyHostelGroup(InteractionDetector):
 
     """
 
-    def __init__(self, flies, *args, protocol="centroids", min_time=-float("inf"), max_time=float("inf"), stride=1, load_deg=True, load_behavior=True, **kwargs):
+    def __init__(self, flies, *args, protocol="centroids", min_time=None, max_time=None, stride=1, load_deg=True, load_behavior=True, **kwargs):
         self.flies=flies
         for fly in flies.values():
             if protocol=="full":

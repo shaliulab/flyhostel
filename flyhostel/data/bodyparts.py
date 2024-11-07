@@ -26,14 +26,16 @@ def make_absolute_coordinates(dt, bodyparts, roi_width, roi_height, square_width
         1. Obtain the absolute coordinates of the centroid, by multiplying by the roi width and height
         2. Obtain the absolute coordinates of the other parts, by adding to the coordinate of the top left corner
             the relative coordinate of the body part
+    
+    NOTE: This implementation supports cudf.DataFrame ops
     """
 
-    dt["centroid_x"] = dt["x"] *roi_width
+    dt["centroid_x"] = dt["x"]*roi_width
     dt["tl_x"] = dt["centroid_x"]-square_width//2
-    dt["centroid_y"] = dt["y"] *roi_height
+    dt["centroid_y"] = dt["y"]*roi_height
     dt["tl_y"] = dt["centroid_y"]-square_height//2
-    dt[f"{anchor_bp}_x_original"] = dt[f"{anchor_bp}_x"]
-    dt[f"{anchor_bp}_y_original"] = dt[f"{anchor_bp}_y"]
+    dt[f"{anchor_bp}_x_original"]=dt[f"{anchor_bp}_x"]
+    dt[f"{anchor_bp}_y_original"]=dt[f"{anchor_bp}_y"]
     for bp in bodyparts:
         for coord in ["x", "y"]:
             dt[bp + "_" + coord] = dt["tl_" + coord] + dt[bp + "_" + coord]

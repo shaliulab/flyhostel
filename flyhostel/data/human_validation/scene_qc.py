@@ -21,7 +21,7 @@ import cupy as cp
 
 
 from .qc import all_id_expected_qc
-from flyhostel.data.interactions.neighbors_gpu import compute_distance_between_ids, find_closest_pair
+from flyhostel.data.interactions.neighbors_gpu import compute_distance_between_all_ids, find_closest_pair
 from flyhostel.data.pose.constants import chunksize
 pd.set_option("display.max_rows", 1000)
 logger=logging.getLogger(__name__)
@@ -88,7 +88,7 @@ def min_distance_between_animals_qc(scene):
         nx=np
 
     ids=scene["id"].unique().tolist()
-    distance_matrix=compute_distance_between_ids(scene, ids)
+    distance_matrix=compute_distance_between_all_ids(scene, ids)
     distance, (i, j) = find_closest_pair(distance_matrix, time_axis=2, partner_axis=1)
     i=i.tolist()
     j=j.tolist()

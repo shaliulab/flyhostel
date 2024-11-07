@@ -154,7 +154,11 @@ def filter_by_id(data_entry, experiment, identity, chunksize=45000, verbose=True
 
 
     frame_number = chunk*chunksize
-    table=get_local_identities_from_experiment(experiment_, int(frame_number))
+    try:
+        table=get_local_identities_from_experiment(experiment_, int(frame_number))
+    except Exception as error:
+        logger.debug(error)
+        return False
 
     identity_=int(table["identity"].loc[table["local_identity"]==local_identity])
 

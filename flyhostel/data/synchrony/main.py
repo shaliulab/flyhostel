@@ -1,11 +1,11 @@
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
-from .correlation import annotator, cross_correlation
+from .correlation import annotator, cross_correlationv2
 DEFAULT_LAGS=[-50, -40, -30, -20,-10, 0, 10, 20, 30, 40, 50]
 
 
-def compute_synchrony(dt_sleep, lags, interval=None, feature="asleep", FUN=annotator, FUN_metric=cross_correlation):
+def compute_synchrony(dt_sleep, lags, interval=None, feature="asleep", FUN=annotator, FUN_metric=cross_correlationv2):
     """
     Compute synchrony in the behavior of a group of flies using the pearson correlation
     The average pairwise correlation between every pair of flies in the dataset is used as proxy of synchrony

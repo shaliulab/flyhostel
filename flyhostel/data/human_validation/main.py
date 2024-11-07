@@ -80,7 +80,7 @@ def generate_label(df):
 
     return df
 
-    
+
 def annotate_for_validation(experiment, output_folder, time_window_length=1, format=".png", n_jobs=20, interval=None, cache=False):
     """
     Generate movies capturing each scene where validation may be needed based on heuristics and QC
@@ -299,5 +299,5 @@ def update_identity_in_scene(df, field="identity", scene_id=None):
         logger.debug(metadata)
         with open(logfile, "w") as handle:
             yaml.dump(metadata, handle, yaml.SafeDumper)
-            
+
     return out_df

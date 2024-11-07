@@ -279,20 +279,23 @@ def integrate_human_annotations(
 
     # reports
     make_report(out.to_pandas(), folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals)
-
     df_identity=out[["frame_number", "in_frame_index", "local_identity", "identity", "validated"]].reset_index(drop=True)
-    
+
     groupby=df_identity.groupby("local_identity")
     logger.debug("Number of frames seen\n%s", groupby.size())
-    logger.debug("First frame seen\n%s", groupby.first())
-    logger.debug("Last frame seen\n%s", groupby.last())
+    first_seen=groupby.first()
+    last_seen=groupby.last()
+
+    logger.debug("First frame seen\n%s", first_seen)
+    logger.debug("Last frame seen\n%s", last_seen)
+    first_seen.to_csv(f"{experiment}_first_seen.csv")
+    last_seen.to_csv(f"{experiment}_last_seen.csv")
 
     if df_identity["identity"].isna().any():
         logger.error("NaN identities:")
         nan_rows=df_identity["identity"].isna()
         logger.error(df_identity.loc[nan_rows])
         df_identity=df_identity.loc[~nan_rows]
-
 
     df_identity["identity"]=df_identity["identity"].astype(np.int32)
     df_identity["local_identity"]=df_identity["local_identity"].astype(np.int32)
@@ -317,7 +320,6 @@ def integrate_human_annotations(
     logger.debug(groupby.first())
     logger.debug("Last frame seen")
     logger.debug(groupby.last())
-
 
 
 def save_human_annotations(experiment, folder):

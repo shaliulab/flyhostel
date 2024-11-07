@@ -61,10 +61,19 @@ def main():
     ap=get_parser()
     args=ap.parse_args()
 
-    if args.files is not None:
-        files=sorted(args.files)
+    if args.files is None:
+        files=[None, None]
     else:
-        files=None
+        files=sorted(args.files)
+
+
+    files_=[]
+    for file in files:
+        if file=="None":
+            files_.append(None)
+        else:
+            files_.append(file)
+    files=files_
 
     filters_order=args.filters
     if len(filters_order)==1:

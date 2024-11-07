@@ -1,29 +1,32 @@
 import itertools
 import pandas as pd
 import numpy as np
+from tqdm.auto import tqdm
 from scipy.stats import kendalltau
 
 def phi_corr(series1, series2):
     assert all([e in [0, 1] for e in series1])
     assert all([e in [0, 1] for e in series2])
-    
+
     a = np.sum((series1 == 1) & (series2 == 1))
     b = np.sum((series1 == 1) & (series2 == 0))
     c = np.sum((series1 == 0) & (series2 == 1))
     d = np.sum((series1 == 0) & (series2 == 0))
-    
+
     denominator = np.sqrt((a+b) * (a+c) * (b+d) * (c+d))
-    
+
     # Protect against division by zero
     if denominator == 0:
         return 0
 
     return (a * d - b * c) / denominator
 
-
-def cross_correlation(df, col1, col2, lag=0):
+def rmse(df, col1, col2, lag=0):
     """
-    Compute cross-correlation between two columns of a DataFrame with a given lag.
+
+    From fig2 https://doi.org/10.1016/j.tree.2024.07.011
+
+    Compute RMSE between two columns of a DataFrame with a given lag.
 
     Parameters:
     - df: pandas DataFrame.
@@ -34,22 +37,19 @@ def cross_correlation(df, col1, col2, lag=0):
     Returns:
     - Cross-correlation value.
     """
-    if lag > 0:
-        series1 = df[col1].iloc[lag:]
-        series2 = df[col2].iloc[:-lag]
-    elif lag == 0:
-        series1=df[col1]
-        series2=df[col2]
-    else:
-        series1 = df[col1].iloc[:lag]
-        series2 = df[col2].iloc[-lag:]
-    # return phi_corr(series1, series2)
-    # return kendalltau(series1, series2).correlation
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
     selected=np.bitwise_and(
         np.bitwise_not(series1.isna()),
         np.bitwise_not(series2.isna()),
     )
-    return np.corrcoef(series1[selected], series2[selected])[0, 1]
+
+    M=0
+    m=1
+
+    coef=1 - (1/(M-m)) * np.sqrt(np.mean(
+        (series1[selected]-series2[selected])**2
+    ))
+    return coef
 
 def preprocess(df, col1, col2, lag):
     if lag == 0:
@@ -71,17 +71,6 @@ def preprocess(df, col1, col2, lag):
 
     return series1, series2, n_points
 
-def postprocess(annotation, lag):
-    corr=[e[0] for e in annotation[0][lag]]
-    N=[e[1] for e in annotation[0][lag]]
-    pairs=annotation[1]
-    data=pd.DataFrame({"N": N, "correlation": corr})
-    data["id1"]=[e[0] for e in pairs]
-    data["id2"]=[e[1] for e in pairs]
-    data["lag"]=lag
-    return data
-
-
 def euclidean_distance(df, col1, col2, lag=0, nan=0):
     """
     Compute euclidean distance between two columns of a DataFrame with a given lag.
@@ -102,14 +91,12 @@ def euclidean_distance(df, col1, col2, lag=0, nan=0):
             print(col1, col2)
             # print(series2)
             print(df[col2])
-            
+
         distance=distance.item()
-        
 
     if np.isnan(distance):
         distance=nan
     return distance, n_points
-
 
 
 def cross_correlationv2(df, col1, col2, lag=0, nan=0):
@@ -146,13 +133,11 @@ def agreement(df, col1, col2, lag=0, nan=0):
     - Agreement value.
     """
     series1, series2, n_points=preprocess(df, col1, col2, lag)
-    agreement=(series1==series2).mean()
+    score=(series1==series2).mean()
 
-    if np.isnan(agreement):
-        agreement=nan
-    return agreement, n_points
-
-
+    if np.isnan(score):
+        score=nan
+    return score, n_points
 
 
 def mean_squared_difference(df, col1, col2, lag=0, nan=0):
@@ -175,8 +160,10 @@ def mean_squared_difference(df, col1, col2, lag=0, nan=0):
         msq_diff=nan
     return msq_diff, n_points
 
-def annotator(df, lags, feature="asleep", FUN=cross_correlation, auto=False, **kwargs):
-    corrs={}
+
+def annotator(df, lags, feature="asleep", FUNs={}, auto=False, **kwargs):
+
+    assert df.shape[0]>0
     wide_table=df.reset_index().pivot_table(index=['t'], columns='id', values=feature)
     ids=wide_table.columns.tolist()
     pairs=list(itertools.combinations(ids, 2))
@@ -184,11 +171,18 @@ def annotator(df, lags, feature="asleep", FUN=cross_correlation, auto=False, **k
         for id in ids:
             pairs.append((id, id))
 
-    for lag in lags:
-        corrs[lag]=[
-            FUN(wide_table, id1, id2, lag=lag, **kwargs)
-            for id1, id2 in pairs
-        ]
+    records=[]
+    for lag in tqdm(lags, desc="Analyzing lags"):
+        for id1, id2 in pairs:
+            for FUN, FUN_name in FUNs.items():
+                val, N=FUN(wide_table, id1, id2, lag=lag, **kwargs)
+                records.append((
+                    id1, id2, lag, val, FUN_name, N
+                ))
 
-        
-    return corrs, pairs
+    df=pd.DataFrame.from_records(
+        records,
+        columns=["id1", "id2", "lag", "value", "metric", "N"]
+    )
+    df=df.pivot(index=["id1", "id2", "lag", "N"], columns="metric", values="value").reset_index()
+    return df
