@@ -77,23 +77,23 @@ class PoseLoader:
 
         ret=False
         pose=None
-        path=None
+        cache_path=None
     
-        if cache is not None:
-            path = f"{cache}/{self.experiment}__{str(identity).zfill(2)}_{stride}_pose_data.pkl"
+        if cache is not None and min_time is None and max_time is None:
+            cache_path = f"{cache}/{self.experiment}__{str(identity).zfill(2)}_{stride}_pose_data.pkl"
             if write_only:
                 ret=False
             else:
-                logger.debug("Cache: %s", path)
-                ret, out=restore_cache(path)
+                logger.debug("Cache: %s", cache_path)
+                ret, out=restore_cache(cache_path)
                 if not ret:
-                    logger.info("%s not found or not loadable", path)
+                    logger.info("%s not found or not loadable", cache_path)
 
                 if ret:
                     (pose, meta_pose)=out
 
         if not ret:
-            assert files is not None, f"No files passed and could not find {path} in cache"
+            assert files is not None, f"No files passed and could not find {cache_path} in cache"
             animals=[animal for animal in self.datasetnames if animal.endswith(str(identity).zfill(2))]
             ids=[ident for ident in self.ids if ident.endswith(str(identity).zfill(2))]
             if len(animals)==0 or len(ids)==0:
@@ -126,8 +126,8 @@ class PoseLoader:
                 pose["identity"]=identity
                 pose=self.filter_pose_by_identity(pose, identity)
                 pose=self.filter_pose_by_time(pose=pose, min_time=min_time, max_time=max_time)
-                if cache is not None:
-                    save_cache(path, (pose, meta_pose))
+                if cache_path is not None:
+                    save_cache(cache_path, (pose, meta_pose))
                         
 
         if self.pose is None:
