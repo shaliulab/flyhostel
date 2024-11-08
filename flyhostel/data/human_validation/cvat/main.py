@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-
+import sqlite3
 from flyhostel.data.pose.constants import chunksize
 from flyhostel.data.human_validation.cvat.cvat_integration import get_annotations, cross_machine_human
 from flyhostel.data.human_validation.cvat.utils import load_tracking_data, load_machine_data, get_number_of_animals, get_basedir, get_dbfile
@@ -337,7 +337,10 @@ def save_human_annotations(experiment, folder):
     write_validated_roi0(dfs["ROI_0_VAL"], dbfile)
     write_validated_identity(dfs["IDENTITY_VAL"], dbfile)
     write_validated_concatenation(dfs["CONCATENATION_VAL"], dbfile)
-        
+    with sqlite3.connect(dbfile) as conn:
+        cursor=conn.cursor()
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_store_index_time_frame ON STORE_INDEX (frame_time, frame_number);")
+
 
 
 def list_flies_with_lid_0(data):
