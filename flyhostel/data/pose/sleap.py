@@ -19,9 +19,7 @@ from flyhostel.utils import get_dbfile
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import framerate as FRAMERATE
-
-
-
+from ethoscopy.flyhostel import load_centroids
 
 import os
 import subprocess
@@ -237,6 +235,9 @@ try:
 
 
     def draw_frame(pose, index, identity, frame_number, chunksize=CHUNKSIZE, pb=True):
+        """
+        Just draw one frame, to be called by the user
+        """
         frame_idx=frame_number % chunksize
 
         video=Video.from_filename(index.loc[index["frame_number"]==frame_number]["video"].item())
@@ -278,8 +279,6 @@ try:
         assert len(set(chunks)) == 1, f"Please pass frames from within the same chunk"
         video_filename=index.loc[index["frame_number"]==frame_numbers[0], "video"].unique().item()
         video=Video.from_filename(video_filename)
-
-
 
         logger.debug("Making labeled frames")
 
@@ -362,7 +361,7 @@ try:
             local_identity=int(cursor.fetchone()[0])
             return local_identity
             
-    def make_pose_video_multi_fly(basedir, identities, frame_number, seconds, bodyparts, downsample, pose_name="raw", fps=None, prefix=None, palette="custom", data=None, single_animal=False, output_folder="."):
+    def make_pose_video_multi_fly(basedir, identities, frame_number, seconds, bodyparts, downsample, pose_name="raw", fps=None, prefix=None, palette="custom", data=None, single_animal=False, output_folder=".", extension=".mp4"):
         """
         Draw pose of an animal in the original video using a single job
         Please see NOTE in make_pose_video_multi_fly_mp if you update the signature 
@@ -388,15 +387,21 @@ try:
 
             animal=f"{experiment}__{str(identity).zfill(2)}"
             
-            analysis_file=f"{basedir}/motionmapper/{str(identity).zfill(2)}/pose_{pose_name}/{animal}/{animal}.h5"
-            csv_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.csv"
+            #csv_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.csv"
+            #if os.path.exists(csv_file):
+            #    centroids=pd.read_csv(csv_file)[["frame_number", "x", "y"]]
+            #else:
+            #logger.debug("%s not found", csv_file)
+            min_frame_number=chunk*CHUNKSIZE
+            max_frame_number=(chunk+1)*CHUNKSIZE                
+            centroids=load_centroids(dbfile, identity, min_frame_number, max_frame_number, roi_0_table="ROI_0_VAL", identity_table="IDENTITY_VAL")
 
             first_video=sorted(glob.glob(f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/*mp4"))[0]
             first_fn=int(os.path.splitext(os.path.basename(first_video))[0])*CHUNKSIZE
             f0=frame_number-first_fn
             f1=frame_number1-first_fn
-            print(analysis_file)
             
+            analysis_file=f"{basedir}/motionmapper/{str(identity).zfill(2)}/pose_{pose_name}/{animal}/{animal}.h5"
             with h5py.File(analysis_file, "r", locking=True) as f:
                 pose=f["tracks"][0, :, :, f0:f1]
                 bodyparts=[e.decode() for e in f["node_names"]]
@@ -408,7 +413,6 @@ try:
                 for d in dimensions
             }
             bodyparts_nd=list(itertools.chain(*[[features_by_dimension[d][i] for d in dimensions] for i in range(len(bodyparts))]))
-            print(bodyparts_nd)
             pose_df=pd.DataFrame(pose.T.reshape((f1-f0, -1)))
             pose_df.columns=bodyparts_nd
             pose_df["frame_number"]=np.arange(frame_number, frame_number1)
@@ -417,7 +421,6 @@ try:
             index=pose_df[["frame_number"]].copy()
             index["video"]=video_file
             index["identity"]=identity
-            centroids=pd.read_csv(csv_file)[["frame_number", "x", "y"]]
             pose_df=pose_df.loc[pose_df["frame_number"]%downsample==0]
             pose_df=pose_df.merge(centroids, how="left", on="frame_number")
             
@@ -428,7 +431,6 @@ try:
                         pose_df[feature]+=pose_df[d]-50
 
             datasets.append((pose_df, index))
-        
         
         dataset=pd.concat([pose_df for pose_df, _ in datasets], axis=0)
         index=pd.concat([index for _, index in datasets], axis=0)
@@ -444,9 +446,9 @@ try:
 
         
         if len(identities)==1:
-            output_filename=os.path.join(output_folder, f"{prefix}{experiment}__{identities[0]}__{str(chunk).zfill(6)}_{frame_number}.avi")
+            output_filename=os.path.join(output_folder, f"{prefix}{experiment}__{identities[0]}__{str(chunk).zfill(6)}_{frame_number}{extension}")
         else:
-            output_filename=os.path.join(output_folder, f"{prefix}{experiment}__{str(chunk).zfill(6)}_{frame_number}.avi")
+            output_filename=os.path.join(output_folder, f"{prefix}{experiment}__{str(chunk).zfill(6)}_{frame_number}{extension}")
 
         if fps is None:
             fps=max(int(FRAMERATE/downsample/3), 1)
@@ -485,6 +487,9 @@ try:
 
 
     def make_pose_video_multi_fly_mp(basedir, identities, frame_number, seconds, n_jobs=1, block_seconds=1, data=None, output_folder=".", **kwargs):
+        """
+        Generate a video showing the pose predicted by the flyhostel pipeline
+        """
         block_starts=[frame_number]
         block_frames=block_seconds*FRAMERATE
         
