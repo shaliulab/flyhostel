@@ -10,6 +10,7 @@ from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 
 logger = logging.getLogger(__name__)
+time_counter=logging.getLogger("time_counter")
 
 def clean_bad_proboscis(h5s_pandas, threshold):
     """
@@ -104,10 +105,10 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
 
         pose=filehandle["tracks"][0, :, :, fn0:fn1:stride]
         after=time.time()
-        logger.debug("Load pose coordinates in %s seconds", round(after-before, 1))
+        time_counter.debug("Load pose coordinates in %s seconds", round(after-before, 1))
         scores=filehandle_raw["point_scores"][0, :, fn0:fn1:stride]
         after2=time.time()
-        logger.debug("Load scores in %s seconds", round(after2-after, 1))
+        time_counter.debug("Load scores in %s seconds", round(after2-after, 1))
         bps = [bp.decode() for bp in filehandle["node_names"][:]]
 
         # chunks=[int(os.path.basename(path.decode()).split(".")[0]) for path in filehandle["files"]]
@@ -168,7 +169,7 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
         before=time.time()
         pose_df = pd.DataFrame(data)
         after=time.time()
-        logger.debug("Initialize pose pd.DataFrame from Python dictionary in %s seconds", round(after-before, 1))
+        time_counter.debug("Initialize pose pd.DataFrame from Python dictionary in %s seconds", round(after-before, 1))
         # STOP adding the pose_df with fancy multiindex to h5s_pandas to save memory
         # columns=pose_df.columns
         # multiindex_columns = pd.MultiIndex.from_product([["SLEAP"], bps, coordinates], names=['scorer', 'bodyparts', 'coordinates'])
@@ -184,16 +185,13 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
             left_index=True, right_index=True
         )
         after=time.time()
-        logger.debug("Annotate pose dataset time in %s seconds", round(after-before, 1))
+        time_counter.debug("Annotate pose dataset time in %s seconds", round(after-before, 1))
         pose_df["t"]=pose_df["zt"]*3600
         del pose_df["zt"]
         pose_df.insert(0, "t", pose_df.pop("t"))
         pose_df.insert(0, "id", ids[animal_id])
         pose_list.append(pose_df)
         index_pandas.append(index)
-    
-    after_out=time.time()
-    # logger.debug("Load pose data in % seconds", round(after_out-before_out, 1))
 
     if len(pose_list) == 0:
         return [], [], []

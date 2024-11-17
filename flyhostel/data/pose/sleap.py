@@ -20,6 +20,7 @@ from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from ethoscopy.flyhostel import load_centroids
+sleap_integration=logging.getLogger("sleap_integration")
 
 import os
 import subprocess
@@ -566,8 +567,8 @@ try:
 
 
 except Exception as error:
-    logger.error("SLEAP cannot be loaded. SLEAP integration disabled")
-    logger.error(error)
+    sleap_integration.debug("SLEAP cannot be loaded. SLEAP integration disabled")
+    sleap_integration.debug(error)
     draw_video_row=None
     make_pose_video_multi_fly=None
 

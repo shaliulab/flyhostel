@@ -14,6 +14,9 @@ from flyhostel.data.hostpy import load_hostel
 from flyhostel.utils.utils import get_dbfile
 
 logger=logging.getLogger(__name__)
+time_counter=logging.getLogger("time_counter")
+
+# flag to optionally create a cache.pkl file
 
 class FlyHostelGroup(InteractionDetector):
 
@@ -196,7 +199,7 @@ class FlyHostelGroup(InteractionDetector):
                 before=time.time()
                 pose=xf.concat([pose, df], axis=0)
                 after=time.time()
-                logger.debug("concat in %s seconds", round(after-before, ndigits=2))
+                time_counter.debug("concat in %s seconds", round(after-before, ndigits=2))
                 del df
         return pose
 
