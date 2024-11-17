@@ -1,3 +1,5 @@
+import os.path
+import pickle
 import time
 import sqlite3
 import logging
@@ -17,6 +19,8 @@ logger=logging.getLogger(__name__)
 time_counter=logging.getLogger("time_counter")
 
 # flag to optionally create a cache.pkl file
+# which contains the result of load_centroid_data
+DEBUG=False
 
 class FlyHostelGroup(InteractionDetector):
 
@@ -35,13 +39,18 @@ class FlyHostelGroup(InteractionDetector):
 
     def __init__(self, flies, *args, protocol="centroids", min_time=None, max_time=None, stride=1, load_deg=True, load_behavior=True, **kwargs):
         self.flies=flies
-        for fly in flies.values():
+
+        path="cache.pkl"
+        cached_data=None
+        
+        for i, fly in enumerate(flies.values()):
             if protocol=="full":
                 if fly.pose is None:
                     fly.load_and_process_data(
                         stride=stride,
                         cache="/flyhostel_data/cache",
-                        min_time=min_time, max_time=max_time,
+                        min_time=min_time,
+                        max_time=max_time,
                         filters=None,
                         useGPU=0,
                         load_deg=load_deg,
@@ -50,16 +59,27 @@ class FlyHostelGroup(InteractionDetector):
                     fly.compile_analysis_data()
             elif protocol=="centroids":
                 logger.debug("Loading %s centroids", fly)
-                fly.load_centroid_data(
-                    stride=stride,
-                    min_time=min_time, max_time=max_time,
-                    identity_table=fly.identity_table,
-                    roi_0_table=fly.roi_0_table,
-                )
+                if DEBUG and os.path.exists(path):
+                    with open("cache.pkl", "rb") as handle:
+                        cached_data=pickle.load(handle)                   
+                    fly.dt, fly.meta_info=cached_data[i]
+                else:
+                    fly.load_centroid_data(
+                        stride=stride,
+                        min_time=min_time,
+                        max_time=max_time,
+                        identity_table=fly.identity_table,
+                        roi_0_table=fly.roi_0_table,
+                    )
             elif protocol is None:
                 pass
             else:
                 raise ValueError("Please set protocol to one of centroids/full/None")
+            
+        if cached_data is None and DEBUG:
+            cached_data=[(fly.dt, fly.meta_info) for fly in flies.values()]
+            with open(path, "wb") as handle:
+                pickle.dump(cached_data, handle)
 
         self.basedir=flies[list(flies.keys())[0]].basedir
 
@@ -171,12 +191,11 @@ class FlyHostelGroup(InteractionDetector):
             dfs.append(df)
         dt=xf.concat(dfs, axis=0)
         return dt
-        
-    
-    def load_pose_data(self, pose_name="raw", partition=None, framerate=30, useGPU=True, skip=None):
+
+    def load_pose_data(self, pose_name="filter_rle-jump", min_time=None, max_time=None, framerate=30, useGPU=True, skip=None):
         if skip is None:
             skip=FRAMERATE//framerate
-        
+
         if useGPU:
             xf=cudf
         else:
@@ -185,14 +204,25 @@ class FlyHostelGroup(InteractionDetector):
         pose=None
         for fly in tqdm(self.flies.values(), desc="Loading pose"):
             before=time.time()
-            pose_cpu=fly.load_finished_pose(partition=partition, pose_name=pose_name)
+            filtered_pose=fly.get_pose_file_h5py(pose_name=pose_name)
+            raw_pose=fly.get_pose_file_h5py(pose_name="raw")
+            files=[(filtered_pose, raw_pose)]
+            fly.load_pose_data(identity=fly.identity, min_time=min_time, max_time=max_time, verbose=False, cache="/flyhostel_data/cache", files=files, write_only=False, stride=skip)
+            pose_cpu=fly.pose
+
             after_cpu=time.time()
-            logger.debug("load_filtered_pose in %s seconds", round(after_cpu-before, ndigits=2))
-            fly.pose=xf.DataFrame(pose_cpu)
+            time_counter.debug("load_filtered_pose in %s seconds", round(after_cpu-before, ndigits=2))
+            pose_gpu=xf.DataFrame(pose_cpu)
             after_xf=time.time()
-            logger.debug("called %s in %s seconds", xf.DataFrame, round(after_xf-after_cpu, ndigits=2))
+            time_counter.debug("called %s in %s seconds", xf.DataFrame, round(after_xf-after_cpu, ndigits=2))
+
+            # TODO
+            # Decide whether we keep a reference in the fly object or not
+            # Cons: takes up gpu memory
+            # del fly.pose
+
+            df=pose_gpu.loc[(pose_gpu["frame_number"]%skip)==0]
             
-            df=fly.pose.loc[(fly.pose["frame_number"]%skip)==0]
             if pose is None:
                 pose=df
             else:

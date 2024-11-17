@@ -11,9 +11,10 @@ import pandas as pd
 import numpy as np
 
 logger=logging.getLogger(__name__)
+time_counter=logging.getLogger("time_counter")
 
 
-def compute_distance_between_all_ids(df, identities, **kwargs):
+def compute_distance_between_all_ids(df, ids, step=10, **kwargs):
     """
         Arguments:
 
@@ -24,40 +25,41 @@ def compute_distance_between_all_ids(df, identities, **kwargs):
         in all frames available in df
 
         Returns
-            distance_matrix (cp.array): ids x neighbors x t
+            distance_matrix (cp.array): Distance between two flies in a pair, organized by:
+            ids: number of flies
+            neighbors: number of flies except the focal fly
+            t: timestamps
         
     """
     distances=[]
     pairs=[]
-    min_fn=df["frame_number"].min()
-    max_fn=df["frame_number"].max()
-    identities=sorted(identities)
+    assert len(ids)>1, f"Pass more than 1 id"
+    ids=sorted(ids)
     if isinstance(df, cudf.DataFrame):
         nx=cp
     else:
         nx=np
 
-    for id1, id2 in itertools.combinations(identities, 2):
+    for i, (id1, id2) in enumerate(itertools.combinations(ids, 2)):
         with codetiming.Timer(
             text=f"Done computing distance between {id1} and {id2} in " + "{:.4f} seconds",
-            logger=logger.debug
+            logger=time_counter.debug
         ):
-            distances.append(
-                compute_distance_between_pairs(
-                    df,
-                    id1, id2,
-                    min_fn=min_fn,
-                    max_fn=max_fn,
-                    **kwargs
-                )
+            dff=df.loc[df["id"].isin([id1, id2])]
+            assert dff.shape[0]>0, f"{id1} and {id2} are not present in this dataset"
+            dist=compute_distance_between_pairs(
+                dff,
+                step=step,
+                **kwargs
             )
+            distances.append(dist)
             pairs.append((id1, id2))
 
 
     distance_matrix=[]
-    for animal1 in identities:
+    for animal1 in ids:
         this_animal_distances=[]
-        for animal2 in identities:
+        for animal2 in ids:
             if animal1==animal2:
                 continue
 
@@ -66,6 +68,7 @@ def compute_distance_between_all_ids(df, identities, **kwargs):
             this_animal_distances.append(distances[selector])
 
         distance_matrix.append(nx.stack(this_animal_distances))
+
         del this_animal_distances
 
     del distances
@@ -92,7 +95,6 @@ def compute_pairwise_distances(df):
         df=df.loc[nx.bitwise_not(dups)]
 
     df = df.pivot(index="frame_number", columns="id", values=["x", "y"])
-
     df.columns=["id_1_x","id_2_x","id_1_y", "id_2_y"]
 
     df=df.loc[(
@@ -115,14 +117,12 @@ def compute_pairwise_distances(df):
     return dist_df
 
 
-def compute_distance_between_pairs(df, id1, id2, min_fn=None, max_fn=None, step=10):
+def compute_distance_between_pairs(df, step=10):
     """
     Com
     
     Arguments:
         df (xf.DataFrame): Contains columns id, frame_number, centroid_x, centroid_y.
-        id1: id of one of the animals in the pair.
-        id2: id of another of the animals in the pair.
         min_fn (int): First frame number where the distance will be computed. By default, all frames available will be used.
         max_fn (int): Last frame number where the distance will be computed. By default, all frames available will be used.
     
@@ -136,27 +136,26 @@ def compute_distance_between_pairs(df, id1, id2, min_fn=None, max_fn=None, step=
         xf=pd
         nx=np
 
-    dff=df\
+    df=df\
         .rename({
             "centroid_x": "x",
             "centroid_y": "y",
         }, axis=1)\
 
-    dff=dff.loc[dff["id"].isin([id1, id2])]
-
     dist_df=compute_pairwise_distances(
-        dff[["frame_number", "id", "x", "y"]]
+        df[["frame_number", "id", "x", "y"]]
     ).reset_index(drop=True)
 
-    dist_df=df[["frame_number"]].drop_duplicates().merge(
-        dist_df,
-        on=["frame_number"],
-        how="left"
-    )
+    min_fn=df["frame_number"].min()
+    max_fn=df["frame_number"].max()
 
     distance=dist_df.set_index("frame_number")["distance"]
-    distance=distance.reindex(nx.arange(min_fn, max_fn, step))
+    
+    new_index=nx.arange(min_fn, max_fn+step, step)
+    old_index=distance.index
+    distance=distance.reindex(new_index.astype(old_index.dtype))
     distance.fillna(nx.inf, inplace=True)
+
     logger.debug("Filled in %s %% of values with inf", 100*nx.isinf(distance).mean())
     return distance.values
 
@@ -190,27 +189,41 @@ def find_neighbors(dt, dist_max_px, step, demo=False):
         xf=pd
         ids_cpu=ids
 
-    identities=sorted(ids_cpu.unique())
+    ids=sorted(ids_cpu.unique().tolist())
+    index_single=dt[["frame_number"]].drop_duplicates()
+    index=[]
+    for id in ids:
+        block=index_single.copy()
+        block["id"]=id
+        index.append(block)
+    index=xf.concat(index, axis=0).reset_index(drop=True)
+    
+    dt=index.merge(
+        dt,
+        on=["frame_number", "id"],
+        how="left"
+    ).sort_values("frame_number")
 
     data_for_computation=dt[["id", "frame_number", "centroid_x", "centroid_y"]]
     del dt
     fn_min=data_for_computation["frame_number"].min()
-    fn_max=data_for_computation["frame_number"].max()
+    fn_max=data_for_computation["frame_number"].max()+step
 
-    distance_matrix = compute_distance_between_all_ids(data_for_computation, identities=identities, step=step)
+
+
+    distance_matrix=compute_distance_between_all_ids(data_for_computation, ids=ids, step=step)
 
     # ids x neighbors x t
     frame_number=nx.arange(fn_min, fn_max, step)
-    # import ipdb; ipdb.set_trace()
     assert len(frame_number)==distance_matrix.shape[2]
     neighbor_matrix=distance_matrix<dist_max_px
     
     nns = []
-    focal_identities=identities
+    focal_ids=ids
 
-    for i, this_identity in tqdm(enumerate(focal_identities), desc="Finding nearest neighbors"):
-        other_identities=identities.copy()
-        other_identities.pop(other_identities.index(this_identity))
+    for i, this_identity in tqdm(enumerate(focal_ids), desc="Finding nearest neighbors"):
+        other_ids=ids.copy()
+        other_ids.pop(other_ids.index(this_identity))
 
         # this can include 0 1 or more neighbors in the same frame
         neighbor_idx, frame_pos=nx.where(neighbor_matrix[i,...])
@@ -218,8 +231,8 @@ def find_neighbors(dt, dist_max_px, step, demo=False):
         this_distance=distance_matrix[i, neighbor_idx, frame_pos]
         
         nearest_neighbors = xf.Series(
-            index=nx.arange(len(other_identities)),
-            data=other_identities
+            index=nx.arange(len(other_ids)),
+            data=other_ids
         ).loc[neighbor_idx.astype(int)]
 
         out = xf.DataFrame({
