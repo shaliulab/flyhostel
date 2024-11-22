@@ -87,17 +87,27 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
             fn0=store_index.loc[store_index["t"]>=min_time, "frame_number"].iloc[0]
         else:
             fn0=0
+        last_frame_number_available=filehandle["tracks"].shape[3]+first_frame_number
         if max_time is not None:
             # select the first frame number whose t is greater than max time
             fn1=store_index.loc[store_index["t"]>max_time, "frame_number"].iloc[0]
         else:
-            fn1=filehandle["tracks"].shape[3]+first_frame_number
-        
+            fn1=last_frame_number_available
+
+        do_warning=False
+        last_frame_not_available=None
+        if fn1 > last_frame_number_available:
+            do_warning=True
+            last_frame_not_available=fn1
+            fn1=last_frame_number_available
+
         fn0=max(0, fn0-first_frame_number)
         fn1=max(1, fn1-first_frame_number)
         
         frame_numbers=np.arange(fn0, fn1, stride) + first_frame_number
-
+        if do_warning:
+            logger.warning("Requested interval is partially not available. Frames not available: (%s - %s)", frame_numbers[-1], last_frame_not_available)
+            
         n_files=filehandle["files"].shape[0]
         n_chunks=filehandle["tracks"].shape[3]/chunksize
         if n_files > n_chunks:
@@ -119,13 +129,6 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
         local_identity=local_identity[fn0:fn1:stride]
         analysis_files=analysis_files[fn0:fn1:stride]
 
-        # frame_numbers=list(itertools.chain(*[np.arange(
-        #     chunk*chunksize,
-        #     (chunk+1)*chunksize,
-        #     1
-        # ) for chunk in chunks]))
-        # frame_numbers=frame_numbers[::stride]
-        
         filehandle.close()
         try:
             filehandle_raw.close()
