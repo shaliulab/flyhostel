@@ -73,10 +73,7 @@ def load_fly_data(loader, min_time, max_time):
 
     print("Loading behavior")
     loader.load_behavior_data(loader.experiment, loader.identity, min_time=min_time, max_time=max_time)
-    duplicated_locations=loader.behavior.duplicated(["id", "frame_number"]).sum()
-    if duplicated_locations>0:
-        logger.warning("%s duplicated rows in loader.behavior found", duplicated_locations)
-        loader.behavior.drop_duplicates(["id", "frame_number"], inplace=True)
+
     print("Computing sleep")
     loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(INACTIVE_STATES)
     dataset_window=sleep_annotation_rf(loader.behavior)
