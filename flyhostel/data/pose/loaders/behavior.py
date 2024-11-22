@@ -87,6 +87,11 @@ class BehaviorLoader():
         if max_time is not None:
             dt=dt.loc[dt["t"]<max_time]
 
+        duplicated_locations=dt.duplicated(["id", "frame_number"]).sum()
+        if duplicated_locations>0:
+            logger.warning("%s duplicated rows in behavior dataset found", duplicated_locations)
+            dt.drop_duplicates(["id", "frame_number"], inplace=True)
+            
         self.behavior=dt
 
     # def load_behavior_data(self, experiment, identity, pose=None, interpolate_frames=0, cache=None):
