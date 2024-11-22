@@ -130,11 +130,7 @@ class PoseLoader:
                     save_cache(cache_path, (pose, meta_pose))
                         
 
-        if self.pose is None:
-            self.pose=pose
-        else:
-            self.pose=pd.concat([self.pose, pose], axis=0)
-
+        self.pose=pose
         id=pose["id"].iloc[0]
         self.meta_pose[id]=meta_pose
         self.filter_pose_by_time(min_time, max_time)
