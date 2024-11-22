@@ -179,7 +179,7 @@ try:
         return data
 
 
-    def make_labeled_frames(pose, frame_numbers, chunksize, video, identities, pb=True, predictions=False):
+    def make_labeled_frames(pose, frame_numbers, chunksize, video, identities, pb=True, predictions=False, tracks=None):
 
         labeled_frames=[]
 
@@ -188,12 +188,14 @@ try:
         else:
             iterable=frame_numbers
 
-        tracks={}
-        for identity in identities:
-            if identity is None:
-                tracks[identity]=None
-            else:
-                tracks[identity]=Track(spawned_on=frame_numbers[0], name=f"Track-{identity}")
+        if tracks is None:
+            tracks={}
+            logger.warning("No passed tracks. Recreating")
+            for identity in identities:
+                if identity is None:
+                    tracks[identity]=None
+                else:
+                    tracks[identity]=Track(spawned_on=frame_numbers[0], name=f"Track-{identity}")
 
 
         for frame_number in iterable:
@@ -235,7 +237,7 @@ try:
         return labeled_frames
 
 
-    def draw_frame(pose, index, identity, frame_number, chunksize=CHUNKSIZE, pb=True):
+    def draw_frame(pose, index, identity, frame_number, chunksize=CHUNKSIZE, pb=True, tracks=None):
         """
         Just draw one frame, to be called by the user
         """
@@ -247,7 +249,8 @@ try:
             identities=[identity],
             frame_numbers=[frame_number],
             chunksize=chunksize, video=video,
-            pb=pb
+            pb=pb,
+            tracks=tracks
         )
         labels=Labels(labeled_frames=labeled_frames, videos=[video], skeletons=[skeleton])
 
@@ -267,7 +270,7 @@ try:
         return imgs[0]
 
 
-    def draw_video(pose, index, identities, frame_numbers, chunksize=CHUNKSIZE, output_filename=None, pb=True, **kwargs):
+    def draw_video(pose, index, identities, frame_numbers, chunksize=CHUNKSIZE, output_filename=None, pb=True, tracks=None, **kwargs):
         """
         pose (pd.DataFrame): coordinates of body parts relative to the top left corner of a square around the fly.
             Needs to contain columns bp_x and bp_y for each bodypart, id (str), identity (int), frame_number.
@@ -290,6 +293,7 @@ try:
             chunksize=chunksize,
             video=video,
             pb=pb,
+            tracks=tracks
         )
         labels=Labels(labeled_frames=labeled_frames, videos=[video], skeletons=[skeleton])
 
@@ -362,7 +366,10 @@ try:
             local_identity=int(cursor.fetchone()[0])
             return local_identity
             
-    def make_pose_video_multi_fly(basedir, identities, frame_number, seconds, bodyparts, downsample, pose_name="raw", fps=None, prefix=None, palette="custom", data=None, single_animal=False, output_folder=".", extension=".mp4"):
+    def make_pose_video_multi_fly(
+            basedir, identities, frame_number, seconds, bodyparts, downsample, pose_name="raw", fps=None, prefix=None, palette="custom",
+            data=None, single_animal=False, output_folder=".", extension=".mp4", **kwargs,
+        ):
         """
         Draw pose of an animal in the original video using a single job
         Please see NOTE in make_pose_video_multi_fly_mp if you update the signature 
@@ -426,7 +433,7 @@ try:
             pose_df=pose_df.merge(centroids, how="left", on="frame_number")
             
             for d in dimensions:
-                assert pose_df[d].isna().mean()==0, f"Missing data for {d}"
+                assert pose_df[d].isna().mean()==0, f"Missing data for {d} coordinate of identity {identity}"
                 if not single_animal:
                     for feature in features_by_dimension[d]:
                         pose_df[feature]+=pose_df[d]-50
@@ -458,10 +465,13 @@ try:
         draw_video(
             dataset, index, identities=identities,
             frame_numbers=frame_numbers,
-            gui_progress=False, output_filename=output_filename, palette=palette,
-            fps=fps, marker_size=.6,
+            gui_progress=False, output_filename=output_filename,
+            palette=palette,
+            fps=fps,
+            marker_size=.6,
             distinctly_color="instances",
             scale=4,
+            **kwargs,
         )
 
 
