@@ -76,8 +76,7 @@ def load_fly_data(loader, min_time, max_time):
 
     print("Computing sleep")
     loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(INACTIVE_STATES)
-    dataset_window=sleep_annotation_rf(loader.behavior)
-    loader.sleep=dataset_window
+    loader.sleep=sleep_annotation_rf(loader.behavior)
 
 
 def load_interactions(experiment, identities, time_index, min_time, max_time, dist_max_mm=None):
@@ -226,7 +225,7 @@ def process_experiment(experiment, identities, min_time, max_time):
     pca=PCA()
     manifold=UMAP()
 
-    loaders=[FlyHostelLoader(experiment=experiment, identity=identity) for identity in identities]   
+    loaders=[FlyHostelLoader(experiment=experiment, identity=identity) for identity in identities]
     time_index=[]
     for loader in loaders:
         load_fly_data(loader, min_time, max_time)

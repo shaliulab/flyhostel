@@ -132,6 +132,79 @@ def calculate_rotation_to_point_top_left_origin(points_AB, points_A_prime):
 
     return rotation_angles
 
+def calculate_interorientation_(pose1, pose2):
+    return calculate_rotation_to_point_top_left_origin(
+        np.stack([
+            pose1[["thorax_x", "thorax_y"]],
+            pose1[["head_x", "head_y"]],
+        ], axis=1),
+        pose2[["thorax_x", "thorax_y"]].values,
+    )
+
+
+def project_to_absolute_coords(pose, bodypart):
+    pose[f"{bodypart}_x"]=pose["center_x"]
+    pose[f"{bodypart}_y"]=pose["center_y"]
+    return pose
+
+def sync_datasources(*args):
+    """
+    Only frame number which appear in all data frames will be present in the output
+    """
+    df1=args[0]
+    df2=args[1]
+    df1=df1.loc[df1["frame_number"].isin(df2["frame_number"])]
+    df2=df2.loc[df2["frame_number"].isin(df1["frame_number"])]
+
+    out=[df1, df2]
+    for df in args[2:]:
+        df=df.loc[df["frame_number"].isin(df1["frame_number"])]
+        df1=df1.loc[df1["frame_number"].isin(df["frame_number"])]
+        df2=df2.loc[df2["frame_number"].isin(df["frame_number"])]
+        out.append(df)
+    
+    return out
+
+def compute_inter_orientation_one_pair(loader1, loader2, nan_policy="omit"):
+    """
+    Return the inter orientatin of animal1 with respect to animal2
+
+    inter_orientation contains the degrees that the head of animal1
+    needs to be rotated around its thorax
+    so that the thorax->head line points
+    towards the thorax of animal2
+
+    Only rows for which the pose of both animals is complete are populated 
+    """
+    assert 'head_x' in loader1.pose.columns
+    assert 'thorax_x' in loader1.pose.columns
+    assert 'thorax_x' in loader2.pose.columns
+
+    pose1=loader1.pose[["frame_number", "head_x", "head_y", "thorax_x", "thorax_y", "center_x", "center_y"]]
+    pose2=loader2.pose[["frame_number", "head_x", "head_y", "thorax_x", "thorax_y", "center_x", "center_y"]]
+    pose1, pose2=sync_datasources(pose1, pose2)
+    assert pose1.shape[0]==pose2.shape[0]
+    
+    pose1=project_to_absolute_coords(pose1, "head")
+    pose1=project_to_absolute_coords(pose1, "thorax")
+    pose2=project_to_absolute_coords(pose2, "thorax")
+
+    inter_orientation_df=pd.DataFrame({
+        "frame_number": pose1["frame_number"],
+        "inter_orientation": calculate_interorientation_(pose1, pose2)
+    })
+
+    if inter_orientation_df["inter_orientation"].isna().sum()>0:
+        if nan_policy=="raise":
+            raise ValueError("Inter orientation cannot be computed for all frames requested")
+        elif nan_policy=="omit":
+            inter_orientation_df=inter_orientation_df.loc[
+                ~inter_orientation_df["inter_orientation"].isna()
+            ]
+        elif nan_policy=="propagate":
+            pass
+    return inter_orientation_df
+
 
 def compute_inter_orientation(loaders, df_):
     # compute inter_orientation between each pair of flies
@@ -141,48 +214,13 @@ def compute_inter_orientation(loaders, df_):
     # negative degrees -> counter-clockwise
     df_2=[]
     pairs=df_["pair"].unique().tolist()
+    raise NotImplementedError()
 
     for pair in tqdm(pairs):
 
         df_pair=df_.loc[df_["pair"]==pair]
-        
-        fns=df_pair["frame_number"].tolist()
-        id1, id2=pairs[0].split(" ")
-        identity1=int(id1.split("|")[1])
-        identity2=int(id2.split("|")[1])
-            
-        loader1=select_loader(loaders, identity1)
-        loader2=select_loader(loaders, identity2)
-        
-        pose1=loader1.pose.loc[loader1.pose["frame_number"].isin(fns), ["frame_number", "head_x", "head_y", "thorax_x", "thorax_y", "orientation", "x", "y"]]
-        pose1["head_x"]+=pose1["x"]
-        pose1["head_y"]+=pose1["y"]
-        pose1["thorax_x"]+=pose1["x"]
-        pose1["thorax_y"]+=pose1["y"]
-        
-        pose2=loader2.pose.loc[loader2.pose["frame_number"].isin(fns), ["frame_number", "head_x", "head_y", "thorax_x", "thorax_y", "orientation", "x", "y"]]
+        compute_inter_orientation_one_pair(id1, id2, loaders, df_pair)
 
-        pose1=pose1.loc[pose1["frame_number"].isin(pose2["frame_number"])]
-        pose2=pose2.loc[pose2["frame_number"].isin(pose1["frame_number"])]
-        df_pair=df_pair.loc[df_pair["frame_number"].isin(pose1["frame_number"])]
-        pose2=pose2.loc[pose2["frame_number"].isin(df_pair["frame_number"])]
-        pose1=pose1.loc[pose1["frame_number"].isin(df_pair["frame_number"])]
-    
-        pose2["thorax_x"]+=pose2["x"]
-        pose2["thorax_y"]+=pose2["y"]
-
-        assert pose1.shape[0]==pose2.shape[0]==df_pair.shape[0]
-
-        inter_orientation=calculate_rotation_to_point_top_left_origin(
-            np.stack([
-                pose1[["thorax_x", "thorax_y"]],
-                pose1[["head_x", "head_y"]],
-            ], axis=1),
-            pose2[["thorax_x", "thorax_y"]].values,
-        )
-        # if df_pair.shape[0]!=len(inter_orientation):
-        #     import ipdb; ipdb.set_trace()
-        df_pair["inter_orientation"]=inter_orientation
         df_2.append(df_pair)
         
     df_=pd.concat(df_2, axis=0)
