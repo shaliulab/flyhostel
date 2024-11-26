@@ -23,6 +23,7 @@ from flyhostel.data.pose.loaders.behavior import BehaviorLoader
 from flyhostel.data.pose.landmarks import LandmarksLoader
 
 from flyhostel.data.pose.loaders.pose import PoseLoader
+from flyhostel.data.pose.loaders.interactions import InteractionsLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
@@ -56,7 +57,7 @@ def make_int_or_str(values):
     return out
 
 
-class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader):
+class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, InteractionsLoader, PoseLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader):
     """
     Analyse microbehavior produced in the flyhostel
 
@@ -442,7 +443,13 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         return make_pose_movie(self.basedir, self.dt_with_pose, ts=ts, frame_numbres=frame_numbers, **kwargs)
 
 
-    def load_centroid_data(self, *args, identity=None, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, reference_hour=np.nan, cache=None, **kwargs):
+    def load_centroid_data(
+            self, *args, experiment=None, identity=None, min_time=MIN_TIME, max_time=MAX_TIME, stride=1,
+            reference_hour=np.nan, cache=None, identity_table=None, roi_0_table=None, **kwargs
+        ):
+
+        if experiment is None:
+            experiment=self.experiment
 
         if cache is not None:
             logger.warning("Supplied cache will be ignored. ethoscopy cache will be used instead")
@@ -450,10 +457,20 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
         if identity is None:
             identity=self.identity
 
+        if identity_table is None:
+            identity_table=self.identity_table
+        
+        if roi_0_table is None:
+            roi_0_table=self.roi_0_table
+            
         dt, meta_info=load_centroid_data(
-            *args, experiment=self.experiment, identity=identity, reference_hour=reference_hour,
-            min_time=min_time, max_time=max_time, stride=1, **kwargs
+            *args, experiment=experiment, identity=identity,
+            reference_hour=reference_hour,
+            min_time=min_time, max_time=max_time, stride=1,
+            roi_0_table=roi_0_table, identity_table=identity_table,
+            **kwargs
         )
+
         if dt is not None:
             dt.reset_index(inplace=True)
             if stride != 1:
@@ -461,7 +478,17 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, PoseLoade
 
             dt["frame_number"]=dt["frame_number"].astype(np.int32)
             dt["id"]=pd.Categorical(dt["id"])
+
+            duplicated_rows=dt.duplicated(["id", "frame_number"]).sum()
+            if duplicated_rows>0:
+                logger.warning("%s rows in centroids of fly %s are duplicated", duplicated_rows, identity)
+                dt.drop_duplicates(["id", "frame_number"], inplace=True)
+
+            dt["center_x"]=dt["x"]*self.roi_width
+            dt["center_y"]=dt["y"]*self.roi_width
+            dt["distance"]=10**(dt["xy_dist_log10x1000"]/1000)
             self.dt=dt
+            
             self.meta_info=meta_info[0]
         else:
             logger.warning("No centroid data database found for %s %s", self.experiment, identity)

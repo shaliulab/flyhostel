@@ -79,6 +79,20 @@ def bin_behavior_table(df, time_window_length=1, x_var="seconds", t0=None, behav
 
 
 def bin_behavior_table_v2(df, time_window_length=1, x_var="seconds", t0=None, behavior_col="behavior"):
+    """
+    Bin a behavioral sequence in order to decrease its temporal resolution while increasing its accuracy
+    The binning occurs by selecting the most common behavior of the bin to represent the bin
+
+
+    Arguments:
+        df (pd.DataFrame): Dataset with columns id, frame_number, t, behavior_col and one column for every possible behavior
+            * id is required even if the provided data refers to a single fly (just set the same value everywhere)
+            * the column for each behavior should contain the score of that behavior 
+        time_window_length (int): Number of seconds that should make up each bin
+        x_var (str): If equal to seconds, a new t is computed. Set to None if you want to not change t
+        t0 (int): t which should be as new zt0. ignored if x_var is not seconds
+        behavior_col (str): Column in df which contains the behavioral label 
+    """
 
     df["zt"]=(df["t"]/3600).round(2)
     df["zt_"]=(df["t"]/3600)

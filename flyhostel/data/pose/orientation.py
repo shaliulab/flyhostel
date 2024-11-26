@@ -1,6 +1,11 @@
 import numpy as np
 
 def compute_angles(data):
+    """
+    Compute angle between horizontal and points provided as input
+    Origin is at 50 50
+    """
+
     # Define the fixed points
     origin = np.array([50, 50])
     east = np.array([100, 50])
@@ -11,7 +16,7 @@ def compute_angles(data):
     # Vector from the origin to the east point
     east_vector = east - origin
     
-    # Compute the dot product between the east vector and each observation vector
+    #    the dot product between the east vector and each observation vector
     dot_products = np.dot(vectors, east_vector)
     
     # Compute the magnitudes of the vectors

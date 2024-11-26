@@ -341,7 +341,6 @@ def load_landmarks(loader):
 def load_centroids(loader, frame_numbers=None, load_centroid_speed=True):
 
     loader.load_centroid_data(
-        identity=loader.identity,
         identity_table=loader.identity_table,
         roi_0_table=loader.roi_0_table,
         cache="/flyhostel_data/cache"
