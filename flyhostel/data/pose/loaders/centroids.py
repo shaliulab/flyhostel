@@ -19,7 +19,7 @@ local = '/flyhostel_data/videos'
 flyhostel_cache='/flyhostel_data/cache'
 time_window_length=10
 
-def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=None, max_time=None, time_system="zt", n_jobs=20, verbose=False, reference_hour=np.nan, **kwargs):
+def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=None, max_time=None, time_system="zt", n_jobs=1, verbose=False, reference_hour=np.nan, **kwargs):
     
     meta_loc=tempfile.NamedTemporaryFile(suffix=".csv", prefix="flyhostel").name
 

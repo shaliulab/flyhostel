@@ -67,7 +67,18 @@ class PoseLoader:
     def load_store_index(self, cache):
         raise NotImplementedError()
 
-    def load_pose_data(self, identity, min_time=None, max_time=None, time_system="zt", stride=1, cache=None, verbose=False, files=None, write_only=False):
+    def load_pose_data(self, experiment=None, identity=None, min_time=None, max_time=None, time_system="zt", stride=1, cache=None, verbose=False, files=None, write_only=False):
+
+        if experiment is None:
+            experiment=self.experiment
+        if identity is None:
+            identity=self.identity
+
+        if files is None:
+            files=[(
+                self.get_pose_file_h5py(pose_name="filter_rle-jump"),
+                self.get_pose_file_h5py(pose_name="raw")
+            )]
         
         if min_time is not None and max_time is not None and min_time>=max_time:
             logger.warning("Passed time interval (%s - %s) is meaningless")
