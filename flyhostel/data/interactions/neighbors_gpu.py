@@ -162,7 +162,7 @@ def compute_distance_between_pairs(df, step=10):
 
 def find_neighbors(dt, dist_max_px, step, demo=False):
     """
-    Annotate neighbors (NN) of each agent at each timestamp
+    Annotate neighbors of each agent at each timestamp
 
     Arguments
         dt (cudf.DataFrame): Dataset with columns id, frame_number, centroid_x, centroid_y
@@ -208,9 +208,6 @@ def find_neighbors(dt, dist_max_px, step, demo=False):
     del dt
     fn_min=data_for_computation["frame_number"].min()
     fn_max=data_for_computation["frame_number"].max()+step
-
-
-
     distance_matrix=compute_distance_between_all_ids(data_for_computation, ids=ids, step=step)
 
     # ids x neighbors x t
@@ -246,7 +243,7 @@ def find_neighbors(dt, dist_max_px, step, demo=False):
 
     nns=xf.concat(nns, axis=0)
     logger.debug("merging")
-    dt_annotated = data_for_computation.merge(nns, on=["id", "frame_number"])
+    dt_annotated = data_for_computation.merge(nns, on=["frame_number", "id"])
     logger.debug("done")
     if demo:
         return dt_annotated, distance_matrix

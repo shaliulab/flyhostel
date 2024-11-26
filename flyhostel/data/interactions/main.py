@@ -212,8 +212,8 @@ def infer_interactions_by_time_partitions(
         print(f"Partition {i} ({zt0} - {zt1})")
         if len(bodyparts)==1 and bodyparts[0]=="thorax":
             pose_dataset=dt[["id", "frame_number"]]
-            pose_dataset["thorax_x"]=50
-            pose_dataset["thorax_y"]=50   
+            pose_dataset["thorax_x"]=SQUARE_WIDTH//2
+            pose_dataset["thorax_y"]=SQUARE_HEIGHT//2
         else:
             pose_dataset=group.load_pose_data(
                 framerate=framerate,
@@ -245,7 +245,6 @@ def infer_interactions_by_time_partitions(
             framerate=framerate,
             bodyparts=bodyparts
         )
-
         if interactions_ is not None:
             try:
                 interactions_cpu=interactions_.to_pandas()
@@ -322,7 +321,6 @@ def analyze_group(
         **kwargs
     )
 
-    interactions=flatten_data(interactions)
     group.interactions=interactions
     if len(interactions)==0:
         return None
@@ -339,19 +337,8 @@ def infer_interactions(group, dt, pose, framerate, bodyparts=BODYPARTS):
         bodyparts=bodyparts,
         using_bodyparts=False,
     )
-    # if interactions_full is None or interactions_full.shape[0]==0:
-    #     return None, None, None
     interactions["chunk"]=interactions["frame_number"]//CHUNKSIZE
     interactions["frame_idx"]=interactions["frame_number"]%CHUNKSIZE
-
-    # # interactions_full has one row per pairwise interaction and frame
-    # pairwise_interactions=group.interactions_by_closest_point(interactions_full)
-
-    # # pairwise_interactions has one row per pairwise interaction t the closest point
-    # interactions=group.flatten_interactions(pairwise_interactions)
-    
-    # # interactions has two rows per pairwise interaction (one for each member)
-    # interactions["animal"]=[group.animals[group.ids.index(id)] for id in interactions["id"]]
     return interactions, pose_absolute
 
 def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10):
