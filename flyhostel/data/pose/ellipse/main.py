@@ -46,7 +46,7 @@ def process_experiment(experiment, identities, min_time, max_time, sources=["ope
     dts=[]
     for loader in loaders:
         dts.append(loader.dt)
-        dataset.append(loader.interaction_ellipse2)
+        dataset.append(loader.interaction_ellipse3)
     dataset=pd.concat(dataset, axis=0).reset_index(drop=True)
     sleep=pd.concat([loader.sleep for loader in loaders], axis=0).reset_index()
     dts=pd.concat(dts, axis=0).reset_index(drop=True)
