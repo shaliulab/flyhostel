@@ -5,6 +5,7 @@ import pandas as pd
 import cudf
 from idtrackerai_app.cli.utils.overlap import propagate_identities
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
+from flyhostel.utils import establish_dataframe_framework
 
 logger=logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def make_identity_table(lid_table, chunks):
     identity_table["is_inferred"]=False
     return identity_table
             
-def annotate_identity(data, number_of_animals, useGPU=True):
+def annotate_identity(data, number_of_animals):
     """
     Generate the identity track for each animal in a dataset
 
@@ -90,11 +91,7 @@ def annotate_identity(data, number_of_animals, useGPU=True):
     and all animals in the first frame of the next chunk. The animal that minimises that distance is the same animal
     """
 
-    if useGPU:
-        xf=cudf
-    else:
-        xf=pd
-
+    xf=establish_dataframe_framework(data)
     data=xf.DataFrame(data)
 
     lid_table=xf.concat([
