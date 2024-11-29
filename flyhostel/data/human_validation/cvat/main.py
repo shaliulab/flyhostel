@@ -4,6 +4,7 @@ import logging
 import math
 
 import numpy as np
+import cudf
 import pandas as pd
 from tqdm import tqdm
 import sqlite3
@@ -267,7 +268,7 @@ def integrate_human_annotations(
     try:
         logger.debug("Annotate identity")
         new_data.reset_index(drop=True).to_feather(out_file)
-        out=annotate_identity(new_data, number_of_animals)
+        out=annotate_identity(cudf.DataFrame(new_data), number_of_animals)
     except Exception as error:
         print(error)
         print(traceback.print_exc())
