@@ -1,5 +1,5 @@
 import argparse
-from flyhostel.data.interactions.main import compute_experiment_interactions
+from flyhostel.data.interactions.main import compute_experiment_neighbors
 from flyhostel.data.pose.constants import bodyparts_wo_joints as BODYPARTS
 
 def get_parser():
@@ -16,7 +16,7 @@ def main():
     ap=get_parser()
     args=ap.parse_args()
     raise NotImplementedError
-    compute_experiment_interactions(
+    compute_experiment_neighbors(
         group, bodyparts=BODYPARTS, number_of_animals=args.number_of_animals,
         output=args.output, dist_max_mm=args.dist_max_mm, min_interaction_duration=args.min_interaction_duration
     )

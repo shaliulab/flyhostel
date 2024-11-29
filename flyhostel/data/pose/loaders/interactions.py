@@ -46,11 +46,17 @@ def index_interactions(interactions, step, framerate=FRAMERATE, contact_threshol
         diff=np.diff(dff["frame_number"])
         dff["interaction"]=[0] + (np.cumsum(diff>min_step_to_next_interaction)).tolist()
         df.append(dff)
-    interactions=pd.concat(df, axis=0).reset_index(drop=True)
+    if df:
+        interactions=pd.concat(df, axis=0).reset_index(drop=True)
+    else:
+        raise ValueError("No interactions detected")
+    
     del df
 
     counts=interactions.groupby(groupby).size().reset_index(name="count")
-    min_distance=interactions.groupby(groupby).agg({"distance_mm": np.min}).reset_index().rename({"distance_mm": "distance_mm_min"}, axis=1)
+    min_distance=interactions.groupby(groupby).agg({"distance_mm": np.min}).reset_index().rename({
+        "distance_mm": "distance_mm_min"
+    }, axis=1)
     counts["duration"]=counts["count"]*(step/framerate)
     first_frame=interactions.groupby(groupby).first()["frame_number"].reset_index().rename({"frame_number": "first_frame"}, axis=1)
 
@@ -98,21 +104,27 @@ class InteractionsLoader:
         if identity is None:
             identity=self.identity
     
-        interaction_features=["id", "nn", "distance_mm", "frame_number"]
-        csv_file=os.path.join(self.basedir, "interactions", experiment + "_interactions.csv")
+        neighbors_features=["id", "nn", "distance_mm", "frame_number"]
+        csv_file=os.path.join(self.basedir, "interactions", experiment + "_neighbors.csv")
         if not os.path.exists(csv_file):
             return None, None
             
-        interactions=pd.read_csv(csv_file)[interaction_features]
+        neighbors=pd.read_csv(csv_file)[neighbors_features]
+        
+        neighbors=neighbors.loc[neighbors["id"]==self.ids[0]]
+        assert neighbors.shape[0]>0, f"No flies neighboring {self.ids[0]}"
 
-        interactions=interactions.loc[interactions["id"]==self.ids[0]]
         if proximity_threshold is not None:
-            interactions=interactions.loc[interactions["distance_mm"]<proximity_threshold]
+            neighbors=neighbors.loc[neighbors["distance_mm"]<proximity_threshold]
         
         time_index=self.index_time()
-        interactions=interactions.merge(time_index, on="frame_number", how="inner")
+        neighbors=neighbors.merge(time_index, on="frame_number", how="inner")
         step=FRAMERATE//framerate
-        interactions=index_interactions(interactions, step=step, contact_threshold=contact_threshold, duration_threshold=duration_threshold)
+        assert neighbors.shape[0]>0, f"No data left for {self.ids[0]}"
+        interactions=index_interactions(
+            neighbors, step=step, contact_threshold=contact_threshold,
+            duration_threshold=duration_threshold
+        )
         interaction_signif = interactions.loc[interactions["signif"]]
         self.interaction=interaction_signif
         return None

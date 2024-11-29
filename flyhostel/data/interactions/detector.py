@@ -35,8 +35,6 @@ class InteractionDetector(FilesystemInterface):
     def __init__(
             self, *args,
             dist_max_mm=DIST_MAX_MM,
-            min_interaction_duration=MIN_INTERACTION_DURATION,
-            min_time_between_interactions=MIN_TIME_BETWEEN_INTERACTIONS,
             roi_width_mm=ROI_WIDTH_MM,
             **kwargs
         ):
@@ -49,90 +47,7 @@ class InteractionDetector(FilesystemInterface):
         self.px_per_mm=self.roi_width/roi_width_mm
         self.neighbors_df=None
         self.dist_max_mm=dist_max_mm
-        self.min_time_between_interactions=min_time_between_interactions
-        self.min_interaction_duration=min_interaction_duration
         super(InteractionDetector, self).__init__(*args, **kwargs)
-
-
-    def find_interactions(
-            self, dt, pose,
-            framerate,
-            bodyparts,
-            using_bodyparts=True,
-        ):
-
-        useGPU=True
-
-        if useGPU:
-            xf=cudf
-            nx=cp
-        else:
-            xf=pd
-            nx=np
-
-        if "thorax" not in bodyparts:
-            # thorax is required in any case
-            bodyparts=["thorax"] + bodyparts
-
-        bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
-
-        if not isinstance(dt, cudf.DataFrame):
-            logger.debug("Uploading %s of centroid data to GPU", dt.shape[0])
-            dt=cudf.DataFrame(dt)
-
-        if not isinstance(pose, cudf.DataFrame):
-            logger.debug("Uploading %s of pose data to GPU", pose.shape[0])
-            pose=cudf.DataFrame(pose)
-
-        pose_and_centroid=pose.merge(dt, on=["id", "frame_number"], how="left")
-        # project pose relative to the top left corner of the 100x100 square around the animal
-        # to absolute coordinates, relative to the top left corner of the original raw frame
-        # (which is the same for all animals)
-        logger.debug("Projecting to absolute coordinates")
-        all_absolute = make_absolute_coordinates(
-            pose_and_centroid,
-            bodyparts,
-            square_width=SQUARE_WIDTH,
-            square_height=SQUARE_HEIGHT,
-            roi_height=self.roi_height,
-            roi_width=self.roi_width
-        )
-
-        dt_absolute=all_absolute[["id", "frame_number", "centroid_x", "centroid_y"]]
-        pose_absolute=all_absolute[["id", "frame_number"] + bodyparts_xy]
-        del all_absolute
-
-        # find frames where the centroid of at least two flies it at most dist_max_mm mm from each other
-        dt_absolute=self.find_neighbors(
-            dt_absolute[["id", "frame_number", "centroid_x", "centroid_y"]],
-            dist_max_mm=self.dist_max_mm,
-            framerate=framerate,
-        )
-
-        # dt_absolute contains:
-        #     "id", "frame_number", "centroid_x", "centroid_y", "nn", "distance"
-
-        if using_bodyparts:
-            # assert ((neighbors["frame_number"].iloc[0]-pose_absolute["frame_number"].values)==0).sum()==1
-
-            # for those frames, go through each pair of 'neighbors' and compute the distance between the two closest bodyparts
-            neighbors=self.compute_pairwise_distances_using_bodyparts(
-                dt_absolute,
-                pose_absolute,
-                bodyparts, bodyparts_xy,
-            )
-            if neighbors is None:
-                return None
-
-            neighbors["distance_bodypart_mm"]=neighbors["distance_bodypart"]/self.px_per_mm
-            neighbors=neighbors.loc[neighbors["distance_bodypart_mm"] < self.dist_max_mm]
-            if neighbors.shape[0]==0:
-                return neighbors, pose_absolute
-
-            neighbors=neighbors.sort_values(["id", "nn", "frame_number"])
-            return neighbors, pose_absolute
-        else:
-            return dt_absolute, pose_absolute
 
 
     def compute_pairwise_distances_using_bodyparts(self, *args, **kwargs):

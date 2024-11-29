@@ -20,120 +20,6 @@ from flyhostel.data.interactions.touch import preprocess_data, check_intersectio
 logger=logging.getLogger(__name__)
 DEBUG=True
 
-def compute_experiment_interactions_v1(experiment, number_of_animals, output=None, dist_max_mm=2.5, min_interaction_duration=.3):
-    loaders=[
-        FlyHostelLoader(
-            experiment=experiment,
-            identity=identity,
-            chunks=range(0, 400),
-            identity_table="IDENTITY_VAL",
-            roi_0_table="ROI_0_VAL"
-        )
-        for identity in range(1, number_of_animals+1)
-    ]
-
-    # from centroid data
-    ################################
-    group=FlyHostelGroup.from_list(loaders, protocol="centroids", dist_max_mm=dist_max_mm, min_interaction_duration=min_interaction_duration)
-    dt=group.load_centroid_data()
-    # assume the thorax is where the centroid is,
-    # which is the middle of the frame
-    dt["thorax_x"]=SQUARE_WIDTH//2 
-    dt["thorax_y"]=SQUARE_HEIGHT//2
-
-    pose=dt[["id", "identity", "frame_number", "thorax_x", "thorax_y"]],
-    dt=dt[["id", "identity", "frame_number", "x", "y"]],
-    bodyparts=["thorax"]
-    ################################
-
-    # from pose data
-    ################################
-    group=FlyHostelGroup.from_list(loaders, protocol="full", dist_max_mm=dist_max_mm, min_interaction_duration=min_interaction_duration)
-    dt=group.load_centroid_data()
-    pose=group.load_pose_data("pose_boxcar")
-    ################################
-
-
-    # finally
-    interactions, pose_absolute = group.find_interactions(
-        dt,
-        pose,
-        bodyparts=BODYPARTS,
-        framerate=FRAMERATE
-    )
-
-    if output is not None:
-        interactions.to_csv(output)
-    return interactions, pose_absolute
-
-
-def load_animal_pair_data(animals, pose_name, **kwargs):
-    experiments=[animal.split("__")[0] for animal in animals]
-    identities=[int(animal.split("__")[1]) for animal in animals]
-
-    loaders=[
-        FlyHostelLoader(
-            experiment=experiment,
-            identity=identity,
-            chunks=range(0, 400),
-            identity_table="IDENTITY_VAL",
-            roi_0_table="ROI_0_VAL"
-        )
-        for experiment, identity in zip(experiments, identities)
-    ]
-
-    failed=False
-    for fly in loaders:
-        animal=fly.experiment + "__" + str(fly.identity).zfill(2)
-
-        pose_file=fly.get_pose_file_h5py(pose_name)
-        assert os.path.exists(pose_file)
-
-        try:
-            with h5py.File(pose_file, "r") as f:
-                keys=f.keys()
-                logger.debug(f"Validated %s", pose_file)
-        except Exception as error:
-            logger.error("Can't read %s", pose_file)
-            logger.error(error)
-            failed=True
-    if failed:
-        raise ValueError("Corrupted files")
-
-    group=FlyHostelGroup.from_list(loaders, protocol="centroids", **kwargs)
-    return group
-
-
-def infer_interactions_by_id_pairs(group, dt, pose, framerate=30, bodyparts=BODYPARTS):
-
-
-    if isinstance(dt, cudf.DataFrame):
-        xf=cudf
-        ids=dt["id"].to_pandas().unique()
-    else:
-        xf=pd
-        ids=dt["id"].unique()
-
-    pose_absolute=[]
-    interactions=[]
-
-    for id1, id2 in itertools.combinations(ids, 2):
-        interactions_, pose_absolute_=infer_interactions(
-            group,
-            dt.loc[dt["id"].isin([id1, id2])],
-            pose.loc[pose["id"].isin([id1, id2])],
-            bodyparts=bodyparts
-        )
-        if interactions_ is not None:
-            interactions.append(interactions_)
-        if pose_absolute_ is not None:
-            pose_absolute.append(pose_absolute_)
-
-    interactions=xf.concat(interactions, axis=0)
-    pose_absolute=xf.concat(pose_absolute, axis=0)
-
-    return interactions, pose_absolute
-
 
 def infer_touch(pose, mask, bodyparts, n_jobs=1):
     mask=flatten_data(mask)
@@ -172,32 +58,33 @@ def flatten_data(df):
     return df
 
 
-def infer_interactions_by_time_partitions(
-        group, dt,
-        pose_name,
+def download_from_gpu(df):
+    try:
+        df_cpu=df.to_pandas()
+        del df
+    except Exception:
+        df_cpu=df
+    
+    return df_cpu
+
+def infer_neighbors_by_time_partitions(
+        group,
         partition_size=None,
         framerate=30,
-        bodyparts=BODYPARTS,
-        keep_pose=False
+        store="RAM"
     ):
 
     """
-    Call infer_interactions for one temporal partition of the dataset at a time 
+    Call infer_neighbors for one temporal partition of the dataset at a time 
 
     partition_size (int): Number of seconds making each partition
     """
-    if isinstance(dt, cudf.DataFrame):
-        xf=cudf
-        useGPU=True
-    else:
-        xf=pd
-        useGPU=False
 
-    interactions=[]
-    pose_absolute=[]
+    neighbors_l=[]
 
-    min_t=dt["t"].min()
-    max_t=dt["t"].max()
+    min_t=group.dt["t"].min()
+    max_t=group.dt["t"].max()
+
     interval=(min_t, max_t)
     partition_size=min(partition_size, interval[1]-interval[0])
     t0s=np.arange(interval[0], interval[1], partition_size)
@@ -210,136 +97,99 @@ def infer_interactions_by_time_partitions(
 
         before=time.time()
         print(f"Partition {i} ({zt0} - {zt1})")
-        if len(bodyparts)==1 and bodyparts[0]=="thorax":
-            pose_dataset=dt[["id", "frame_number"]]
-            pose_dataset["thorax_x"]=SQUARE_WIDTH//2
-            pose_dataset["thorax_y"]=SQUARE_HEIGHT//2
-        else:
-            pose_dataset=group.load_pose_data(
-                framerate=framerate,
-                pose_name=pose_name,
-                min_time=min_time,
-                max_time=max_time,
-                useGPU=useGPU
-            )
 
-        if useGPU:
-            assert isinstance(pose_dataset, cudf.DataFrame)
-
-        if pose_dataset.shape[0]==0 and DEBUG:
-            logger.warning(
-                "No pose data found from zt= %s to zt= %s", zt0, zt1
-            )
-            continue
-
-        centroid_dataset=dt.loc[
-            (dt["t"]>=min_time)&(dt["t"]<max_time)
+        centroid_dataset=group.dt.loc[
+            (group.dt["t"]>=min_time)&(group.dt["t"]<max_time)
         ]
         after=time.time()
 
         logger.debug("%s seconds to filter partition data", after-before)
-        interactions_, pose_absolute_=infer_interactions(
+        dt_neighbors_=find_neighbors(
             group,
             centroid_dataset,
-            pose_dataset,
             framerate=framerate,
-            bodyparts=bodyparts
         )
-        if interactions_ is not None:
-            try:
-                interactions_cpu=interactions_.to_pandas()
-                del interactions_
-            except Exception:
-                interactions_cpu=interactions_
-            n_rows=interactions_cpu.shape[0]
-            interactions.append(pd.DataFrame(interactions_cpu))
-        else:
-            logger.warning(
-                "No interactions detected between %s and %s", zt0, zt1
+        if dt_neighbors_ is not None:
+            dt_neighbors_cpu=download_from_gpu(dt_neighbors_)
+            n_rows=dt_neighbors_cpu.shape[0]
+            if store=="RAM":
+                neighbors_l.append(dt_neighbors_cpu)
+            elif store=="DISK":
+                raise NotImplementedError()
+                dt_neighbors_cpu.to_feather(f"interactions_{str(i+1).zfill(3)}.feather")
+            logger.info(
+                "Collected %s rows of interaction data in partition %s/%s",
+                n_rows, i+1, len(t0s)
             )
-        if pose_absolute_ is not None and keep_pose:
-            pose_absolute.append(xf.DataFrame(pose_absolute_))
+
+
+            del dt_neighbors_
         else:
-            del pose_absolute_
+            logger.warning("No interactions between %s and %s", zt0, zt1)
 
-        logger.info(
-            "Collected %s rows of interaction data in partition %s/%s",
-            n_rows, i+1, len(t0s)
-        )
-        del pose_dataset
-
-    # put together all partitions
-    if len(interactions)==0:
-        interactions=None
-    else:
-        interactions=pd.concat(interactions, axis=0)
-
-    if len(pose_absolute)==0:
-        pose_absolute=None
-    else:
-        pose_absolute=pd.concat(pose_absolute, axis=0)
-
-    return interactions, pose_absolute
+    if store=="RAM":
+        # put together all partitions
+        if len(neighbors_l)==0:
+            dt_neighbors=None
+        else:
+            dt_neighbors=pd.concat(neighbors_l, axis=0).reset_index(drop=True)
+    elif store=="DISK":
+        raise NotImplementedError()
+    return dt_neighbors
 
 def analyze_group(
-        group, pose_name, bodyparts=None, framerate=15,
+        group, framerate=15,
         useGPU=True, interval=None,
-        partition_size=None, n_jobs=1,
+        partition_size=None,
         **kwargs
     ):
     """
     Detect interactions between animals in a group
     """
-    if bodyparts is None:
-        keep_pose=False
-    else:
-        # TODO
-        # should be true but I havent implemented
-        # a proper handling of pose data because it is very big
-        # and can fill the gpu
-        keep_pose=False
+
 
     # load the x y coordinates of the centroids of each animal over time
-    dt=group.load_centroid_data(framerate=framerate, useGPU=useGPU)
-
+    group.dt=group.load_centroid_data(framerate=framerate, useGPU=useGPU)
+    
     if useGPU:
-        assert isinstance(dt, cudf.DataFrame)
+        assert isinstance(group.dt, cudf.DataFrame)
 
     if interval is None:
         interval=(
-            dt["frame_number"].min(),
-            dt["frame_number"].max()+1
+            group.dt["frame_number"].min(),
+            group.dt["frame_number"].max()+1
         )
 
     # interactions
-    interactions, pose=infer_interactions_by_time_partitions(
-        group, dt, pose_name=pose_name,
+    neighbors=infer_neighbors_by_time_partitions(
+        group,
         framerate=framerate,
         partition_size=partition_size,
-        keep_pose=keep_pose,
-        bodyparts=bodyparts,
         **kwargs
     )
 
-    group.interactions=interactions
-    if len(interactions)==0:
+    group.neighbors=neighbors
+    if len(neighbors)==0:
         return None
 
-    group.dt=dt
-    group.pose=pose
     return group
 
 
-def infer_interactions(group, dt, pose, framerate, bodyparts=BODYPARTS):
-    interactions, pose_absolute = group.find_interactions(
-        dt, pose,
+def find_neighbors(group, dt, framerate):
+
+    dt["centroid_x"]=dt["center_x"]
+    dt["centroid_y"]=dt["center_y"]
+
+    # find frames where the centroid of at least two flies it at most dist_max_mm mm from each other
+    dt_neighbors=group.find_neighbors(
+        dt[["id", "frame_number", "centroid_x", "centroid_y"]],
+        dist_max_mm=group.dist_max_mm,
         framerate=framerate,
-        bodyparts=bodyparts,
-        using_bodyparts=False,
     )
-    interactions["chunk"]=interactions["frame_number"]//CHUNKSIZE
-    interactions["frame_idx"]=interactions["frame_number"]%CHUNKSIZE
-    return interactions, pose_absolute
+
+    dt_neighbors["chunk"]=dt_neighbors["frame_number"]//CHUNKSIZE
+    dt_neighbors["frame_idx"]=dt_neighbors["frame_number"]%CHUNKSIZE
+    return dt_neighbors
 
 def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10):
 
@@ -395,12 +245,10 @@ def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10
     return hits
 
 
-def compute_experiment_interactions(
-        group, bodyparts=BODYPARTS,
-        pose_name="filter_rle-jump",
+def compute_experiment_neighbors(
+        group,
         framerate=15,
         partition_size=None,
-        n_jobs=1,
         interval=None,
         **kwargs
     ):
@@ -411,21 +259,26 @@ def compute_experiment_interactions(
     analyze_group(
         group,
         framerate=framerate,
-        bodyparts=bodyparts,
         partition_size=partition_size,
-        pose_name=pose_name,
-        n_jobs=n_jobs,
         interval=interval,
         **kwargs
     )
     return group
 
 
-def initialize_group(experiment, pose_name, number_of_animals=None, identities=None, min_time=None, max_time=None, **all_kwargs):
-    if identities is None:
-        identities=range(1, number_of_animals+1)
 
-    animals=[f"{experiment}__{str(identity).zfill(2)}" for identity in identities]
-    interaction_kwargs={k: all_kwargs[k] for k in ["dist_max_mm", "min_interaction_duration", "min_time_between_interactions"] if k in all_kwargs}
-    group=load_animal_pair_data(animals, pose_name=pose_name, min_time=min_time, max_time=max_time, **interaction_kwargs)
+def initialize_group(experiment, identities, **kwargs):
+
+    loaders=[
+        FlyHostelLoader(
+            experiment=experiment,
+            identity=identity,
+            chunks=range(0, 400),
+            identity_table="IDENTITY_VAL",
+            roi_0_table="ROI_0_VAL"
+        )
+        for identity in identities
+    ]
+
+    group=FlyHostelGroup.from_list(loaders, protocol="centroids", **kwargs)
     return group
