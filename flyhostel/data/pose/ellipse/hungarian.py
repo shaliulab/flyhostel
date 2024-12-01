@@ -11,7 +11,8 @@ def hungarian_matching_sf(df_ellipses, df_ids, frame):
     
     # Skip if there are no ellipses or IDs in this frame
     if ellipses_frame.empty or ids_frame.empty:
-        return
+        logger.debug("No ellipses found in frame %s", frame)
+        return df_ellipses
     
     # Get coordinates
     ellipses_coords = ellipses_frame[['x', 'y']].values

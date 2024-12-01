@@ -1,5 +1,6 @@
 import argparse
 import logging
+import pickle
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -77,8 +78,10 @@ def process_experiment(experiment, identities, min_time, max_time, sources=["ope
     index.loc[(index["id_distance_pre_10"]>1.5)&(index["nn_distance_pre_10"]>1.5), "interaction_name"]="W"
     
     features=temporal_features + ["duration", "distance_ellipse_mm_min"]
-    index=run_dimred(index, features=features, algorithm="UMAP")
+    index, model, scaler=run_dimred(index, features=features, algorithm="UMAP")
     index.to_csv("index.csv")
+    with open("ml.pkl", "wb") as handle:
+        pickle.dump((model, scaler), handle)
 
 
 def process_data(loaders, sources, n_jobs):
@@ -221,11 +224,12 @@ def get_ellipses_from_opencv(loaders, frame_numbers, n_jobs=1):
     """
 
     basedir = loaders[0].basedir
-    ellipse_data=preprocess_ellipses_mp(
+    ellipse_data, contours=preprocess_ellipses_mp(
         basedir,
         frame_numbers,
         n_jobs=n_jobs
     )
+    assert ellipse_data is not None
 
     centroids=[]
     for loader in loaders:
@@ -240,7 +244,7 @@ def get_ellipses_from_opencv(loaders, frame_numbers, n_jobs=1):
     centroids=pd.concat(centroids, axis=0).reset_index(drop=True)
     ellipse_data=hungarian_matching(ellipse_data, centroids)
     ellipse_data["source"]="opencv"
-    return ellipse_data
+    return ellipse_data, contours
 
 def get_parser():
     ap=argparse.ArgumentParser()

@@ -44,5 +44,5 @@ def main(df, features, algorithm="UMAP"):
     else:
         raise NotImplementedError(f"Algorithm {algorithm} not supported")
     scaler=StandardScaler()
-    df=run_dr(df, features, scaler, model, fit=True, name=algorithm)
-    return df
+    df, model, scaler=run_dr(df, features, scaler, model, fit=True, name=algorithm)
+    return df, model, scaler
