@@ -99,6 +99,12 @@ def annotate_identity(data, number_of_animals):
         data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).last().reset_index(),
     ], axis=0).sort_values(["frame_number", "local_identity"])
     lid_table["frame_idx"]=lid_table["frame_number"]%CHUNKSIZE
+    
+    broken_tracks=lid_table.loc[~lid_table["frame_idx"].isin([0, CHUNKSIZE-1])].to_pandas()
+    for _, track in broken_tracks.iterrows():
+        info=f'Frame number: {track["frame_number"]} Local identity: {track["local_identity"]}'
+        logger.warning(f"Track broken {info}")
+
     chunks=sorted(lid_table["chunk"].to_pandas().unique())
 
     identity_table=make_identity_table(lid_table, chunks)
