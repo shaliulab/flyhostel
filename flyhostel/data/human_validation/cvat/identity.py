@@ -101,6 +101,8 @@ def annotate_identity(data, number_of_animals):
     lid_table["frame_idx"]=lid_table["frame_number"]%CHUNKSIZE
     
     broken_tracks=lid_table.loc[~lid_table["frame_idx"].isin([0, CHUNKSIZE-1])].to_pandas()
+    # this can happen if a fly changes fragment
+    # and regains the wrong local id in the process
     for _, track in broken_tracks.iterrows():
         info=f'Frame number: {track["frame_number"]} Local identity: {track["local_identity"]}'
         logger.warning(f"Track broken {info}")

@@ -12,7 +12,8 @@ def get_parser():
     ap.add_argument("--experiment", type=str, required=True)
     ap.add_argument("--folder", type=str, required=True)
     ap.add_argument("--time-window-length", type=float, required=True)
-    ap.add_argument("--interval", nargs=2, default=None, type=int)
+    ap.add_argument("--min-frame-number", default=None, type=int)
+    ap.add_argument("--max-frame-number", default=None, type=int)
     ap.add_argument("--n-jobs", dest="n_jobs", type=int, default=-2)
     ap.add_argument("--cache", action="store_true", default=False)
     return ap
@@ -35,7 +36,8 @@ def main():
         format=".png",
         n_jobs=args.n_jobs,
         cache=args.cache,
-        interval=args.interval
+        min_frame_number=args.min_frame_number,
+        max_frame_number=args.max_frame_number
     )
 
 if __name__ == "__main__":

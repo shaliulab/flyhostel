@@ -20,43 +20,66 @@ from zeitgeber.rle import encode
 
 logger=logging.getLogger(__name__)
 
-def load_identity(conn, interval=None):
-    if interval is None:
-        identity=pd.read_sql_query(con=conn, sql="SELECT * FROM IDENTITY;")
-    else:
-        identity=pd.read_sql_query(con=conn, sql=f"SELECT * FROM IDENTITY WHERE frame_number >= {interval[0]} AND frame_number < {interval[1]};")
 
+def write_where_statement(min_frame_number, max_frame_number):
+    min_statement=None
+    max_statement=None
+
+    if min_frame_number is not None:
+        min_statement=f"frame_number >= {min_frame_number}"
+    if max_frame_number is not None:
+        max_statement=f"frame_number < {max_frame_number}"
+    
+    if min_statement is None and max_statement is None:
+        return ""
+    else:
+        parts=[part for part in [min_statement, max_statement] if part is not None]
+        statement="WHERE" + " AND ".join(parts)
+        return statement
+    
+                                                   
+def load_identity(conn, min_frame_number=None, max_frame_number=None):
+    where_statement=write_where_statement(min_frame_number, max_frame_number)
+    identity=pd.read_sql_query(
+        con=conn, sql=f"SELECT * FROM IDENTITY {where_statement};"
+    )
     return identity
 
-def load_roi0(conn, tracking_fields, interval=None):
-    if interval is None:
-        roi0=pd.read_sql_query(con=conn, sql=f"SELECT frame_number, in_frame_index, {','.join(tracking_fields)} FROM ROI_0;")
-    else:
-        roi0=pd.read_sql_query(con=conn, sql=f"SELECT frame_number, in_frame_index, {','.join(tracking_fields)} FROM ROI_0 WHERE frame_number >= {interval[0]} AND frame_number < {interval[1]};")
-
+def load_roi0(conn, tracking_fields, min_frame_number=None, max_frame_number=None):
+    where_statement=write_where_statement(min_frame_number, max_frame_number)
+    roi0=pd.read_sql_query(
+        con=conn, sql=f"""
+        SELECT frame_number, in_frame_index, {','.join(tracking_fields)} FROM ROI_0 {where_statement};
+    """)
     return roi0
 
-def load_store_index(conn, max_fn, interval=None):
-    if interval is None:
-        store_index=pd.read_sql_query(con=conn, sql=f"SELECT * FROM STORE_INDEX WHERE frame_number < {max_fn};")
-    else:
-        store_index=pd.read_sql_query(con=conn, sql=f"SELECT * FROM STORE_INDEX WHERE frame_number >= {interval[0]} AND frame_number < {interval[1]};")
-
+def load_store_index(conn, min_frame_number=None, max_frame_number=None):
+    where_statement=write_where_statement(min_frame_number, max_frame_number)
+    store_index=pd.read_sql_query(con=conn, sql=f"SELECT * FROM STORE_INDEX {where_statement}")
     return store_index
 
-def load_data(dbfile, tracking_fields, interval=None):
+def load_data(dbfile, tracking_fields, min_frame_number=None, max_frame_number=None):
 
     with sqlite3.connect(dbfile) as conn:
         logger.debug("Loading from %s - IDENTITY", dbfile)
-        identity=load_identity(conn, interval)
+        identity=load_identity(conn,
+            min_frame_number=min_frame_number,
+            max_frame_number=max_frame_number
+        )
         logger.debug("Loading from %s - ROI_0", dbfile)
-        roi0=load_roi0(conn, tracking_fields=tracking_fields, interval=interval)
+        roi0=load_roi0(
+            conn, tracking_fields=tracking_fields,
+            min_frame_number=min_frame_number,
+            max_frame_number=max_frame_number
+        )
 
         logger.debug("Loading from %s - STORE_INDEX", dbfile)
-        last_chunk=roi0["frame_number"].iloc[-1]//CHUNKSIZE
-        max_fn=CHUNKSIZE*last_chunk
-        store_index=load_store_index(conn, max_fn=max_fn, interval=interval)
-
+        # last_chunk=roi0["frame_number"].iloc[-1]//CHUNKSIZE
+        store_index=load_store_index(conn,
+            min_frame_number=min_frame_number,
+            max_frame_number=max_frame_number
+        )
+    
     store_index["t"]=store_index["frame_time"]/1000
     data=identity.merge(roi0, on=["frame_number", "in_frame_index"]).sort_values(["frame_number", "fragment"])
     data["chunk"]=data["frame_number"]//CHUNKSIZE
@@ -81,8 +104,17 @@ def generate_label(df):
     return df
 
 
-def annotate_for_validation(experiment, output_folder, time_window_length=1, format=".png", n_jobs=20, interval=None, cache=False):
+def annotate_for_validation(
+        experiment, output_folder,
+        time_window_length=1,
+        format=".png", n_jobs=20,
+        min_frame_number=None,
+        max_frame_number=None,
+        cache=False,
+    ):
     """
+    Entrypoint
+
     Generate movies capturing each scene where validation may be needed based on heuristics and QC
     """
 
@@ -91,7 +123,7 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
 
     number_of_animals=int(tokens[1].replace("X",""))
 
-    basedir=f"/flyhostel_data/videos/{suffix}"
+    basedir=os.path.join(os.environ["FLYHOSTEL_VIDEOS"], suffix)
     store_path=os.path.join(basedir, "metadata.yaml")
     dbfile=os.path.join(basedir, experiment + ".db")
     assert os.path.exists(dbfile), f"{dbfile} not found"
@@ -110,11 +142,17 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
     if os.path.exists(output_path_feather_df) and cache:
         logger.debug("Loading %s", output_path_feather_df)
         df=pd.read_feather(output_path_feather_df)
-        if interval is not None:
-            df=df.loc[(df["frame_number"] >= interval[0]) & (df["frame_number"] < interval[1])]
+        if min_frame_number is not None:
+            df=df.loc[(df["frame_number"] >= min_frame_number)]
+        if max_frame_number is not None:
+            df=df.loc[(df["frame_number"] < max_frame_number)]
     else:
         os.makedirs(output_folder, exist_ok=True)
-        df=load_data(dbfile, tracking_fields, interval=interval)
+        df=load_data(
+            dbfile, tracking_fields,
+            min_frame_number=min_frame_number,
+            max_frame_number=max_frame_number
+        )
         df = update_identity(df.copy(), field=field, n_jobs=n_jobs)
         logger.debug("Generating identogram label")
         df=generate_label(df)
@@ -123,9 +161,16 @@ def annotate_for_validation(experiment, output_folder, time_window_length=1, for
 
     if os.path.exists(output_path_feather_bin) and cache:
         df_bin=pd.read_feather(output_path_feather_bin)
-        if interval is not None:
-            df_bin=df_bin.loc[(df_bin["frame_number"] >= interval[0]) & (df_bin["frame_number"] < interval[1])]
 
+        if min_frame_number is not None:
+            df_bin=df_bin.loc[
+                (df_bin["frame_number"] >= min_frame_number)
+            ]
+
+        if max_frame_number is not None:
+            df_bin=df_bin.loc[
+                (df_bin["frame_number"] < max_frame_number)
+            ]
     else:
         
         logger.debug("Binning into %s second windows", time_window_length)

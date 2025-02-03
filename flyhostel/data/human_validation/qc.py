@@ -23,6 +23,9 @@ modified_idx=4
 frame_number_idx=5
 tests=["yolov7_qc", "all_found_qc", "all_id_expected_qc", "first_frame_idx_qc", "inter_qc"]
 
+BATCH_SIZE=20000
+
+
 from flyhostel.data.pose.constants import chunksize
 
 def intra_qc(window, number_of_animals):
@@ -121,7 +124,7 @@ def all_qc(i, number_of_animals, behavior_window, window_before=None, window_aft
 
 def analyze_video(df, number_of_animals, n_jobs=1):
     """
-    Quality control of idtrackerai+yolov7 results
+    Quality control (QC) of idtrackerai+yolov7 results
 
     Arguments
 
@@ -163,7 +166,8 @@ def analyze_video(df, number_of_animals, n_jobs=1):
 
         window_group.popleft()
         kwargs.append({
-            "i": i, "number_of_animals": number_of_animals,
+            "i": i,
+            "number_of_animals": number_of_animals,
             "logfile": logfile,
             "window_before": window_group[0],
             "behavior_window": window_group[1],
@@ -180,16 +184,13 @@ def analyze_video(df, number_of_animals, n_jobs=1):
         n_cpus=joblib.cpu_count()
         n_batches=n_cpus+n_jobs
 
-    # batch_size=min(10000, int(round(n_windows/n_batches + 1)))
-    batch_size=20000
-    n_batches=n_windows//batch_size + 1
-
+    n_batches=n_windows//BATCH_SIZE + 1
 
     for j in range(n_batches):
         batches.append(
-            kwargs[j*batch_size:(j+1)*batch_size]
+            kwargs[j*BATCH_SIZE:(j+1)*BATCH_SIZE]
         )
-    logger.debug("Running QC using %s jobs in %s batches of size %s. Saving log to %s", n_jobs, len(batches), batch_size, logfile)
+    logger.debug("Running QC using %s jobs in %s batches of size %s. Saving log to %s", n_jobs, len(batches), BATCH_SIZE, logfile)
     qc=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             all_qc_batch

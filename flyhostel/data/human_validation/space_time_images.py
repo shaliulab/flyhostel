@@ -100,7 +100,6 @@ def load_qc(folder):
     return qc
 
 
-
 def make_space_time_images(folder, experiment, n_jobs):
 
     qc=load_qc(folder)
@@ -111,7 +110,12 @@ def make_space_time_images(folder, experiment, n_jobs):
             video=list_video(scene_number=scene_number, folder=folder)
             handle.write(f"{video}\n")
 
-    complex_qc=qc.loc[~((qc["gap_n_frames"]==0) & (qc["gap_distance"]==0))  & ((qc["between_chunks"]==0) | (qc["all_valid_ids"]==0))]
+    # NOTE This is where we produce the subset of frames with problem
+    complex_qc=qc.loc[~(
+        (qc["gap_n_frames"]==0) & (qc["gap_distance"]==0)
+    )  & (
+        (qc["between_chunks"]==0) | (qc["all_valid_ids"]==0)
+    )]
     
     complex_qc.loc[complex_qc["between_chunks"]==0, "broken"].mean()
     complex_qc["maintains_id"].mean()

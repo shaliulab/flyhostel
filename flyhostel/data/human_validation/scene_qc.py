@@ -56,8 +56,12 @@ def scene_qc(scene, number_of_animals):
     """
 
     all_valid_ids=all_id_expected_qc_scene(scene, number_of_animals)
-    min_distance, (focal_id, partner_id)=min_distance_between_animals_qc(scene)
-    gap_n_frames, gap_distance, between_chunks, maintains_id, n_failed_fragments=fragment_gap_qc(scene)
+    min_distance, _=min_distance_between_animals_qc(scene)
+    try:
+        gap_n_frames, gap_distance, between_chunks, maintains_id, n_failed_fragments=fragment_gap_qc(scene)
+    except Exception as error:
+        logger.error(error)
+        import ipdb; ipdb.set_trace()
     scene_length=len(scene["frame_number"].unique())
     # count how many times each id appears
     counts=scene.value_counts("id")
@@ -87,24 +91,33 @@ def min_distance_between_animals_qc(scene):
     else:
         nx=np
 
+    scene["id_orig"]=scene["id"]
+    scene["id"]=scene["in_frame_index"].copy().astype(str)
     ids=scene["id"].unique().tolist()
-    distance_matrix=compute_distance_between_all_ids(scene, ids)
-    distance, (i, j) = find_closest_pair(distance_matrix, time_axis=2, partner_axis=1)
-    i=i.tolist()
-    j=j.tolist()
-    k=int(nx.argmin(distance))
-    if nx is np:
-        min_distance=distance_matrix[k, i[k], j[k]].item()
-    elif nx is cp:
-        min_distance=distance_matrix[k, i[k], j[k]].get().item()
+    if len(ids)==1:
+        return nx.inf, (0, 0)
+    else:
+        distance_matrix=compute_distance_between_all_ids(scene, ids=ids, step=1)
+        distance, (i, j) = find_closest_pair(distance_matrix, time_axis=2, partner_axis=1)
+        i=i.tolist()
+        j=j.tolist()
+        # NOTE: what is k?
+        k=int(nx.argmin(distance))
+        if nx is np:
+            min_distance=distance_matrix[k, i[k], j[k]].item()
+        elif nx is cp:
+            min_distance=distance_matrix[k, i[k], j[k]].get().item()
 
-    focal_id=ids[k]
+        focal_id=ids[k]
+        other_ids=ids.copy()
+        other_ids.pop(ids.index(focal_id))
+        try:
+            partner_id=other_ids[i[k]]
+        except Exception as error:
+            logger.error(error)
+            import ipdb; ipdb.set_trace()
 
-    other_ids=ids.copy()
-    other_ids.pop(ids.index(focal_id))
-    partner_id=other_ids[i[k]]
-
-    return min_distance, (focal_id, partner_id)
+        return min_distance, (focal_id, partner_id)
 
 def max_velocity_qc_ideal(scene, number_of_animals):
     """
@@ -177,7 +190,8 @@ def fragment_gap_qc(scene):
         first_observed=scene.loc[scene["fragment"]==failed_fragments[1]].iloc[0]
         number_of_missing_frames=int(first_observed["frame_number"]-last_observed["frame_number"])
         gap_distance=(((last_observed[["centroid_x", "centroid_y"]].values-first_observed[["centroid_x", "centroid_y"]].values)**2).sum()**0.5).item()
-        maintains_id=(last_observed["id"]==first_observed["id"]).item()*1
+        maintains_id=int(last_observed["id"]==first_observed["id"])
+
     
         return number_of_missing_frames, gap_distance, between_chunks,maintains_id, 2
     elif len(failed_fragments) == 1:
@@ -224,8 +238,9 @@ def run_qc_of_scene_batch(kwargs_all):
     return qc
 
 def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
+
     tracking_data=pd.read_feather(f"{folder}/{experiment}_tracking_data.feather")
-    
+    tracking_data["id"]=experiment[:26] + "|" + tracking_data["identity"].astype(str).str.zfill(2)
     manifests=sorted(glob.glob(f"{folder}/movies/{experiment}*jsonl"))
     if sample_size is not None:
         manifests=manifests[:sample_size]
@@ -245,9 +260,9 @@ def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
 
         scene=tracking_data.loc[
             (tracking_data["frame_number"] >= scene_start) & (tracking_data["frame_number"] < scene_start+scene_length),
-            ["local_identity", "frame_number", "x","y", "fragment"]
+            ["local_identity", "frame_number", "x","y", "in_frame_index", "fragment"]
         ]
-        scene.columns=["id", "frame_number", "centroid_x", "centroid_y", "fragment"]
+        scene.columns=["id", "frame_number", "centroid_x", "centroid_y", "in_frame_index", "fragment"]
         kwargs.append({"scene": scene, "scene_start": scene_start, "manifest": manifest, "number_of_animals": number_of_animals})
         manifests_todo.append(manifest)
 

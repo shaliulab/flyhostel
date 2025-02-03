@@ -187,9 +187,12 @@ def integrate_human_annotations(
         machine_data,
     ], axis=0).reset_index(drop=True)
 
-    annotations_without_clean_spatial_machine_data_and_rest_of_machine_data.drop_duplicates([
+    index=annotations_without_clean_spatial_machine_data_and_rest_of_machine_data.duplicated([
         "frame_number", "local_identity"
-    ], inplace=True)
+    ])
+    discarded=annotations_without_clean_spatial_machine_data_and_rest_of_machine_data.loc[index]
+    discarded.to_csv("discarded_machine_data.csv")
+    annotations_without_clean_spatial_machine_data_and_rest_of_machine_data=annotations_without_clean_spatial_machine_data_and_rest_of_machine_data.loc[~index]
 
     # First discard:
     # all duplicates come from data_not_corrected (machine annotation) with the same local identity as a human annotation
@@ -216,6 +219,10 @@ def integrate_human_annotations(
     validated_frames=validated_frames.loc[validated_frames["validated"]>0]
     new_data["frame_validated"]=False
     new_data.loc[new_data["frame_number"].isin(validated_frames["frame_number"]), "frame_validated"]=True
+
+    # remove animals with local identity 0 where the frame has been validated
+    # this makes sense becomes since it's been validated, all flies with local identity 0 either are ignored
+    # or acquired a positive local identity
     new_data=new_data.loc[~((new_data["local_identity"]==0) & (new_data["frame_validated"]==True))]
 
     logger.debug("Assign in frame index")
@@ -238,7 +245,7 @@ def integrate_human_annotations(
             fragment=manual_validation["fragment"]
             replace=manual_validation["replace"]
             local_identity=manual_validation["local_identity"]
-            
+
             if replace:
                 extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["local_identity"]==local_identity))]
                 new_data=new_data.loc[~((new_data["frame_number"]==frame_number)&(new_data["local_identity"]==local_identity))]
@@ -248,7 +255,7 @@ def integrate_human_annotations(
                 extra_data["in_frame_index"]=np.nan
             else:
                 extra_data=machine_data.loc[(machine_data["chunk"]==chunk)&(machine_data["fragment"]==fragment)]
-            
+
             extra_data["local_identity"]=local_identity
             extra_data["is_a_crossing"]=False
             extra_data["validated"]=1
@@ -258,7 +265,6 @@ def integrate_human_annotations(
                 extra_data[new_data.columns]
             ], axis=0)
 
-    
     logger.debug("Assing in_frame_index")
     new_data.sort_values("frame_number", inplace=True)
     new_data["frame_idx"]=new_data["frame_number"]%chunksize
@@ -360,21 +366,24 @@ def list_flies_with_lid_0(data):
 
 
 def assign_in_frame_indices(data):
+    data.reset_index(drop=True, inplace=True)
     fn_index=data.loc[data["in_frame_index"].isna(), "frame_number"].unique().tolist()
     rows_to_annotate=data.loc[(data["frame_number"].isin(fn_index))]
-    data=data.drop(rows_to_annotate.index, axis=0)
- 
+    data_ok=data.drop(index=rows_to_annotate.index)
+
     new_rows=[]
     for frame_number in tqdm(fn_index, desc="Assign in frame index"):
         one_frame_data=rows_to_annotate.loc[rows_to_annotate["frame_number"]==frame_number]
         last_in_frame_index=np.nanmax(one_frame_data["in_frame_index"])
+        if np.isnan(last_in_frame_index):
+            last_in_frame_index=-1
         for i, row in one_frame_data.iterrows():
             if np.isnan(row["in_frame_index"]):
                 one_frame_data.loc[i, "in_frame_index"]=last_in_frame_index+1
                 last_in_frame_index+=1
             new_rows.append(one_frame_data)
         
-    data=pd.concat([data] + new_rows, axis=0)
+    data=pd.concat([data_ok] + new_rows, axis=0)
     data.sort_values(["frame_number", "local_identity"], inplace=True)
-
+    data.reset_index(drop=True, inplace=True)
     return data
