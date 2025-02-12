@@ -6,8 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from flyhostel.data.pose.constants import chunksize
-from flyhostel.data.human_validation.cvat.utils import load_tracking_data, load_machine_data, get_number_of_animals, get_basedir, get_dbfile
-
+from flyhostel.utils import get_number_of_animals, get_basedir
 
 def qc1(roi0, ident):
     """
@@ -94,7 +93,6 @@ def make_report(out, folder, identity_tracks, roi0_annotations, identity_annotat
             folder, "number_of_animals_qc_fail.csv"
         )
     )
-
     jump_report(out, folder, number_of_animals)
 
 
@@ -104,14 +102,20 @@ def jump_report(out, folder, number_of_animals):
         out_fly=out.loc[out["identity"]==identity]
         
         distance=np.sqrt((np.diff(out_fly[["x","y"]], axis=0)**2).sum(axis=1))
-
-        dist_df.append(
-            pd.DataFrame({
-                "distance": np.concatenate([[0], distance]),
-                "local_identity": out_fly["local_identity"], "identity": identity,
-                "x": out_fly["x"], "y": out_fly["y"],
-                "frame_number": out_fly["frame_number"]})
+        df=pd.DataFrame({
+            "distance": distance,
+            "identity": identity,
+            "local_identity": out_fly["local_identity"].iloc[:-1],
+            "x": out_fly["x"].iloc[:-1],
+            "y": out_fly["y"].iloc[:-1],
+            "frame_number": out_fly["frame_number"].iloc[:-1]}
         )
+        diff=df["frame_number"].diff()
+
+        if not (diff==1).all():
+            logger.error("Tracks missing for identity in frames %s: %s", identity, df["frame_number"].loc[diff!=1].tolist())
+            logger.error("Tracks missing for identity with gaps of %s: %s frames", identity, diff[diff!=1].tolist())
+        dist_df.append(df)
 
     dist_df=pd.concat(dist_df, axis=0)
     dist_df.sort_values(["distance", "identity"], ascending=[False, True], inplace=True)

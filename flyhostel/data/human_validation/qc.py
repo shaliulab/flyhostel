@@ -136,7 +136,7 @@ def analyze_video(df, number_of_animals, n_jobs=1):
     """
 
     logger.debug("Sorting data chronologically")
-    df=df.sort_values(["chunk", "frame_number"])
+    df.sort_values(["chunk", "frame_number"], inplace=True)
     logger.debug("Setting index of data")
 
     n_windows=df[["chunk", "frame_number"]].drop_duplicates().shape[0]

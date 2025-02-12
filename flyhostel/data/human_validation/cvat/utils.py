@@ -3,18 +3,11 @@ import os.path
 import sqlite3
 import pandas as pd
 
-from flyhostel.utils.utils import get_dbfile, get_basedir
+from flyhostel.utils.utils import get_dbfile
 
 logger=logging.getLogger(__name__)
 
 
-
-
-
-def get_number_of_animals(experiment):
-    tokens = experiment.split("_")
-    number_of_animals=int(tokens[1].rstrip("X"))
-    return number_of_animals
 
 def load_original_resolution(basedir):
 

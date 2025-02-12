@@ -20,12 +20,11 @@ def match_animals_between_chunks_by_distance(before, after, local_identity_befor
     lids=after["local_identity"]
     if isinstance(lids, cudf.Series):
         lids=lids.to_pandas()
-    lids=lids.unique()
+    lids=lids.unique().tolist()
 
     for i, lid_after in enumerate(lids):
         next_animal=after.loc[after["local_identity"]==lid_after]
         if next_animal.shape[0]>1:
-            # import ipdb; ipdb.set_trace()
             raise ValueError(f"{next_animal.shape[0]} animals found with local identity {lid_after} in chunk {chunk+1}")
 
         elif next_animal.shape[0]==0:
@@ -64,17 +63,18 @@ def make_identity_table(lid_table, chunks):
         lids=before["local_identity"]
         if isinstance(lids, cudf.Series):
             lids=lids.to_pandas()
-        lids=lids.unique()
+        lids=lids.unique().tolist()
         with open("identity_table.log", "w") as log:
             for lid in lids:
                 local_identity, min_distance=match_animals_between_chunks_by_distance(before, after, lid, chunk, log)
                 if local_identity in used_local_identity_after:
                     logger.warning("%s already used in chunk %s", local_identity, chunk)
                     log.write(f"{local_identity} already used in chunk {chunk}\n")
+                    print(before, after)
                 else:
-                    used_local_identity_after.add(local_identity.item())
+                    used_local_identity_after.add(local_identity)
                 
-                identity_table.append((chunk.item(), lid.item(), local_identity.item(), min_distance))
+                identity_table.append((chunk.item(), lid, local_identity, min_distance))
 
     identity_table=pd.DataFrame.from_records(identity_table, columns=["chunk", "local_identity", "local_identity_after", "distance"])
     identity_table["is_inferred"]=False
@@ -92,8 +92,7 @@ def annotate_identity(data, number_of_animals):
     """
 
     xf=establish_dataframe_framework(data)
-    data=xf.DataFrame(data)
-
+    data=xf.DataFrame(data.drop("identity", axis=1, errors="ignore"))
     lid_table=xf.concat([
         data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).first().reset_index(),
         data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).last().reset_index(),

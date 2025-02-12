@@ -113,7 +113,7 @@ def annotate_for_validation(
         cache=False,
     ):
     """
-    Entrypoint
+    Entrypoint make-identogram
 
     Generate movies capturing each scene where validation may be needed based on heuristics and QC
     """
@@ -204,10 +204,11 @@ def annotate_for_validation(
 
     kwargs=[]
 
+    margin_size=1
     for i, row in qc_fail.iterrows():
-        frame_number_0=row["frame_number"]
+        frame_number_0=row["frame_number"]-margin_size
         duration=row["duration"]
-        frame_number_last=frame_number_0+duration*FRAMERATE
+        frame_number_last=frame_number_0+duration*FRAMERATE+margin_size
 
         tracking_data=df.loc[
             (df["frame_number"]>=frame_number_0) &

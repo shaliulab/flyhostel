@@ -69,7 +69,14 @@ def scene_qc(scene, number_of_animals):
         # if all available ids appear in all frames
         if (counts==scene_length).all():
             broken=0
-            max_velocity=max_velocity_qc_ideal(scene, number_of_animals)
+            try:
+                max_velocity=max_velocity_qc_ideal(scene, number_of_animals)
+            except ValueError:
+                # this happens because the scene has length 1 and a velocity can therefore not be computed
+                # Solution -> add one more frame to the scene?
+                # For now just set max_velocity to high
+                max_velocity=cp.inf
+
         else:
             broken=1
             max_velocity=max_velocity_qc_not_ideal(scene)
@@ -192,7 +199,6 @@ def fragment_gap_qc(scene):
         gap_distance=(((last_observed[["centroid_x", "centroid_y"]].values-first_observed[["centroid_x", "centroid_y"]].values)**2).sum()**0.5).item()
         maintains_id=int(last_observed["id"]==first_observed["id"])
 
-    
         return number_of_missing_frames, gap_distance, between_chunks,maintains_id, 2
     elif len(failed_fragments) == 1:
         maintains_id=None
