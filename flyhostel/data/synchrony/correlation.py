@@ -161,11 +161,23 @@ def mean_squared_difference(df, col1, col2, lag=0, nan=0):
     return msq_diff, n_points
 
 
-def annotator(df, lags, feature="asleep", FUNs={}, auto=False, **kwargs):
+def annotator(df, lags, feature="asleep", FUNs={}, auto=False, summary_FUN="mean", **kwargs):
 
     assert df.shape[0]>0
     wide_table=df.reset_index().pivot_table(index=['t'], columns='id', values=feature)
-    ids=wide_table.columns.tolist()
+    # import ipdb; ipdb.set_trace()
+    bool_table=(wide_table==1).astype(int)
+    diff_table=bool_table.diff(axis=0).iloc[1:]
+
+    tables={
+        "mean": wide_table,
+        "P_doze": (diff_table==+1).astype(int),
+        "P_wake": (diff_table==-1).astype(int),
+    }
+    
+    X=tables[summary_FUN]
+
+    ids=X.columns.tolist()
     pairs=list(itertools.combinations(ids, 2))
     if auto:
         for id in ids:
@@ -175,7 +187,7 @@ def annotator(df, lags, feature="asleep", FUNs={}, auto=False, **kwargs):
     for lag in tqdm(lags, desc="Analyzing lags"):
         for id1, id2 in pairs:
             for FUN, FUN_name in FUNs.items():
-                val, N=FUN(wide_table, id1, id2, lag=lag, **kwargs)
+                val, N=FUN(X, id1, id2, lag=lag, **kwargs)
                 records.append((
                     id1, id2, lag, val, FUN_name, N
                 ))
