@@ -305,7 +305,7 @@ def save_confusion_matrix(predictions, y_true, y_pred, output_folder, name="test
         labels=labels
     )
     np.savetxt(
-        os.path.join(output_folder, "test_confusion_matrix.csv"),
+        os.path.join(output_folder, os.path.splitext(name)[0] + ".csv"),
         disp.confusion_matrix, delimiter=",", fmt="%.4e"
     )
 

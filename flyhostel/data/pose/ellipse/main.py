@@ -110,7 +110,7 @@ def model_ellipses(loaders, sources, n_jobs):
     ellipse_data_pose=None
 
     if "opencv" in sources:
-        ellipse_data_cv=get_ellipses_from_opencv(loaders, frame_numbers, n_jobs=n_jobs)
+        ellipse_data_cv, contours=get_ellipses_from_opencv(loaders, frame_numbers, n_jobs=n_jobs)
         index=ellipse_data_cv.loc[ellipse_data_cv["id"].isna()].groupby("frame_number").size()
         # get the frame number where not all ellipses got an id
         frame_numbers=index.loc[index!=0].index.tolist()

@@ -45,8 +45,8 @@ def get_bodyparts():
 bodyparts=get_bodyparts()
 
 
-legs = [bp for bp in bodyparts if "L" in bp.lower()]
-wings = [bp for bp in bodyparts if "W" in bp.lower()]
+legs = [bp for bp in bodyparts if "l" in bp.lower()]
+wings = [bp for bp in bodyparts if "w" in bp.lower()]
 core = ["thorax", "abdomen", "head", "proboscis"]
 
 

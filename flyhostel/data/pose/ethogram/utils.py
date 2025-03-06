@@ -43,6 +43,14 @@ def annotate_bout_duration(dataset, fps=FRAMERATE, on=["bout_count"]):
     return dataset
 
 def annotate_bouts(dataset, variable):
+    """
+    Annotate columns bout_out, bout_in, bout_count
+
+    bout_in: How many rows since the bout started
+    bout_out: How many rows until the bout finishes
+    bout_count: How many bouts have there been already
+    
+    """
     dataset=count_bout_position(dataset.iloc[::-1], variable=variable, counter="bout_out").iloc[::-1]
     dataset=count_bout_position(dataset, variable=variable, counter="bout_in")
     return dataset

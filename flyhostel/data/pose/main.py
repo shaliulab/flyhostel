@@ -1,4 +1,5 @@
 import time
+import pickle
 import io
 import shutil
 import itertools
@@ -32,8 +33,11 @@ from flyhostel.data.pose.sleep import SleepAnnotator
 from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
 from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
-from motionmapperpy import setRunParameters
-wavelet_downsample=setRunParameters().wavelet_downsample
+try:
+    from motionmapperpy import setRunParameters
+    wavelet_downsample=setRunParameters().wavelet_downsample
+except ModuleNotFoundError:
+    wavelet_downsample=None
 pd.set_option("display.max_columns", 100)
 
 def dunder_to_slash(experiment):
@@ -61,43 +65,15 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
     """
     Analyse microbehavior produced in the flyhostel
 
-    experiment="FlyHostelX_XX_XX-XX-XX_XX-XX-XX"
+    experiment="FlyHostelF_NX_YY-MM-DD_HH-MM-SS"
 
-    loader = FlyHostelLoader(experiment, n_jobs=20)
-    # n_jobs simply controls how many processes to use in parallel when loading idtrackerai (centroid) data
+    loader = FlyHostelLoader(experiment, identity=identity)
+    
+    # to load behavioral timeseries
+    loader.load_behavior_data()
 
-    # loads centroid data (idtrackerai) and pose data (SLEAP)
-    loader.load_data(min_time=14*3600, max_time=22*3600, time_system="zt")
-    # populates loader.dt (centroid) and loader.pose (pose)
-
-    # quantifies bouts of proboscis extension
-    loader.detect_proboscis_extension(self.pose)
-    # output is saved in loader.pe_df
-
-    # output is saved in loader.dt_sleep (original framerate)
-    # and loader.dt_sleep_2fps
-
-    ## annotate interactions between flies and keep track of which body part was used
-    # connect pose and centroid
-    loader.integrate(self.dt, self.pose_boxcar)
-    # pre-filter frames so only frames where at least two animals are at < 3 mm of each other are kept
-    loader.compute_pairwise_distances(dist_max=3)
-
-    # now on this subset, compute the interfly body pair distance
-    # find the minimum distance between 2 bodyparts of different flies
-    # and require it to be less than 2 mm for 3 seconds
-    loader.annotate_interactions(dist_max=2, min_bout=3)
-
-    # output is saved in
-    loader.interactions_sleep
-
-
-    # to load DEG human made labels (ground_truth)
-
-    # if identity is None, all available identities in the loader are loaded
-    loader.load_deg_data(identity=None)
-    # now loader.deg is populated
-
+    # to load interaction timeseries
+    loader.load_interaction_data()
     """
 
     def __init__(self, experiment, identity, *args, lq_thresh=1, roi_width_mm=ROI_WIDTH_MM, n_jobs=1, chunks=None,
@@ -177,6 +153,20 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         else:
             self.roi_0_table=roi_0_table
 
+
+    def __repr__(self):
+        return self.experiment + '__' + str(self.identity).zfill(2)
+
+        
+    @classmethod
+    def load_from_cache(cls, cache_file):
+        if os.path.exists(cache_file):
+            with open(cache_file, "rb") as handle:
+                logger.info("Loading %s", cache_file)
+                loader=pickle.load(handle)
+            return loader
+        return None
+        
     def load_meta_info(self):
         """
         Populate meta_info dictionary with keys:
@@ -360,7 +350,6 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         out=pd.concat(out, axis=0)
         return out
 
-
     def load_store_index(self, cache=None):
 
         if cache is not None:
@@ -466,7 +455,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         dt, meta_info=load_centroid_data(
             *args, experiment=experiment, identity=identity,
             reference_hour=reference_hour,
-            min_time=min_time, max_time=max_time, stride=1,
+            min_time=min_time, max_time=max_time, stride=stride,
             roi_0_table=roi_0_table, identity_table=identity_table,
             **kwargs
         )

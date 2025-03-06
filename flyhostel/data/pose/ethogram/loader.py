@@ -348,7 +348,8 @@ def load_centroids(loader, frame_numbers=None, load_centroid_speed=True):
     if frame_numbers is not None:
         logger.debug("Filtering centroid data to include only %s frames", len(frame_numbers))
         loader.dt=loader.dt.loc[loader.dt["frame_number"].isin(frame_numbers)]
-    
+
+    assert loader.dt is not None, f"No centroid data found. Did you update the metadata?"
     dt=loader.dt
     
     if load_centroid_speed:

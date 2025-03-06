@@ -73,14 +73,32 @@ class BehaviorLoader():
             
     def load_behavior_data(self, experiment=None, identity=None, min_time=None, max_time=None):
         """
-        Load the results of draw_ethogram (predict_behavior process)
+        Load a behavior timeseries computed at 30 FPS from an original centroid timeseries at 150 FPS
+        Data frame is available in self.behavior
+
+        Features:
+            * id: Unique identifier for the animal
+            * frame_number: Number of frames passed until the collection of the current frame
+            * t: Seconds since ZT0
+            * chunk, frame_idx: One chunk is made by 45k consecutive frames. frame_idx is the position within the chunk (goes up to 45k)
+            * x, y: Absolute coordinates of the animal in the arena, relative to the top left corner and normalized to 1 (so the bottom right corner is 1,1)
+            * food_distance: Distance to the edge of the patch of food. Negative distance = inside the patch. Unit is ROI width
+            * notch_distance: Distance to the edge of the closest notch on the glass. Unit is ROI width
+            * score: Score given by the RF model to the winning behavioral label
+            * prediction: Winning behavioral label
+            * prediction2: Behavioral label after modifications based on heuristic rules
+            * rule: Which rule was applied to modify prediction
+            * bout_in_pred, bout_out_pred: How many consecutive time points with the same prediction2 value until this point or from this point to the end of the bout
+            * duration_pred: How many seconds does the bout last. If bout_in_pred=1, duration_pred = bout_out_pred / 30 (because fps=30)
+            * centroid_speed: Distance travelled by the centroid from the previous timepoint to the current one (fps=30)
+            * centroid_speed_1s: Distance travelled by the centroid in the last second, computed by adding the distance travelled in the last 150 original timepoints           
         """
 
         if experiment is None:
             experiment=self.experiment
 
         if identity is None:
-            identity=self.identity        
+            identity=self.identity
 
         feather_path=self.get_behavior_feather_file(experiment, identity)
         if os.path.exists(feather_path):

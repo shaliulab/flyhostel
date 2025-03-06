@@ -149,8 +149,14 @@ def process_frame(frame, config):
     config=process_config(config)
 
     roi_mask = np.zeros_like(frame)
+
+
     roi_contour = np.array(eval(config["rois"][0][0])).reshape((-1, 1, 2))
     roi_mask = cv2.drawContours(roi_mask, [roi_contour], -1, 255, -1)
+    
+    if len(roi_mask.shape)==3:
+        roi_mask=roi_mask[:, :, 0]
+    
     config["mask"]=roi_mask
     # cv2.imwrite("mask.png", roi_mask)
     config["resolution_reduction"]=1.0
@@ -182,19 +188,23 @@ def preprocess_ellipses(basedir, frame_numbers):
     records=[]
     idtrackerai_config=load_idtrackerai_config(basedir)
     cap=VideoCapture(f"{basedir}/metadata.yaml", 50)
+    all_contours=[]
     for i, frame_number in enumerate(tqdm(frame_numbers, desc="Preprocessing frame")):
         if i!=0 and frame_number == frame_numbers[i-1] + 1:
             _, frame=cap.read()
         else:
             frame, (frame_number, frame_timestamp) = cap.get_image(frame_number)
-        
+
         contours=process_frame(frame, idtrackerai_config)
+        contours=[np.array(contour) for contour in contours]
+        all_contours.append(contours)
+        
         ellipses=project_to_ellipse(contours)
-        for ellipse in ellipses:
+        for i, ellipse in enumerate(ellipses):
             (x_center, y_center), (major_axis_length, minor_axis_length), angle = ellipse
-            records.append((x_center, y_center, major_axis_length, minor_axis_length, angle, frame_number))
-    df=pd.DataFrame.from_records(records, columns=["x", "y", "major", "minor", "angle", "frame_number"])
-    return df
+            records.append((x_center, y_center, major_axis_length, minor_axis_length, angle, frame_number, i))
+    df=pd.DataFrame.from_records(records, columns=["x", "y", "major", "minor", "angle", "frame_number", "contour_id"])
+    return df, all_contours
 
 def preprocess_ellipses_mp(basedir, frame_numbers, n_jobs):
 
@@ -205,7 +215,7 @@ def preprocess_ellipses_mp(basedir, frame_numbers, n_jobs):
     partition_size=len(frame_numbers)//n_jobs + 1
 
     partitions=[frame_numbers[i*partition_size:((i+1)*partition_size)] for i in range(n_jobs)]
-    dfs=joblib.Parallel(n_jobs=n_jobs)(
+    out=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             preprocess_ellipses
         )(
@@ -213,6 +223,8 @@ def preprocess_ellipses_mp(basedir, frame_numbers, n_jobs):
         )
         for i in range(len(partitions))
     )
+    dfs=[df for df, _ in out]
+    contours=list(itertools.chain(*[contours for _, contours in out]))
     df=pd.concat(dfs, axis=0).reset_index(drop=True)
-    return df
+    return df, contours
 

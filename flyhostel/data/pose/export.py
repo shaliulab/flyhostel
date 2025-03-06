@@ -215,8 +215,9 @@ def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VA
     cur.execute(f"SELECT * FROM {concatenation_table};")
     records=cur.fetchall()
     concatenation=pd.DataFrame.from_records(records, columns=header)
+    concatenation["chunk"]=concatenation["chunk"].astype(int)
     concatenation["dfile"] = [
-        infer_analysis_path(basedir, int(row["local_identity"]), str(int(float(row["chunk"]))).zfill(6), number_of_animals=number_of_animals)
+        infer_analysis_path(basedir, int(row["local_identity"]), str(row["chunk"]).zfill(6), number_of_animals=number_of_animals)
         for i, row in concatenation.iterrows()
     ]
     return concatenation

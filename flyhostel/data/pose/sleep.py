@@ -24,11 +24,18 @@ from flyhostel.data.pose.ethogram.utils import (
 )
 from flyhostel.data.pose.ethogram.utils import postprocessing
 from flyhostel.data.pose.ethogram.plot import bin_behavior_table_v2
-from deepethogram.postprocessing import find_bout_indices
-from motionmapperpy import setRunParameters
-from zeitgeber.rle import encode, decode
+try:
+    from deepethogram.postprocessing import find_bout_indices
+    from motionmapperpy import setRunParameters
+    from zeitgeber.rle import encode, decode
+    wavelet_downsample=setRunParameters().wavelet_downsample
 
-wavelet_downsample=setRunParameters().wavelet_downsample
+except ModuleNotFoundError:
+    find_bout_indices=None
+    wavelet_downsample=None
+    encode=None
+    decode=None
+
 
 # duration of a behavioral unit
 RESOLUTION=1

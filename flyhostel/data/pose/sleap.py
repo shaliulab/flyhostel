@@ -145,6 +145,91 @@ def annotate_data(input_video_path, output_video_path, df, column="text"):
     out.release()
 
 
+def get_local_identity(dbfile, chunk, identity):
+    table_name="CONCATENATION_VAL"
+
+    with sqlite3.connect(dbfile) as conn:
+        cursor=conn.cursor()
+        cmd=f"SELECT local_identity FROM {table_name} WHERE identity = {identity} AND chunk = {chunk};"
+        print(cmd)
+        cursor.execute(cmd)
+        local_identity=int(cursor.fetchone()[0])
+        return local_identity
+
+
+def load_pose_dataset(
+        basedir, identities, frame_number, seconds,
+        single_animal=False, pose_name="raw", bodyparts=BODYPARTS, downsample=1
+    ):
+
+    experiment="_".join(basedir.split('/')[-3:])
+    number_of_animals=int(experiment.split("_")[1].replace("X",""))
+    frame_number1=int(frame_number+seconds*FRAMERATE)
+    chunk=frame_number//CHUNKSIZE
+
+    dbfile=get_dbfile(basedir)
+    datasets=[]
+    for identity in identities:
+        if number_of_animals==1:
+            local_identity=0
+        else:
+            local_identity=get_local_identity(dbfile, chunk, identity)
+        if single_animal:
+            video_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.mp4"
+        else:
+            video_file=f"{basedir}/{str(chunk).zfill(6)}.mp4"
+
+        animal=f"{experiment}__{str(identity).zfill(2)}"
+        
+        #csv_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.csv"
+        #if os.path.exists(csv_file):
+        #    centroids=pd.read_csv(csv_file)[["frame_number", "x", "y"]]
+        #else:
+        #logger.debug("%s not found", csv_file)
+        min_frame_number=chunk*CHUNKSIZE
+        max_frame_number=(chunk+1)*CHUNKSIZE                
+        centroids=load_centroids(dbfile, identity, min_frame_number, max_frame_number, roi_0_table="ROI_0_VAL", identity_table="IDENTITY_VAL")
+
+        first_video=sorted(glob.glob(f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/*mp4"))[0]
+        first_fn=int(os.path.splitext(os.path.basename(first_video))[0])*CHUNKSIZE
+        f0=frame_number-first_fn
+        f1=frame_number1-first_fn
+        
+        analysis_file=f"{basedir}/motionmapper/{str(identity).zfill(2)}/pose_{pose_name}/{animal}/{animal}.h5"
+        with h5py.File(analysis_file, "r", locking=True) as f:
+            pose=f["tracks"][0, :, :, f0:f1]
+            bodyparts=[e.decode() for e in f["node_names"]]
+            n_dims=pose.shape[0]
+
+        dimensions=["x","y","z"][:n_dims]
+        features_by_dimension={
+            d: [bp + "_" + d for bp in bodyparts]
+            for d in dimensions
+        }
+        bodyparts_nd=list(itertools.chain(*[[features_by_dimension[d][i] for d in dimensions] for i in range(len(bodyparts))]))
+        pose_df=pd.DataFrame(pose.T.reshape((f1-f0, -1)))
+        pose_df.columns=bodyparts_nd
+        pose_df["frame_number"]=np.arange(frame_number, frame_number1)
+        pose_df["frame_idx"]=pose_df["frame_number"]%CHUNKSIZE
+        pose_df["identity"]=identity
+        index=pose_df[["frame_number"]].copy()
+        index["video"]=video_file
+        index["identity"]=identity
+        pose_df=pose_df.loc[pose_df["frame_number"]%downsample==0]
+        pose_df=pose_df.merge(centroids, how="left", on="frame_number")
+        
+        for d in dimensions:
+            assert pose_df[d].isna().mean()==0, f"Missing data for {d} coordinate of identity {identity}"
+            if not single_animal:
+                for feature in features_by_dimension[d]:
+                    pose_df[feature]+=pose_df[d]-50
+
+        datasets.append((pose_df, index))
+    
+    dataset=pd.concat([pose_df for pose_df, _ in datasets], axis=0)
+    index=pd.concat([index for _, index in datasets], axis=0)
+
+    return dataset, index
 
 try:
     from sleap.io.dataset import Labels
@@ -152,13 +237,41 @@ try:
     from sleap.instance import LabeledFrame, Instance, PredictedInstance, Track
     from sleap.io.visuals import resize_images, VideoMarkerThread
     from sleap.io.visuals import save_labeled_video
+    from sleap.gui.color import ColorManager
     cwd=os.getcwd()
     ref_labels_file="/Users/FlySleepLab_Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/labels_train.slp"
     os.chdir(os.path.dirname(ref_labels_file))
     skeleton=Labels.load_file(ref_labels_file).skeleton
     os.chdir(cwd)
 
-    
+
+    def get_color_manager(identities, colors):
+        """
+        Assign to the ith identity the ith color
+
+        Arguments:
+        --------------
+            * identities (list): List of integers which refer to an identity
+            * colors (list): List of 3-long tuples with the RGB code for the color of an identity
+        """
+        assert len(identities)==len(colors)
+        temp_file="~/sleap.png"
+        video=Video.from_filename(temp_file)
+        lf=LabeledFrame(video=video, frame_idx=0)
+       
+        tracks_l=[
+            Track(name=f"Track-{ident}")
+            for ident in identities
+        ]
+        tracks_d={identities[i]: tracks_l[i] for i in range(len(tracks_l))}
+        
+        labels=Labels(tracks=tracks_l, labeled_frames=[lf])
+        color_manager=ColorManager(labels=labels)
+        #RGB
+        color_manager._color_map=colors
+        return color_manager, tracks_d
+        
+
     def numpy(instance, bodyparts):
         
         """
@@ -355,93 +468,35 @@ try:
                 print(error)
 
 
-    def get_local_identity(dbfile, chunk, identity):
-        table_name="CONCATENATION_VAL"
 
-        with sqlite3.connect(dbfile) as conn:
-            cursor=conn.cursor()
-            cmd=f"SELECT local_identity FROM {table_name} WHERE identity = {identity} AND chunk = {chunk};"
-            print(cmd)
-            cursor.execute(cmd)
-            local_identity=int(cursor.fetchone()[0])
-            return local_identity
-            
+    
     def make_pose_video_multi_fly(
-            basedir, identities, frame_number, seconds, bodyparts, downsample, pose_name="raw", fps=None, prefix=None, palette="custom",
-            data=None, single_animal=False, output_folder=".", extension=".mp4", **kwargs,
+            basedir, identities, frame_number, seconds, bodyparts, downsample,
+            pose_name="raw", fps=None, prefix=None,
+            colors=None, palette="custom",
+            data=None, single_animal=False,
+            output_folder=".", extension=".mp4", **kwargs,
         ):
         """
         Draw pose of an animal in the original video using a single job
         Please see NOTE in make_pose_video_multi_fly_mp if you update the signature 
         
         """
-       
-        frame_number1=int(frame_number+seconds*FRAMERATE)
+        if colors is not None:
+            color_manager, tracks=get_color_manager(identities, colors)
+        else:
+            color_manager=None
+            tracks=None
+        
+        dataset, index=load_pose_dataset(
+            basedir, identities, frame_number, seconds,
+            pose_name=pose_name, bodyparts=bodyparts, single_animal=single_animal,
+            downsample=downsample
+        )
+    
         chunk=frame_number//CHUNKSIZE
         experiment="_".join(basedir.split('/')[-3:])
-        number_of_animals=int(experiment.split("_")[1].replace("X",""))
 
-        dbfile=get_dbfile(basedir)
-        datasets=[]
-        for identity in identities:
-            if number_of_animals==1:
-                local_identity=0
-            else:
-                local_identity=get_local_identity(dbfile, chunk, identity)
-            if single_animal:
-                video_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.mp4"
-            else:
-                video_file=f"{basedir}/{str(chunk).zfill(6)}.mp4"
-
-            animal=f"{experiment}__{str(identity).zfill(2)}"
-            
-            #csv_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.csv"
-            #if os.path.exists(csv_file):
-            #    centroids=pd.read_csv(csv_file)[["frame_number", "x", "y"]]
-            #else:
-            #logger.debug("%s not found", csv_file)
-            min_frame_number=chunk*CHUNKSIZE
-            max_frame_number=(chunk+1)*CHUNKSIZE                
-            centroids=load_centroids(dbfile, identity, min_frame_number, max_frame_number, roi_0_table="ROI_0_VAL", identity_table="IDENTITY_VAL")
-
-            first_video=sorted(glob.glob(f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/*mp4"))[0]
-            first_fn=int(os.path.splitext(os.path.basename(first_video))[0])*CHUNKSIZE
-            f0=frame_number-first_fn
-            f1=frame_number1-first_fn
-            
-            analysis_file=f"{basedir}/motionmapper/{str(identity).zfill(2)}/pose_{pose_name}/{animal}/{animal}.h5"
-            with h5py.File(analysis_file, "r", locking=True) as f:
-                pose=f["tracks"][0, :, :, f0:f1]
-                bodyparts=[e.decode() for e in f["node_names"]]
-                n_dims=pose.shape[0]
-
-            dimensions=["x","y","z"][:n_dims]
-            features_by_dimension={
-                d: [bp + "_" + d for bp in bodyparts]
-                for d in dimensions
-            }
-            bodyparts_nd=list(itertools.chain(*[[features_by_dimension[d][i] for d in dimensions] for i in range(len(bodyparts))]))
-            pose_df=pd.DataFrame(pose.T.reshape((f1-f0, -1)))
-            pose_df.columns=bodyparts_nd
-            pose_df["frame_number"]=np.arange(frame_number, frame_number1)
-            pose_df["frame_idx"]=pose_df["frame_number"]%CHUNKSIZE
-            pose_df["identity"]=identity
-            index=pose_df[["frame_number"]].copy()
-            index["video"]=video_file
-            index["identity"]=identity
-            pose_df=pose_df.loc[pose_df["frame_number"]%downsample==0]
-            pose_df=pose_df.merge(centroids, how="left", on="frame_number")
-            
-            for d in dimensions:
-                assert pose_df[d].isna().mean()==0, f"Missing data for {d} coordinate of identity {identity}"
-                if not single_animal:
-                    for feature in features_by_dimension[d]:
-                        pose_df[feature]+=pose_df[d]-50
-
-            datasets.append((pose_df, index))
-        
-        dataset=pd.concat([pose_df for pose_df, _ in datasets], axis=0)
-        index=pd.concat([index for _, index in datasets], axis=0)
         if prefix is None:
             prefix=""
         elif not prefix.endswith("_"):
@@ -471,7 +526,8 @@ try:
             marker_size=.6,
             distinctly_color="instances",
             scale=4,
-            **kwargs,
+            color_manager=color_manager,
+            tracks=tracks
         )
 
 
