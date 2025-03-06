@@ -6,12 +6,13 @@ DATABASES={
     "336a1cf967794d938daad8852ecc2b7b": "FlyHostel4_3X_2024-12-10_16-00-00",
 }
 
+import os
 import requests
 import pandas as pd
 from tqdm.auto import tqdm
 import numpy as np
 
-auth_token = "secret_v5AVuVgIsG7J2MWUnfvN6xSwBtIXRi6hAUBkeqtrLeH"
+auth_token = os.environ["NOTION_TOKEN"]
 
 
 def query_database(database_id, auth_token):
