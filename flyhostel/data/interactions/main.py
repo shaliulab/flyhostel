@@ -137,6 +137,7 @@ def infer_neighbors_by_time_partitions(
         raise NotImplementedError()
     return dt_neighbors
 
+
 def analyze_group(
         group, framerate=15,
         useGPU=True, interval=None,
@@ -146,7 +147,6 @@ def analyze_group(
     """
     Detect interactions between animals in a group
     """
-
 
     # load the x y coordinates of the centroids of each animal over time
     group.dt=group.load_centroid_data(framerate=framerate, useGPU=useGPU)
@@ -182,7 +182,7 @@ def find_neighbors(group, dt, framerate):
 
     # find frames where the centroid of at least two flies it at most dist_max_mm mm from each other
     dt_neighbors=group.find_neighbors(
-        dt[["id", "frame_number", "centroid_x", "centroid_y"]],
+        dt[["id", "frame_number", "centroid_x", "centroid_y", "t"]],
         dist_max_mm=group.dist_max_mm,
         framerate=framerate,
     )

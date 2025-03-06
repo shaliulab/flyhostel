@@ -69,12 +69,9 @@ class InteractionDetector(FilesystemInterface):
             dist_max_px=dist_max_mm*self.px_per_mm
             logger.info("Neighbors = < %s mm (%s pixels)", dist_max_mm, dist_max_px)
 
-            neighbors = find_neighbors_gpu(dt, dist_max_px, step=step)
-            neighbors["distance_mm"] = neighbors["distance"] / self.px_per_mm
+            neighbors_df = find_neighbors_gpu(dt, dist_max_px, step=step)
+            neighbors_df["distance_mm"] = neighbors_df["distance"] / self.px_per_mm
 
-            neighbors_df=neighbors[
-                ["id", "nn", "distance_mm", "distance", "frame_number"]
-            ]
             neighbors_df=neighbors_df.sort_values(["frame_number", "id"])
         return neighbors_df
 
