@@ -23,7 +23,7 @@ def main():
     ap=get_parser()
     args=ap.parse_args()
     
-    time_window_length=round(2/150, 3)
+    time_window_length=round(1/150, 3)
     os.makedirs(args.folder, exist_ok=True)
     try:
         shutil.rmtree(os.path.join(args.folder, "movies"))
@@ -32,7 +32,7 @@ def main():
     
     df, df_bin, qc_fail=annotate_for_validation(
         args.experiment, args.folder,
-        time_window_length=time_window_length,
+        time_window_length=args.time_window_length,
         format=".png",
         n_jobs=args.n_jobs,
         cache=args.cache,
