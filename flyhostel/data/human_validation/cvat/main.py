@@ -11,11 +11,12 @@ import sqlite3
 from flyhostel.data.pose.constants import chunksize
 from flyhostel.utils.utils import get_basedir
 from flyhostel.data.human_validation.cvat.cvat_integration import get_annotations, cross_machine_human
-from flyhostel.data.human_validation.cvat.utils import load_machine_data, get_dbfile
+from flyhostel.data.human_validation.cvat.utils import load_machine_data, get_dbfile, assign_in_frame_indices
 from flyhostel.data.human_validation.cvat.fragments import make_identity_singletons, make_identity_tracks
 from flyhostel.data.human_validation.cvat.identity import annotate_identity
 from flyhostel.data.human_validation.cvat.sqlite3 import write_validated_identity, write_validated_roi0, write_validated_concatenation
 from flyhostel.data.human_validation.cvat.report import make_report
+from flyhostel.data.human_validation.cvat.validation_csv import apply_validation_csv_file
 from flyhostel.utils import get_number_of_animals
 logger=logging.getLogger(__name__)
 
@@ -210,9 +211,6 @@ def integrate_human_annotations(
         how="left",
         on=["chunk", "fragment"]
     )
-
-
-
     
     # combine all data sources
     updated_data=pd.concat([
@@ -237,83 +235,11 @@ def integrate_human_annotations(
 
     new_data=updated_data.copy()
 
+    new_data.drop_duplicates(["frame_number", "local_identity"], inplace=True)
     if os.path.exists(validation_csv):
-        extra_rows=[]
-        manual_validation=pd.read_csv(validation_csv)
-        for _, manual_validation in tqdm(manual_validation.iterrows(), desc="Applying manual validations", total=manual_validation.shape[0]):
-            frame_number=manual_validation["frame_number"]
-            chunk=frame_number//chunksize
-            fragment=manual_validation["fragment"]
-            replace=manual_validation["replace"]
-            local_identity=manual_validation["local_identity"]
+        new_data=apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize)
 
-            if replace:
-                if manual_validation.get("by_identity", True):
-                    extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["local_identity"]==local_identity))]
-                    extra_data["fragment"]=np.nan
-                else:
-                    if np.isnan(manual_validation.get("first_frame_number", np.nan)):
-                        extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["fragment"]==fragment))]
-                    else:
-                        frame_numbers=np.arange(manual_validation["first_frame_number"], manual_validation["last_frame_number"]+1)
-                        extra_data=new_data.loc[((new_data["frame_number"].isin(frame_numbers))&(new_data["fragment"]==fragment))]
-
-                extra_data["in_frame_index"]=np.nan
-                nrows=new_data.shape[0]
-                foo=new_data.merge(extra_data[[]], left_index=True, right_index=True, how="outer", indicator=True)
-                new_data=foo.loc[foo["_merge"]=="left_only"].drop("_merge", axis=1)
-                new_nrows=new_data.shape[0]
-                assert nrows-new_nrows==extra_data.shape[0]
-                logger.info("Modified %s rows of dataset", extra_data.shape[0])
-                del foo
-
-                extra_data["local_identity"]=local_identity
-                extra_data["is_a_crossing"]=False
-                extra_data["validated"]=1
-                extra_data["frame_validated"]=False
-                extra_rows.append(extra_data)
-
-
-            else:
-                extra_data=machine_data.loc[(machine_data["chunk"]==chunk)]
-                if np.isnan(manual_validation.get("first_frame_number", np.nan)):
-                    frame_numbers=[frame_number]
-                else:
-                    frame_numbers=np.arange(manual_validation["first_frame_number"], manual_validation["last_frame_number"]+1)
-                
-                for frame_number in frame_numbers:
-                    if np.isnan(fragment):
-                        ref_data=extra_data.loc[extra_data["frame_number"]==frame_number]
-                        extra_data=pd.DataFrame({
-                            "frame_number": [frame_number],
-                            "in_frame_index": [ref_data["in_frame_index"].max()+1],
-                            "fragment": [ref_data["fragment"].max()+1],
-                            "modified": [1],
-                            "class_name": [None],
-                            "chunk": [chunk]
-                        })
-                    else:
-                        extra_data=extra_data.loc[(extra_data["fragment"]==fragment)]
-
-                    extra_data["x"]=manual_validation["x"]
-                    extra_data["y"]=manual_validation["y"]
-
-                    extra_data["local_identity"]=local_identity
-                    extra_data["is_a_crossing"]=False
-                    extra_data["validated"]=1
-                    extra_data["frame_validated"]=False
-                    extra_rows.append(extra_data)
-
-        new_data.reset_index(drop=True, inplace=True)
-        if extra_rows:
-            extra_data=pd.concat(extra_rows, axis=0).reset_index(drop=True)
-            new_data=pd.concat([
-                new_data,
-                extra_data[new_data.columns]
-            ], axis=0).reset_index(drop=True).sort_values(["frame_number", "local_identity"])
-
-    
-    # import ipdb; ipdb.set_trace() # 11383055
+    # TODO not neeeded in theory?
     new_data.drop_duplicates(["frame_number", "local_identity"], inplace=True)
 
     # Second discard:
@@ -393,12 +319,12 @@ def integrate_human_annotations(
         df.reset_index(drop=True).to_feather(path)
 
     groupby=df_identity.groupby("identity")
-    logger.debug("Number of frames seen")
-    logger.debug(groupby.size())
-    logger.debug("First frame seen")
-    logger.debug(groupby.first())
-    logger.debug("Last frame seen")
-    logger.debug(groupby.last())
+    print("Number of frames seen")
+    print(groupby.size())
+    print("First frame seen")
+    print(groupby.first())
+    print("Last frame seen")
+    print(groupby.last())
 
 
 def save_human_annotations(experiment, folder, first_frame_number=0, last_frame_number=math.inf):
@@ -440,29 +366,6 @@ def list_flies_with_lid_0(data):
     return out
 
 
-
-def assign_in_frame_indices(data):
-    data.reset_index(drop=True, inplace=True)
-    fn_index=data.loc[data["in_frame_index"].isna(), "frame_number"].unique().tolist()
-    rows_to_annotate=data.loc[(data["frame_number"].isin(fn_index))]
-    data_ok=data.drop(index=rows_to_annotate.index)
-
-    new_rows=[]
-    for frame_number in tqdm(fn_index, desc="Assign in frame index"):
-        one_frame_data=rows_to_annotate.loc[rows_to_annotate["frame_number"]==frame_number]
-        last_in_frame_index=np.nanmax(one_frame_data["in_frame_index"])
-        if np.isnan(last_in_frame_index):
-            last_in_frame_index=-1
-        for i, row in one_frame_data.iterrows():
-            if np.isnan(row["in_frame_index"]):
-                one_frame_data.loc[i, "in_frame_index"]=last_in_frame_index+1
-                last_in_frame_index+=1
-        new_rows.append(one_frame_data)
-        
-    data=pd.concat([data_ok] + new_rows, axis=0)
-    data.sort_values(["frame_number", "local_identity"], inplace=True)
-    data.reset_index(drop=True, inplace=True)
-    return data
 
 
 def test_duplicated_blobs(data, chunksize):

@@ -11,6 +11,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from imgstore.interface import VideoCapture
+from flyhostel.data.human_validation.cvat.utils import assign_in_frame_indices
 from idtrackerai_validator_server.backend import load_idtrackerai_config, process_frame
 from flyhostel.data.pose.constants import chunksize
 from flyhostel.data.human_validation.cvat.contour_utils import (
@@ -196,6 +197,9 @@ def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
         annotations_df, contours=join_task_data(
             (annotations_df, contours), (annotations_df2, contours2)
         )
+
+    annotations_df=assign_in_frame_indices(annotations_df)
+    annotations_df["fragment"]=np.nan
 
     return annotations_df, contours
 
@@ -482,6 +486,27 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     roi0_corrected["modified"]=False
     roi0_corrected["validated"]=True
     identity_corrected["validated"]=True
+    
+    annotations_df["modified"]=False
+    annotations_df["validated"]=True
+
+    roi0_corrected=pd.concat([
+        roi0_corrected[["frame_number", "in_frame_index", "x", "y", "fragment", "modified", "validated"]],
+        annotations_df[["frame_number", "in_frame_index", "x", "y", "fragment", "modified", "validated"]]
+    ], axis=0)\
+        .reset_index(drop=True)\
+        .drop_duplicates(["frame_number", "in_frame_index"])\
+        .sort_values(["frame_number", "in_frame_index"])
+
+    identity_corrected=pd.concat([
+        identity_corrected[["frame_number", "in_frame_index", "local_identity", "validated"]],
+        annotations_df[["frame_number", "in_frame_index", "local_identity", "validated"]]
+    ], axis=0)\
+        .reset_index(drop=True)\
+        .drop_duplicates(["frame_number", "in_frame_index"])\
+        .sort_values(["frame_number", "in_frame_index"])
+    
+
     roi0_corrected["chunk"]=roi0_corrected["frame_number"]//chunksize
     
     if fragments_must_break:

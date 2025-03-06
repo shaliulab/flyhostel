@@ -4,7 +4,7 @@ import joblib
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
-from memory_profiler import profile
+# from memory_profiler import profile
 
 logger=logging.getLogger(__name__)
 # 0 local_identity
@@ -63,6 +63,11 @@ def all_found_qc(window, number_of_animals):
 
 
 def all_id_expected_qc(window, number_of_animals, idx=identity_idx):
+    """
+    Return True only if the local identities found are the ones expected
+    from the number of animals
+    So if there are three animals, the local identities available shoould be 1 2 and 3
+    """
     labels = labels=[i for i in range(1, number_of_animals+1)]
     return (sorted(window[:, idx])==labels)
 
@@ -70,7 +75,8 @@ def all_id_expected_qc(window, number_of_animals, idx=identity_idx):
 def inter_qc(window_before, window, window_after):
     """
     Return False if the fragment identifiers in the two windows are not the same
-    or if the next window is in another chunk 
+    or if the next window is in another chunk
+    In other words, flag a fragment change or new chunks
     """
 
     is_different = not set(window[:, fragment_idx]).issubset(window_before[:, fragment_idx])
@@ -122,7 +128,12 @@ def all_qc(i, number_of_animals, behavior_window, window_before=None, window_aft
     return (chunk, frame_number, yolov7_pass, all_found_pass, all_id_expected_pass, first_frame_idx_pass, inter_qc_pass)
 
 
-def analyze_video(df, number_of_animals, n_jobs=1):
+def annotate_nan_frames(df):
+    return df
+
+
+
+def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, n_jobs=1):
     """
     Quality control (QC) of idtrackerai+yolov7 results
 
@@ -139,12 +150,11 @@ def analyze_video(df, number_of_animals, n_jobs=1):
     df.sort_values(["chunk", "frame_number"], inplace=True)
     logger.debug("Setting index of data")
 
-    n_windows=df[["chunk", "frame_number"]].drop_duplicates().shape[0]
+    n_windows=df[["chunk", "frame_number"]].drop_duplicates().shape[0]    
     all_windows=df[["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].groupby([
         "chunk", "frame_number"
     ]).__iter__()
     logger.debug("Generating %s windows", n_windows)
-
 
     kwargs=[]
     _, window_after = next(all_windows)
@@ -154,6 +164,8 @@ def analyze_video(df, number_of_animals, n_jobs=1):
     pb=tqdm(total=n_windows)
     logfile="qc.log"
     i=0
+    # df.loc[df["frame_number"]==570169]
+
     while not has_finished:
         try:
             _, window_after = next(all_windows)
@@ -191,6 +203,13 @@ def analyze_video(df, number_of_animals, n_jobs=1):
             kwargs[j*BATCH_SIZE:(j+1)*BATCH_SIZE]
         )
     logger.debug("Running QC using %s jobs in %s batches of size %s. Saving log to %s", n_jobs, len(batches), BATCH_SIZE, logfile)
+    # debug
+    # window_before=df.loc[df["frame_number"]==570160][["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].values
+    # behavior_window=df.loc[df["frame_number"]==570161][["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].values
+    # window_after=df.loc[df["frame_number"]==570162][["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].values
+    # kwargs={"i": -1, "number_of_animals": 2, "logfile": "foo.txt", "window_before": window_before, "behavior_window": behavior_window, "window_after": window_after}
+    # all_qc(**kwargs)
+
     qc=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             all_qc_batch

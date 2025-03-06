@@ -97,6 +97,9 @@ def make_report(out, folder, identity_tracks, roi0_annotations, identity_annotat
 
 
 def jump_report(out, folder, number_of_animals):
+    
+    MAX_DIST_IN_ONE_FRAME=20
+
     dist_df=[]
     for identity in range(1, number_of_animals+1):
         out_fly=out.loc[out["identity"]==identity]
@@ -118,10 +121,35 @@ def jump_report(out, folder, number_of_animals):
         dist_df.append(df)
 
     dist_df=pd.concat(dist_df, axis=0)
-    dist_df.sort_values(["distance", "identity"], ascending=[False, True], inplace=True)
+    dist_df.sort_values(["distance", "local_identity"], ascending=[False, True], inplace=True)
     dist_df["frame_idx"]=dist_df["frame_number"]%chunksize
     dist_df["chunk"]=dist_df["frame_number"]//chunksize
-    dist_df.loc[dist_df["distance"]>20].to_csv(
+    
+    index=dist_df.loc[dist_df["distance"]>MAX_DIST_IN_ONE_FRAME, ["frame_number", "local_identity"]]
+    indexm1=index.copy()
+    indexp1=index.copy()
+
+    indexm1["frame_number"]-=1
+    indexp1["frame_number"]+=1
+     
+    index=pd.concat([
+        indexm1, index, indexp1
+    ], axis=0)\
+        .drop_duplicates(["frame_number", "local_identity"])
+
+    dist_df["distance"]=dist_df["distance"].astype(int)
+    dist_df["x"]=dist_df["x"].astype(int)
+    dist_df["y"]=dist_df["y"].astype(int)
+
+    database=dist_df\
+        .merge(index, on=["frame_number", "local_identity"], how="right")\
+        .sort_values(["local_identity", "frame_number"])\
+        .reset_index(drop=True)
+    
+    print(database.duplicated(["frame_number", "local_identity"]).sum())
+
+    
+    database.to_csv(
         os.path.join(
             folder, "jumps_database.csv"
         )
@@ -129,7 +157,7 @@ def jump_report(out, folder, number_of_animals):
 
     for identity in range(1, number_of_animals+1):
         df=dist_df.loc[dist_df["identity"]==identity].sort_values("frame_number")
-        x=df.loc[df["distance"]>20]
+        x=df.loc[df["distance"]>MAX_DIST_IN_ONE_FRAME]
         x=x.iloc[::10]
         plt.plot(x["frame_number"]/chunksize, x["distance"])
         plt.savefig(

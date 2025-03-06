@@ -21,8 +21,10 @@ import cupy as cp
 
 
 from .qc import all_id_expected_qc
+from flyhostel.data.human_validation.utils import load_tracking_data
 from flyhostel.data.interactions.neighbors_gpu import compute_distance_between_all_ids, find_closest_pair
 from flyhostel.data.pose.constants import chunksize
+from flyhostel.utils import get_basedir, get_dbfile
 pd.set_option("display.max_rows", 1000)
 logger=logging.getLogger(__name__)
 logging.getLogger("flyhostel.data.interactions.neighbors_gpu").setLevel(logging.WARNING)
@@ -54,7 +56,6 @@ def scene_qc(scene, number_of_animals):
             n_failed_fragments (int): Number of fragments that dont span the whole scene,
                 which indicates they are broken due to some challenging behavior of the animal 
     """
-
     all_valid_ids=all_id_expected_qc_scene(scene, number_of_animals)
     min_distance, _=min_distance_between_animals_qc(scene)
     try:
@@ -62,6 +63,7 @@ def scene_qc(scene, number_of_animals):
     except Exception as error:
         logger.error(error)
         import ipdb; ipdb.set_trace()
+
     scene_length=len(scene["frame_number"].unique())
     # count how many times each id appears
     counts=scene.value_counts("id")
@@ -245,7 +247,19 @@ def run_qc_of_scene_batch(kwargs_all):
 
 def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
 
-    tracking_data=pd.read_feather(f"{folder}/{experiment}_tracking_data.feather")
+    # output_path_feather_df=os.path.join(folder, experiment + f"_tracking_data.feather")
+    # tracking_data=pd.read_feather(output_path_feather_df)
+
+
+    tracking_data=load_tracking_data(
+        dbfile=get_dbfile(get_basedir(experiment)),
+        folder=folder,
+        experiment=experiment,
+        min_frame_number=None, max_frame_number=None,
+        n_jobs=1, cache=True
+    
+    )
+
     tracking_data["id"]=experiment[:26] + "|" + tracking_data["identity"].astype(str).str.zfill(2)
     manifests=sorted(glob.glob(f"{folder}/movies/{experiment}*jsonl"))
     if sample_size is not None:

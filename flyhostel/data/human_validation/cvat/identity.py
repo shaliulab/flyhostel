@@ -93,9 +93,14 @@ def annotate_identity(data, number_of_animals):
 
     xf=establish_dataframe_framework(data)
     data=xf.DataFrame(data.drop("identity", axis=1, errors="ignore"))
+    
+    first_frame=data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).first().reset_index()
+    last_frame=data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).last().reset_index()
+    first_frame["position"]="first"
+    last_frame["position"]="last"
+
     lid_table=xf.concat([
-        data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).first().reset_index(),
-        data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).last().reset_index(),
+        first_frame, last_frame
     ], axis=0).sort_values(["frame_number", "local_identity"])
     lid_table["frame_idx"]=lid_table["frame_number"]%CHUNKSIZE
     
@@ -103,7 +108,7 @@ def annotate_identity(data, number_of_animals):
     # this can happen if a fly changes fragment
     # and regains the wrong local id in the process
     for _, track in broken_tracks.iterrows():
-        info=f'Frame number: {track["frame_number"]} Local identity: {track["local_identity"]}'
+        info=f'Frame number: {track["frame_number"]} Local identity: {track["local_identity"]}. Position: {track["position"]}'
         logger.warning(f"Track broken {info}")
 
     chunks=sorted(lid_table["chunk"].to_pandas().unique())

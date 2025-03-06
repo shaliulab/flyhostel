@@ -2,12 +2,46 @@ import logging
 import os.path
 import sqlite3
 import pandas as pd
-
+import numpy as np
+from tqdm.auto import tqdm
 from flyhostel.utils.utils import get_dbfile
 
 logger=logging.getLogger(__name__)
 
 
+def assign_in_frame_indices(data):
+    """
+    Populate in_frame_index column so that no nan values are left
+    """
+    data.reset_index(drop=True, inplace=True)
+    if "in_frame_index" not in data.columns:
+        data["in_frame_index"]=np.nan
+    fn_index=data.loc[data["in_frame_index"].isna(), "frame_number"].unique().tolist()
+    rows_to_annotate=data.loc[(data["frame_number"].isin(fn_index))]
+    data_ok=data.drop(index=rows_to_annotate.index)
+
+    new_rows=[]
+    for frame_number in tqdm(fn_index, desc="Assign in frame index"):
+        one_frame_data=rows_to_annotate.loc[rows_to_annotate["frame_number"]==frame_number]
+        last_in_frame_index=np.nanmax(one_frame_data["in_frame_index"])
+        if np.isnan(last_in_frame_index):
+            last_in_frame_index=-1
+        for i, row in one_frame_data.iterrows():
+            if np.isnan(row["in_frame_index"]):
+                one_frame_data.loc[i, "in_frame_index"]=last_in_frame_index+1
+                last_in_frame_index+=1
+        new_rows.append(one_frame_data)
+        
+    data=pd.concat([data_ok] + new_rows, axis=0)
+
+    sorting_columns=["frame_number"]
+    if "local_identity" in data.columns:
+        sorting_columns+=["local_identity"]
+
+    data["in_frame_index"]=data["in_frame_index"].astype(int)
+    data.sort_values(sorting_columns, inplace=True)
+    data.reset_index(drop=True, inplace=True)
+    return data
 
 def load_original_resolution(basedir):
 

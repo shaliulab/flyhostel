@@ -100,7 +100,7 @@ def load_qc(folder):
     return qc
 
 
-def make_space_time_images(folder, experiment, n_jobs):
+def make_space_time_images(folder, experiment, time_window_length, n_jobs):
 
     qc=load_qc(folder)
     pass_qc=qc.loc[(qc["gap_n_frames"]==0) & (qc["gap_distance"]==0)]
@@ -138,7 +138,7 @@ def make_space_time_images(folder, experiment, n_jobs):
 
     generate_space_time_image_all(complex_qc["scene"].values.tolist(), folder=folder, n_jobs=n_jobs)
 
-    feather_file=f"{folder}/{experiment}_machine-validation-index-0.013-s.feather"
+    feather_file=os.path.join(folder, f"{experiment}_machine-validation-index-{time_window_length}-s.feather")
     logger.debug("Reading %s", feather_file)
     df_bin=pd.read_feather(feather_file)
 
