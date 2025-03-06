@@ -12,7 +12,6 @@ import joblib
 from confapp import conf
 import numpy as np
 import pandas as pd
-import cudf
 
 logger=logging.getLogger(__name__)
 
@@ -30,10 +29,14 @@ from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG, ANALYSIS_FOLDER
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
 logger = logging.getLogger(__name__)
 
+def get_experiment_identifier(basedir):
+    return "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:])
+
+
 def get_dbfile(basedir):
     dbfile=os.path.join(
         basedir,
-        "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:]) + ".db"
+        get_experiment_identifier(basedir) + ".db"
     )
     assert os.path.exists(dbfile), f"{dbfile} not found"
     return dbfile
@@ -42,6 +45,13 @@ def get_basedir(experiment):
     tokens = experiment.split("_")
     basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
     return basedir
+
+
+def get_number_of_animals(experiment):
+    tokens = experiment.split("_")
+    number_of_animals=int(tokens[1].rstrip("X"))
+    return number_of_animals
+
 
 def add_suffix(filename, suffix=""):
 
@@ -356,7 +366,32 @@ def annotate_time_in_dataset(dataset, index, t_column="t", t_after_ref=None):
 
 
 def establish_dataframe_framework(dt):
+    import cudf
+
     xf = pd if isinstance(dt, pd.DataFrame) else cudf if isinstance(dt, cudf.DataFrame) else None
     if xf is None:
         raise TypeError("dt must be either a pandas or cuDF DataFrame.")
     return xf
+
+
+def get_first_frame(dbfile):
+
+    chunksize=get_chunksize(dbfile)
+    with sqlite3.connect(dbfile) as conn:
+        cursor=conn.cursor()
+        cursor.execute("SELECT chunk FROM CONCATENATION LIMIT 1;")
+        chunk=int(cursor.fetchone()[0])
+
+    frame_number=chunk*chunksize
+    return frame_number
+
+def get_last_frame(dbfile):
+
+    chunksize=get_chunksize(dbfile)
+    with sqlite3.connect(dbfile) as conn:
+        cursor=conn.cursor()
+        cursor.execute("SELECT chunk FROM CONCATENATION ORDER BY chunk DESC LIMIT 1;")
+        chunk=int(cursor.fetchone()[0])+1
+
+    frame_number=chunk*chunksize
+    return frame_number
