@@ -12,6 +12,7 @@ import joblib
 from confapp import conf
 import numpy as np
 import pandas as pd
+from matplotlib import cm
 
 logger=logging.getLogger(__name__)
 
@@ -28,6 +29,24 @@ else:
 from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG, ANALYSIS_FOLDER
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
 logger = logging.getLogger(__name__)
+
+
+def get_spaced_colors_util(n, norm=False, black=True, cmap="jet"):
+    RGB_tuples = cm.get_cmap(cmap)
+    if norm:
+        colors = [RGB_tuples(i / n) for i in range(n)]
+    else:
+        RGB_array = np.asarray([RGB_tuples(i / n) for i in range(n)])
+        BRG_array = np.zeros(RGB_array.shape)
+        BRG_array[:, 0] = RGB_array[:, 2]
+        BRG_array[:, 1] = RGB_array[:, 1]
+        BRG_array[:, 2] = RGB_array[:, 0]
+        colors = [tuple(BRG_array[i, :] * 256) for i in range(n)]
+    if black:
+        black = (0.0, 0.0, 0.0)
+        colors.insert(0, black)
+    return colors
+
 
 def get_experiment_identifier(basedir):
     return "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:])
@@ -309,6 +328,10 @@ def get_chunksize(dbfile):
     return chunksize
 
 def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
+    """
+    
+    table: data frame containing columns frame_number, identity, local_identity
+    """
     chunk = frame_number // chunksize
     table_current_frame = table.loc[(table["frame_number"] == frame_number)]
 
@@ -395,3 +418,36 @@ def get_last_frame(dbfile):
 
     frame_number=chunk*chunksize
     return frame_number
+
+def get_pose_file(experiment, identity, pose_name):
+    animal=experiment + "__" + str(identity).zfill(2)
+    basedir=get_basedir(experiment)
+    pose_file=os.path.join(
+        basedir, "motionmapper",
+        str(identity).zfill(2),
+        f"pose_{pose_name}",
+        animal,
+        animal + ".h5"
+    )
+    return pose_file
+
+def get_identities(experiment):
+    number_of_animals=get_number_of_animals(experiment)
+    if number_of_animals==1:
+        identities=[0]
+    else:
+        identities=list(range(1, number_of_animals+1))
+    
+    return identities
+
+
+def get_local_identity(dbfile, chunk, identity):
+    table_name="CONCATENATION_VAL"
+
+    with sqlite3.connect(dbfile) as conn:
+        cursor=conn.cursor()
+        cmd=f"SELECT local_identity FROM {table_name} WHERE identity = {identity} AND chunk = {chunk};"
+        print(cmd)
+        cursor.execute(cmd)
+        local_identity=int(cursor.fetchone()[0])
+        return local_identity
