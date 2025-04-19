@@ -24,6 +24,7 @@ from flyhostel.data.pose.loaders.behavior import BehaviorLoader
 from flyhostel.data.pose.landmarks import LandmarksLoader
 
 from flyhostel.data.pose.loaders.pose import PoseLoader
+from flyhostel.data.pose.loaders.sleep import SleepLoader
 from flyhostel.data.pose.loaders.interactions import InteractionsLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import framerate as FRAMERATE
@@ -33,6 +34,7 @@ from flyhostel.data.pose.sleep import SleepAnnotator
 from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
 from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
+from flyhostel.utils import get_pose_file
 try:
     from motionmapperpy import setRunParameters
     wavelet_downsample=setRunParameters().wavelet_downsample
@@ -61,7 +63,7 @@ def make_int_or_str(values):
     return out
 
 
-class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, InteractionsLoader, PoseLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader):
+class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, InteractionsLoader, PoseLoader, SleepLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader):
     """
     Analyse microbehavior produced in the flyhostel
 
@@ -426,7 +428,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
 
         if load_behavior:
             logger.info("Loading behavior data")
-            self.load_behavior_data(self.experiment, identity, min_time=min_time, max_time=max_time)
+            self.load_behavior_data(min_time=min_time, max_time=max_time)
 
     def make_movie(self, ts=None, frame_numbers=None, **kwargs):
         return make_pose_movie(self.basedir, self.dt_with_pose, ts=ts, frame_numbres=frame_numbers, **kwargs)
@@ -436,6 +438,8 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
             self, *args, experiment=None, identity=None, min_time=MIN_TIME, max_time=MAX_TIME, stride=1,
             reference_hour=np.nan, cache=None, identity_table=None, roi_0_table=None, **kwargs
         ):
+        """
+        """
 
         if experiment is None:
             experiment=self.experiment
@@ -488,15 +492,9 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
             draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos")
 
     def get_pose_file_h5py(self, pose_name="filter_rle-jump"):
-        animal=self.experiment + "__" + str(self.identity).zfill(2)
-        pose_file=os.path.join(
-            self.basedir, "motionmapper",
-            str(self.identity).zfill(2),
-            f"pose_{pose_name}",
-            animal,
-            animal + ".h5"
-        )
+        pose_file=get_pose_file(self.experiment, self.identity, pose_name=pose_name)
         return pose_file
+
     
     def manage_backup_copies(self, file, fail=False):
         if validate_h5py_file(file):

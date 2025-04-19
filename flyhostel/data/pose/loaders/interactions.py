@@ -59,9 +59,9 @@ def partition_interactions(
     }).reset_index()
     
     interaction_stats.columns=groupby + [
-        "distance_mm_min",
-        "t1", "t2", "size",
-        "first_frame", "last_frame_number"
+        "distance_mm_min",  # np.min above
+        "t1", "t2", "size",  # np.min, np.max and len above
+        "first_frame", "last_frame_number" # np.min and np.max above
     ]
     interaction_stats["duration"]=interaction_stats["t2"]-interaction_stats["t1"]
     interaction_stats["within_limits"]=interaction_stats["size"]/\
@@ -97,6 +97,7 @@ class InteractionsLoader:
 
     def load_interaction_data(
             self, experiment=None, identity=None,
+            min_time=None, max_time=None,
             proximity_threshold=PROXIMITY_THRESHOLD,
             identities=None,
             **kwargs
@@ -144,6 +145,14 @@ class InteractionsLoader:
             return None
 
         neighbors=pd.read_csv(csv_file)[neighbors_features]
+
+        if min_time is not None:
+            neighbors=neighbors.loc[neighbors["t"]>=min_time]
+        
+        if max_time is not None:
+            neighbors=neighbors.loc[neighbors["t"]<max_time]
+        
+        
         if identities is not None:
             neighbors["identity"]=neighbors["id"].str.slice(start=-2).astype(int)
             neighbors=neighbors.loc[neighbors["identity"].isin(identities)]

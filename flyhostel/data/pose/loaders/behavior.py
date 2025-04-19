@@ -71,7 +71,7 @@ class BehaviorLoader():
         return file
 
             
-    def load_behavior_data(self, experiment=None, identity=None, min_time=None, max_time=None):
+    def load_behavior_data(self, min_time=None, max_time=None):
         """
         Load a behavior timeseries computed at 30 FPS from an original centroid timeseries at 150 FPS
         Data frame is available in self.behavior
@@ -94,11 +94,9 @@ class BehaviorLoader():
             * centroid_speed_1s: Distance travelled by the centroid in the last second, computed by adding the distance travelled in the last 150 original timepoints           
         """
 
-        if experiment is None:
-            experiment=self.experiment
+        experiment=self.experiment
 
-        if identity is None:
-            identity=self.identity
+        identity=self.identity
 
         feather_path=self.get_behavior_feather_file(experiment, identity)
         if os.path.exists(feather_path):

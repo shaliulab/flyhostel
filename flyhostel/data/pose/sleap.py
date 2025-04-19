@@ -15,7 +15,7 @@ from tqdm.auto import tqdm
 import multiprocessing
 
 logger=logging.getLogger(__name__)
-from flyhostel.utils import get_dbfile
+from flyhostel.utils import get_dbfile, get_local_identity
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import framerate as FRAMERATE
@@ -82,6 +82,7 @@ def annotate_data(input_video_path, output_video_path, df, column="text"):
     input_video_path (str): Path to existing video
     output_video_path (str): Path to new video with annotation
     df (pd.DataFrame): One row per frame in the input video, with a column that contains what should be annotated
+    column (str): Name of the column with the annotation. "text' by default
     """
 
     # Capture the input video
@@ -145,17 +146,6 @@ def annotate_data(input_video_path, output_video_path, df, column="text"):
     out.release()
 
 
-def get_local_identity(dbfile, chunk, identity):
-    table_name="CONCATENATION_VAL"
-
-    with sqlite3.connect(dbfile) as conn:
-        cursor=conn.cursor()
-        cmd=f"SELECT local_identity FROM {table_name} WHERE identity = {identity} AND chunk = {chunk};"
-        print(cmd)
-        cursor.execute(cmd)
-        local_identity=int(cursor.fetchone()[0])
-        return local_identity
-
 
 def load_pose_dataset(
         basedir, identities, frame_number, seconds,
@@ -198,8 +188,12 @@ def load_pose_dataset(
         analysis_file=f"{basedir}/motionmapper/{str(identity).zfill(2)}/pose_{pose_name}/{animal}/{animal}.h5"
         with h5py.File(analysis_file, "r", locking=True) as f:
             pose=f["tracks"][0, :, :, f0:f1]
-            bodyparts=[e.decode() for e in f["node_names"]]
+            bodyparts_available=[e.decode() for e in f["node_names"]]
             n_dims=pose.shape[0]
+        
+        bodyparts=list(set(bodyparts).intersection(set(bodyparts_available)))
+        keep_bps=[i for i, bp in enumerate(bodyparts_available) if bp in bodyparts]
+        pose=pose[:, keep_bps, ...]
 
         dimensions=["x","y","z"][:n_dims]
         features_by_dimension={
@@ -326,8 +320,10 @@ try:
                 if instance_series_identity.shape[0]==0:
                     logger.warning("No data found for identity %s in frame %s", identity, frame_number)
                     continue
-                base_instance_numpy=numpy(instance_series_identity, bodyparts=[node.name for node in skeleton.nodes])
 
+                columns=set([bp.replace("_x", "").replace("_y", "") for bp in instance_series_identity.columns])
+                bodyparts=list(set([node.name for node in skeleton.nodes]).intersection(columns))
+                base_instance_numpy=numpy(instance_series_identity, bodyparts=bodyparts)
 
                 if predictions:
                     PredictedInstance.from_numpy( 
@@ -468,13 +464,12 @@ try:
                 print(error)
 
 
-
-    
     def make_pose_video_multi_fly(
             basedir, identities, frame_number, seconds, bodyparts, downsample,
             pose_name="raw", fps=None, prefix=None,
             colors=None, palette="custom",
             data=None, single_animal=False,
+            scale=4,
             output_folder=".", extension=".mp4", **kwargs,
         ):
         """
@@ -487,13 +482,13 @@ try:
         else:
             color_manager=None
             tracks=None
-        
+
         dataset, index=load_pose_dataset(
             basedir, identities, frame_number, seconds,
             pose_name=pose_name, bodyparts=bodyparts, single_animal=single_animal,
             downsample=downsample
         )
-    
+
         chunk=frame_number//CHUNKSIZE
         experiment="_".join(basedir.split('/')[-3:])
 
@@ -507,7 +502,7 @@ try:
             output_folder=tempfile.TemporaryDirectory().name
             print(f"Saving video to {output_folder}")
 
-        
+
         if len(identities)==1:
             output_filename=os.path.join(output_folder, f"{prefix}{experiment}__{identities[0]}__{str(chunk).zfill(6)}_{frame_number}{extension}")
         else:
@@ -525,9 +520,10 @@ try:
             fps=fps,
             marker_size=.6,
             distinctly_color="instances",
-            scale=4,
+            scale=scale,
             color_manager=color_manager,
-            tracks=tracks
+            tracks=tracks,
+            **kwargs
         )
 
 
