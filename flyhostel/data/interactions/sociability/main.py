@@ -26,7 +26,10 @@ def load_experiments(number_of_animals=6):
     metadata_inters=pd.read_csv(GROUPS_CSV, header=None)
     metadata_inters.columns=["basedir", "experiment", "number_of_animals", "status", "select"]
     metadata_inters=metadata_inters.loc[metadata_inters["select"]=="SELECT"]
-    metadata=metadata_inters[["experiment"]].merge(metadata_beh, on="experiment", how="right")
+    if number_of_animals>1:
+        metadata=metadata_inters[["experiment"]].merge(metadata_beh, on="experiment", how="inner")
+    else:
+        metadata=metadata_beh
     metadata.loc[(metadata["number_of_animals"]==1), "status"]="SELECT"
     metadata=metadata.loc[~(metadata["select"].isna())]
     metadata=metadata.loc[metadata["select"]=="SELECT"]

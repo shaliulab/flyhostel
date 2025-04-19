@@ -12,7 +12,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 import numpy as np
 
-auth_token = os.environ["NOTION_TOKEN"]
+auth_token = os.environ.get("NOTION_TOKEN", None)
 
 
 def query_database(database_id, auth_token):
@@ -111,8 +111,12 @@ def parse_database(results):
     pages=[]
     for result in results:
         pages.append(parse_database_page(result))
-
-    df=pd.concat(pages, axis=0).reset_index(drop=True)
+    
+    if len(pages)>0:
+        df=pd.concat(pages, axis=0).reset_index(drop=True)
+    else:
+        df=None
+    
     return df
 
 def download_database(database_id, token):

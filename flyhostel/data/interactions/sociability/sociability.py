@@ -27,6 +27,8 @@ from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 logger=logging.getLogger(__name__)
 
 
+GET_FEATURES_BODYPARTS=["head", "thorax", "abdomen"]
+
 def write_umap_tools(window_f):
     """
     Generate functions which may not take keyword arguments
@@ -47,6 +49,17 @@ def write_umap_tools(window_f):
 
     return flip, my_dist
 
+
+def interpolate_bp(imaginary_series):
+    # Separate the real and imaginary parts and interpolate each one
+    real_interp = imaginary_series.apply(np.real).interpolate()
+    imag_interp = imaginary_series.apply(np.imag).interpolate()
+
+    # Recombine into a complex series
+    s_interp = real_interp + 1j * imag_interp
+    return s_interp
+
+
 def get_features(
         fly1: pd.DataFrame, fly2: pd.DataFrame,
         frame_indices: np.ndarray, pixel_to_mm: float,
@@ -54,6 +67,7 @@ def get_features(
     ):
     """Compute features for a pair of flies.
     https://www.biorxiv.org/content/10.1101/2024.11.25.624845v1.full.pdf
+    https://github.com/NeLy-EPFL/Sociability_Learning/blob/e20721a9eb3b2f6f79f4ff7491845b241b824a4b/scripts/embedding.ipynb
 
     Parameters
     ----------
@@ -92,9 +106,13 @@ def get_features(
 
     arange = np.arange(-window_f // 2, window_f // 2)
 
+    pose1=fly1[GET_FEATURES_BODYPARTS]
+    pose2=fly2[GET_FEATURES_BODYPARTS]
+
+
     # position of the flies
-    p1 = np.nanmean(fly1[["head", "thorax", "abdomen"]].values, axis=1) * pixel_to_mm
-    p2 = np.nanmean(fly2[["head", "thorax", "abdomen"]].values, axis=1) * pixel_to_mm
+    p1 = np.mean(pose1.values, axis=1) * pixel_to_mm
+    p2 = np.mean(pose2.values, axis=1) * pixel_to_mm
 
     p1p2 = p2 - p1  # vector from fly1 to fly2
     dist = np.abs(p1p2)  # distance between flies
@@ -109,8 +127,8 @@ def get_features(
     v2 /= -p1p2
 
     # heading of the flies in image coordinates
-    heading1 = fly1["head"].values * pixel_to_mm - p1
-    heading2 = fly2["head"].values * pixel_to_mm - p2
+    heading1 = pose1["head"].values * pixel_to_mm - p1
+    heading2 = pose2["head"].values * pixel_to_mm - p2
 
     # rotate headings so that 1 + 0j points towards the other fly
     heading1 /= np.abs(heading1)
@@ -120,12 +138,22 @@ def get_features(
     theta1 = np.abs(np.angle(heading1 / p1p2))
     theta2 = np.abs(np.angle(heading2 / -p1p2))
 
+    # interpolate theta values
+    # they might still be nan if the head is found to be in the same place
+    # as the computed position of the flies (which can occur in pose errors)
+    theta1=pd.Series(theta1).interpolate().values
+    theta2=pd.Series(theta2).interpolate().values
+    
+
     # column-stack all features
     X = np.column_stack(
         [dist, v1.real, np.abs(v1.imag), theta1, v2.real, np.abs(v2.imag), theta2]
     )
 
-    
+    if np.isnan(X).sum()>0:
+        print(np.where(np.isnan(X)))
+        raise ValueError("Missing values detected")
+
     # exclude frame_indices close to the end of the timeseries
     frame_indices=frame_indices[frame_indices<(X.shape[0]-len(arange)/2)]
     
@@ -262,7 +290,8 @@ def get_features_all(loaders, window_s, min_time=None, max_time=None, timepoints
                     pose_complex1, pose_complex2, frame_indices_all,
                     1/loader1.px_per_mm, fps=loader1.framerate,
                     window=window_s
-                )                
+                )
+
                 index=closest_distance_pair_with_pose.loc[
                   closest_distance_pair_with_pose["frame_number"].isin(frame_numbers_all)
                 ]
@@ -317,7 +346,10 @@ def get_features_multi(pose_complex1, pose_complex2, frame_indices_all, *args, *
 def load_data(loader, min_time=None, max_time=None, loaders_cache=None, identities=None):
 
     cache_file=f"{loaders_cache}/{loader.experiment}__{str(loader.identity).zfill(2)}.pkl"
-    out=loader.load_from_cache(cache_file)
+    
+    out=None
+    if os.path.exists(cache_file):
+        out=loader.load_from_cache(cache_file)
     if out is None:
         if min_time is not None and max_time is not None: assert min_time < max_time
         loader.load_centroid_data(min_time=min_time, max_time=max_time)
@@ -325,18 +357,11 @@ def load_data(loader, min_time=None, max_time=None, loaders_cache=None, identiti
         loader.load_interaction_data(proximity_threshold=5, identities=identities)
     else:
         loader=out
-        # if identities is None:
-            
-            # number_of_animals=loader.number_of_animals
-            # identities=list(range(1, number_of_animals+1))
-            # identities.pop(identities.index(loader.identity))
-            # identities=[loader.ids[0]]
-            # logger.warning("No identities passed. Will use %s", identities)
         loader.load_interaction_data(proximity_threshold=5, identities=identities)
 
     loader.add_centroid_data_to_pose()
-    loader.project_to_absolute_coords_all(["thorax", "head", "abdomen"])
-    loader.generate_pose_complex(loader.pose_absolute, ["thorax", "head", "abdomen"])
+    loader.project_to_absolute_coords_all(GET_FEATURES_BODYPARTS)
+    loader.generate_pose_complex(loader.pose_absolute, GET_FEATURES_BODYPARTS)
 
     if "1X" not in loader.basedir:
         assert loader.interaction is not None
@@ -378,11 +403,11 @@ def load_data(loader, min_time=None, max_time=None, loaders_cache=None, identiti
         closest_distance_count=loader.interaction.groupby(["id", "nn", "interaction"]).agg({
             "distance_mm_min_flag": np.sum
         }).rename({"distance_mm_min_flag": "count"}, axis=1)
-        
         assert (closest_distance_count["count"]==1).all()
 
 
     if not os.path.exists(cache_file):
+        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
         with open(cache_file, "wb") as handle:
             pickle.dump(loader, handle)
     return loader
@@ -424,11 +449,22 @@ def load_data_all(experiment, identities, min_time=None, max_time=None, max_work
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             new_loaders = list(executor.map(load_data, loaders, min_times, max_times, *args))
         after=time.time()
-        print(f"Done in {after-before} seconds")
+        print(f"sociability.load_data_all done in {after-before} seconds")
 
-    return new_loaders
+
+    loaders=new_loaders
+    for loader in loaders:
+        for bp in GET_FEATURES_BODYPARTS:
+            logger.info("%s - Interpolating %s", loader, bp)
+            loader.pose_complex[bp]=interpolate_bp(loader.pose_complex[bp])
+            # if loader.pose_complex[bp].isna().sum()!=0:
+            assert loader.pose_complex[bp].isna().sum()==0
+
+
+    return loaders
 
 def analyze_experiment(loaders, window_s, *args, **kwargs):
+
     df, index=get_features_all(loaders, window_s, *args, **kwargs)
     assert df is not None, "Cannot compute interaction features"
     # remove missing values
@@ -636,7 +672,9 @@ def analyze_interactions(features, window_f, run_name="run", n_clusters=20, n_ne
 
 def process_experiment(experiment, identities, *args, window_s=1, cache=True, timepoints=("frame_number", ), **kwargs):
     """
-    Detect interactions between animals in a single experiment
+    Describe interactions between animals in a single experiment
+    
+    window_s = Duration for which to compute features. Window is centered around each timepoint
     """
 
     try:
