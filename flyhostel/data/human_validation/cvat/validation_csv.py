@@ -17,14 +17,6 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize)
         replace=manual_validation["replace"]
         local_identity=manual_validation["local_identity"]
 
-        # frame_idx	chunk
-        # 698	241
-        # 291	241
-        # 698	247
-        # 288	247
-        # 698	247
-        # 288	247
-
         if replace:
             if manual_validation.get("by_identity", True):
                 extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["local_identity"]==local_identity))]

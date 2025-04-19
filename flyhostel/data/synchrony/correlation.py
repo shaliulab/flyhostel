@@ -52,6 +52,10 @@ def rmse(df, col1, col2, lag=0):
     return coef
 
 def preprocess(df, col1, col2, lag):
+    """
+    
+    """
+    
     if lag == 0:
         series1=df[col1]
         series2=df[col2]
@@ -165,7 +169,6 @@ def annotator(df, lags, feature="asleep", FUNs={}, auto=False, summary_FUN="mean
 
     assert df.shape[0]>0
     wide_table=df.reset_index().pivot_table(index=['t'], columns='id', values=feature)
-    # import ipdb; ipdb.set_trace()
     bool_table=(wide_table==1).astype(int)
     diff_table=bool_table.diff(axis=0).iloc[1:]
 

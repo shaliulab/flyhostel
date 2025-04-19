@@ -4,49 +4,54 @@ for visualization purposes
 """
 
 import os
+import traceback
 import logging
 import yaml
 from imgstore.interface import VideoCapture
-import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import patches
 import cv2
 import joblib
+import pandas as pd
 import numpy as np
-import joblib
 from tqdm import tqdm
 from flyhostel.utils import (
     load_roi_width,
-    get_dbfile
+    get_dbfile,
+    get_spaced_colors_util,
+    get_basedir,
+    get_number_of_animals,
 )
+from flyhostel.data.video.utils import (
+    add_info_box
+)
+
+from flyhostel.data.sleep import sleep_annotation_rf, SLEEP_STATES
 from flyhostel.data.pose.constants import (
     framerate,
     chunksize
 )
+from flyhostel.data.pose.main import FlyHostelLoader
+from flyhostel.data.video.utils import draw_sleep_state
 plt.set_cmap("gray")
-from matplotlib import cm
 logger=logging.getLogger(__name__)
 
 MISSING_DATA=(0, 0)
 
-def get_spaced_colors_util(n, norm=False, black=True, cmap="jet"):
-    RGB_tuples = cm.get_cmap(cmap)
-    if norm:
-        colors = [RGB_tuples(i / n) for i in range(n)]
-    else:
-        RGB_array = np.asarray([RGB_tuples(i / n) for i in range(n)])
-        BRG_array = np.zeros(RGB_array.shape)
-        BRG_array[:, 0] = RGB_array[:, 2]
-        BRG_array[:, 1] = RGB_array[:, 1]
-        BRG_array[:, 2] = RGB_array[:, 0]
-        colors = [tuple(BRG_array[i, :] * 256) for i in range(n)]
-    if black:
-        black = (0.0, 0.0, 0.0)
-        colors.insert(0, black)
-    return colors
+
+# Example usage:
+# frame = cv2.imread("example_frame.png")  # Load an example frame
+# properties = ["Speed", "Acceleration", "Behavior"]
+# series = pd.Series({"Speed": "10 mm/s", "Acceleration": "2 mm/s²", "Behavior": "Walking"})
+# frame_with_box = add_info_box(frame, properties, series)
+
+# If needed, cv2.imshow("Frame", frame_with_box) to visualize
+# cv2.imwrite("output_frame.png", frame_with_box) to save
+
+# Let me know if you need any modifications! 🚀
 
 
-def draw_trace(df, img, fn, identities, step, n_steps, roi_width=None):
+def draw_trace(video_data, img, fn, identities, step, n_steps, roi_width=None, postprocessing=None):
     """
     step: How many frames between each point that makes up the trace
     n_steps: How many steps in the trace
@@ -54,34 +59,45 @@ def draw_trace(df, img, fn, identities, step, n_steps, roi_width=None):
     The last point in the trace will be n_steps*step frames back in time
     """
     colors=get_spaced_colors_util(len(identities), black=False)
+    # annotate frame number
+    
+    frame_is_annotated=False
+    properties=["frame_number", "zt"]
+    animal_frame=None
 
     # img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     for j, identity in enumerate(identities):
-        dff=df.loc[df["identity"]==identity]
+        animal_data=video_data.loc[video_data["identity"]==identity]
         last_x = None
         last_y = None
-        for i in range(n_steps):
-            fn0 = fn
-            fn1 = fn - step*i
-            row=dff.loc[dff["frame_number"]==fn1]
-            if row.shape[0] == 0:
+        for step_count in range(n_steps):
+            fn1 = fn - step*step_count
+            animal_frame=animal_data.loc[animal_data["frame_number"]==fn1]
+            if isinstance(animal_frame, pd.DataFrame):
+                if animal_frame.shape[0]>1:
+                    logger.warning("Multiple points for identity %s in frame %s", identity, fn)
+                elif animal_frame.shape[0]==0:
+                    logger.warning("No points for identity %s in frame %s", identity, fn)
+                    continue
+                animal_frame=animal_frame.iloc[0]
+            if animal_frame.shape[0] == 0:
                 continue
-            size = n_steps-i
+            size = n_steps-step_count
             size*=1.5
 
             radius=int(size/2)
             thickness=int(size//2)
             thickness=max(thickness, 1)
             # print(id, i, fn1, radius)
-            if len(row)==0:
+            if len(animal_frame)==0:
                 logger.warning("Identity %s not found in frame %s", identity, fn1)
                 continue
 
             try:
-                x_r = row["x"].item()
-                y_r = row["y"].item()
+                x_r = animal_frame["x"].item()
+                y_r = animal_frame["y"].item()
             except:
-                print(row)
+                print(animal_frame)
                 continue
             try:
                 if np.isnan(x_r) or np.isnan(y_r):
@@ -103,9 +119,17 @@ def draw_trace(df, img, fn, identities, step, n_steps, roi_width=None):
                 last_org= (last_x, last_y)
                 if last_x is not None and last_org!=MISSING_DATA:
                     img = cv2.line(img, last_org, org, colors[j], thickness)
+            
+            if postprocessing:
+                for func in postprocessing:
+                    img=func(img, animal_frame, org, radius, colors[j], step_count)
 
             last_x = x
             last_y = y
+
+            if animal_frame is not None and not frame_is_annotated and step_count==0:
+                img=add_info_box(img, properties, animal_frame)
+                frame_is_annotated=True
 
     return img
 
@@ -131,6 +155,7 @@ def draw_frame(df, t_index, basedir, fns, identities, **kwargs):
         except Exception as error:
             img=None
             logger.error(error)
+            logger.error(traceback.print_exc())
             #raise error
         imgs.append((img, t))
     store.release()
@@ -248,6 +273,7 @@ def make_timelapse_from_data(
     n_jobs=20,
     partition_size=5,
     framerate=150,
+    postprocessing=None
 ):
     """
     df (pd.DataFrame): contains columns frame_number, t, x, y, identity
@@ -264,7 +290,9 @@ def make_timelapse_from_data(
       (how many frames are displayed in the resulting video, per second)
     framerate (int): frames per second of the original recording
         i.e. during one second of experiment, how many frames were collected by the camera?
-    partition_size (int): how many frames will each job process before being restarted 
+    partition_size (int): how many frames will each job process before being restarted
+    postprocessing (list): Collection of functions which can draw more data in the frame.
+        Their signature must be f(img, series, org, radius, color, ) 
     """
 
     if identities is None:
@@ -312,7 +340,8 @@ def make_timelapse_from_data(
            identities=identities,
            step=framerate*seconds_between,
            n_steps=n_steps,
-           roi_width=roi_width
+           roi_width=roi_width,
+           postprocessing=postprocessing,
         )
         for fns in tqdm(fns_partition)
     )
@@ -324,3 +353,60 @@ def make_timelapse_from_data(
                 continue
             imgs_t.append((img, t))
     save_video(imgs_t, output_video, mask=mask, fps=fps, clock_size=None)
+
+
+def main(experiment, back_in_time_min=15, n_jobs=20):
+
+    basedir=get_basedir(experiment)
+    number_of_animals=get_number_of_animals(experiment)
+
+    loaders=[FlyHostelLoader(experiment=experiment, identity=identity) for identity in list(range(1, number_of_animals+1))]
+    MIN_TIME=6*3600
+    MAX_TIME=30*3600
+    postprocessing=[draw_sleep_state]
+    inactive_mode="WO_FEED"
+    inactive_states=SLEEP_STATES[inactive_mode]
+
+
+    for loader in loaders:
+        loader.load_centroid_data(
+            min_time=MIN_TIME,
+            max_time=MAX_TIME,
+            cache="/flyhostel_data/cache/",
+            identity_table="IDENTITY_VAL",
+            roi_0_table="ROI_0_VAL"
+        )
+
+        loader.load_behavior_data(
+            min_time=MIN_TIME, max_time=MAX_TIME,
+        )
+
+    for loader in loaders:
+        loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(inactive_states)
+        loader.sleep=sleep_annotation_rf(
+            loader.behavior[["id", "t", "inactive_states", "centroid_speed", "walk"]],
+            min_time_immobile=300,
+            time_window_length=1,
+            threshold=10
+        )
+        loader.sleep.rename({"windowed_var": "moving", "inactive_rule": "asleep"}, inplace=True, axis=1)
+        loader.dt_asleep=pd.merge_asof(loader.dt, loader.sleep[["t", "moving", "asleep"]], on="t", direction="forward")
+    
+    df=pd.concat([loader.dt_asleep for loader in loaders], axis=0).reset_index(drop=True)
+    df["zt"]=(df["t"]//3600).astype(int)
+    df["zt"]=df["zt"].astype(str) + ":" + ((df["t"]%3600)/60).astype(int).astype(str).str.zfill(2)
+
+    make_timelapse_from_data(
+        df,
+        os.path.join(basedir, "flyhostel", f"{experiment}_timelapse.mp4"),
+        basedir,
+        back_in_time=60*back_in_time_min,
+        seconds_between=60,
+        fps=15,
+        min_chunk=0,
+        max_chunk=float("inf"),
+        n_jobs=n_jobs,
+        partition_size=5,
+        framerate=150,
+        postprocessing=postprocessing,
+    )
