@@ -54,10 +54,10 @@ def load_sleep_data(loader, min_time, max_time, sleep_periods):
         loader.sleep=annotate_bout_duration(annotate_bouts(loader.sleep, variable=period), fps=1).reset_index(drop=True).rename({
             "bout_in": f"{period}_bout_in",
             "duration": f"{period}_duration"
-        }, axis=1) 
+        }, axis=1)
     return loader
 
-def immobility_annotation(loader, interactions_database, framerate, sleep_columns=None, rename_dict=None):
+def immobility_annotation(loader, interactions_database, sleep_columns=None, rename_dict=None):
     """
     Annotate interactions database with immobility states
 
@@ -67,17 +67,14 @@ def immobility_annotation(loader, interactions_database, framerate, sleep_column
     interactions_database["t_round"]=interactions_database["t_ref"]//1
     interactions_database["t_till_next"]=np.nan
     interactions_database["t_till_next"].iloc[:-1]=np.diff(interactions_database["t_raw"])
-    if sleep_columns is None:
-        sleep_columns=sleep.columns.tolist()
-    elif "t_round" not in sleep_columns:
-        sleep_columns=["t_round"]+sleep_columns
-        
-    sleep=loader.sleep[sleep_columns].copy()
+    assert "t_round" not in sleep_columns
+    all_columns=["t_round"] + sleep_columns
+    sleep=loader.sleep[all_columns].copy()
 
     if rename_dict is not None:
         sleep.rename(rename_dict, axis=1, inplace=True)
-    
-    interactions_database=interactions_database.merge(sleep, on="t_round").sort_values("frame_number")   
+
+    interactions_database=interactions_database.merge(sleep, on="t_round").sort_values("frame_number")
     return interactions_database
 
 def immobility_annotations(loader, interactions_database, framerate):
@@ -89,27 +86,28 @@ def immobility_annotations(loader, interactions_database, framerate):
 
     # Find immobility state before (PRE) the interaction
     interactions_database["t_ref"]=interactions_database["t_raw"]-(interactions_database["frame_number"]-interactions_database["first_frame"])/framerate - 1
-    sleep_columns=sleep_names + [f"{feat}_bout_in" for feat in sleep_names] + [f"{feat}_duration" for feat in sleep_names]
+    sleep_columns=sleep_names + [f"{feat}_bout_in" for feat in sleep_names] #+ [f"{feat}_duration" for feat in sleep_names]
     rename_dict={col: f"pre_{col}" for col in sleep_columns}
     interactions_database=immobility_annotation(
-        loader, interactions_database, framerate,
+        loader, interactions_database,
         sleep_columns=sleep_columns,
         rename_dict=rename_dict
     )
-    
+ 
     # Find immobility state after (POST) the interaction
     interactions_database["t_ref"]=interactions_database["t_raw"]+(interactions_database["last_frame_number"]-interactions_database["frame_number"])/framerate - 1
     rename_dict={col: f"post_{col}" for col in sleep_columns}
     interactions_database=immobility_annotation(
-        loader, interactions_database, framerate,
+        loader, interactions_database,
         sleep_columns=sleep_columns,
         rename_dict=rename_dict
     )
-    for sleep_name in sleep_names:
-        interactions_database[f"pre_{sleep_name}_time_before_interaction"]=interactions_database[f"pre_{sleep_name}_bout_in"]*TIME_WINDOW_LENGTH
-        interactions_database[f"post_{sleep_name}_time_after_interaction"]=interactions_database[f"post_{sleep_name}_duration"]-interactions_database[f"post_{sleep_name}_bout_in"]*TIME_WINDOW_LENGTH
-    return interactions_database
 
+    for sleep_name in sleep_names:
+        interactions_database[f"pre_{sleep_name}_duration"]=interactions_database[f"pre_{sleep_name}_bout_in"]/BEHAVIOR_FRAMERATE
+        interactions_database[f"post_{sleep_name}_duration"]=interactions_database[f"post_{sleep_name}_bout_out"]/BEHAVIOR_FRAMERATE
+
+    return interactions_database
 
 
 def annotate_behavior_database_id(interactions_database, behavior):
