@@ -90,7 +90,11 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
         last_frame_number_available=filehandle["tracks"].shape[3]+first_frame_number
         if max_time is not None:
             # select the first frame number whose t is greater than max time
-            fn1=store_index.loc[store_index["t"]>max_time, "frame_number"].iloc[0]
+            fn1=store_index.loc[store_index["t"]>max_time, "frame_number"]
+            if len(fn1)==0:
+                fn1=last_frame_number_available
+            else:
+                fn1=fn1.iloc[0]
         else:
             fn1=last_frame_number_available
 
