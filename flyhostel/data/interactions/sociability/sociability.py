@@ -467,12 +467,38 @@ def analyze_experiment(loaders, window_s, *args, **kwargs):
 
     df, index=get_features_all(loaders, window_s, *args, **kwargs)
     assert df is not None, "Cannot compute interaction features"
-    # remove missing values
-    X = df["features"].values.copy()
-    is_missing=np.isnan(X).any(axis=1)
+
+    store_index=loaders[0].store_index
+    min_time=loaders[0].dt["t"].min()
+    max_time=loaders[0].dt["t"].max()
+
     index["keep"]=True
-    index.loc[is_missing, "keep"]=False
-    features=df["features"].loc[~is_missing,:]
+
+    index=index.merge(
+        store_index[["frame_number", "t"]].rename({
+            "t": "last_t",
+            "frame_number": "last_frame_number"
+        }, axis=1),
+        on=["last_frame_number"], how="left"
+    ).merge(
+        store_index[["frame_number", "t"]].rename({
+            "t": "first_t",
+            "frame_number": "first_frame"
+        }, axis=1),
+        on=["first_frame"], how="left"
+    )
+
+    interactions_within_zt_limits=(index["first_t"]-window_s>=min_time)&(index["last_t"]+window_s<=max_time)
+    index.loc[
+        interactions_within_zt_limits,
+        "keep"
+    ]=False
+    df["features"]=df["features"].iloc[np.where(index["keep"])]
+    index=index.loc[index["keep"]]
+
+    is_missing=np.isnan(df["features"].values).any(axis=1)
+    assert is_missing.sum()==0, f"Features are missing in {is_mising.sum()} instances"
+    features=df["features"]
     return features, index
 
 
