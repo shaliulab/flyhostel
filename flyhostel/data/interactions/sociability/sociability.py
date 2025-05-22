@@ -114,9 +114,20 @@ def get_features(
     p1 = np.mean(pose1.values, axis=1) * pixel_to_mm
     p2 = np.mean(pose2.values, axis=1) * pixel_to_mm
 
+    eps = 0.01                     # or any suitably tiny value
     p1p2 = p2 - p1  # vector from fly1 to fly2
     dist = np.abs(p1p2)  # distance between flies
-    p1p2 /= dist  # normalize
+
+    # ---- protect zero-length vectors ------------------------------------------
+    zero = dist < eps                       # boolean mask of the bad frames
+
+    # replace the zero vectors with a tiny one pointing along +x
+    # (1+0j) is arbitrary; it disappears after normalisation anyway
+    p1p2[zero] = (eps + 0j)
+    dist[zero]  = eps                       # keep the distance feature at 0 after the next line
+    # ---------------------------------------------------------------------------
+
+    p1p2 /= dist                            # safe normalisation
 
     # velocity of the flies in image coordinates
     v1 = gaussian_filter1d(p1, 2, order=1, mode="nearest") * fps
