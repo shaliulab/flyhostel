@@ -259,6 +259,7 @@ def process_experiment(experiment, number_of_animals, window_s=10):
     loaders=[FlyHostelLoader(experiment=experiment, identity=identity) for identity in identities]
     interactions_database=pd.read_csv(index_csv)
     features=pd.read_pickle(features_pkl)
+    assert interactions_database.shape[0]==features.shape[0], f"Interaction index is not aligned to features database"
     interactions_database, features=annotate_interaction_database_using_behavior_data(
         interactions_database,
         features,
@@ -282,8 +283,18 @@ def process_experiment(experiment, number_of_animals, window_s=10):
         "inactive+rejection_max", ascending=False
     )[COLUMNS].drop_duplicates(["id", "frame_number", "nn"])
 
+    putative_rejected=interactions_database.merge(
+        putative_rejections[["nn", "frame_number"]].rename({"nn": "id"}, axis=1),
+        on=["id", "frame_number"], how="inner"
+    ).sort_values(
+        "inactive+rejection_max", ascending=False
+    )[COLUMNS].drop_duplicates(["id", "frame_number", "nn"])
+
+    interactions_database.reset_index(drop=True).to_feather("database.feather")
     putative_rejections.set_index("idx", inplace=True)
+    putative_rejected.set_index("idx", inplace=True)
     putative_rejections.to_csv("rejections.csv")
+    putative_rejected.to_csv("rejected.csv")
     features.to_hdf("features.hdf5", key="features")
 
     with open("features2.pkl", "wb") as handle:
