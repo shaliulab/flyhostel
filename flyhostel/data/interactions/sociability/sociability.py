@@ -417,10 +417,10 @@ def load_data(loader, min_time=None, max_time=None, loaders_cache=None, identiti
         assert (closest_distance_count["count"]==1).all()
 
 
-    if not os.path.exists(cache_file):
-        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-        with open(cache_file, "wb") as handle:
-            pickle.dump(loader, handle)
+    # if not os.path.exists(cache_file):
+    #     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+    #     with open(cache_file, "wb") as handle:
+    #         pickle.dump(loader, handle)
     return loader
 
 def load_data_all(experiment, identities, min_time=None, max_time=None, max_workers=1, **kwargs):
