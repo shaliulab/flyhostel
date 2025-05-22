@@ -365,14 +365,19 @@ def load_data(loader, min_time=None, max_time=None, loaders_cache=None, identiti
         if min_time is not None and max_time is not None: assert min_time < max_time
         loader.load_centroid_data(min_time=min_time, max_time=max_time)
         loader.load_pose_data(min_time=min_time, max_time=max_time)
-        loader.load_interaction_data(proximity_threshold=5, identities=identities)
     else:
         loader=out
-        loader.load_interaction_data(proximity_threshold=5, identities=identities)
+
+    loader.load_interaction_data(proximity_threshold=5, identities=identities)
 
     loader.add_centroid_data_to_pose()
     loader.project_to_absolute_coords_all(GET_FEATURES_BODYPARTS)
     loader.generate_pose_complex(loader.pose_absolute, GET_FEATURES_BODYPARTS)
+
+    first_centroid_frame=loader.dt["frame_number"].iloc[0]
+    first_pose_frame=loader.pose["frame_number"].iloc[0]
+
+    print(f"First centroid frame {first_centroid_frame}. First pose frame {first_pose_frame}")
 
     if "1X" not in loader.basedir:
         assert loader.interaction is not None
