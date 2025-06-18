@@ -74,12 +74,30 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize)
                 frame_numbers=np.arange(manual_validation["first_frame_number"], manual_validation["last_frame_number"]+1)
             
             for frame_number in frame_numbers:
+                
+                if extra_rows:
+                    extra_data_temp=pd.concat(extra_rows, axis=0).reset_index(drop=True)
+                else:
+                    extra_data_temp=None
+
                 if np.isnan(fragment):
-                    ref_data=extra_data.loc[extra_data["frame_number"]==frame_number]
+                    frame_ref_data=extra_data.loc[extra_data["frame_number"]==frame_number]
+                    chunk_ref_data=extra_data.loc[extra_data["frame_number"]//chunksize==frame_number//chunksize]
+                    if extra_data_temp is not None:
+                        extra_data_temp_ref=extra_data_temp.loc[extra_data_temp["frame_number"]//chunksize==frame_number//chunksize]
+                    else:
+                        extra_data_temp_ref=None
+
+                    max_fragment=chunk_ref_data["fragment"].max()
+                    max_in_frame_index=frame_ref_data["in_frame_index"].max()
+                    if extra_data_temp_ref is not None and extra_data_temp_ref.shape[0]>0:
+                        max_fragment=max(max_fragment, extra_data_temp_ref["fragment"].max())
+                        max_in_frame_index=max(max_in_frame_index, extra_data_temp_ref.loc[extra_data_temp_ref["frame_number"]==frame_number]["in_frame_index"].max())
+
                     extra_data=pd.DataFrame({
                         "frame_number": [frame_number],
-                        "in_frame_index": [ref_data["in_frame_index"].max()+1],
-                        "fragment": [ref_data["fragment"].max()+1],
+                        "in_frame_index": [max_in_frame_index+1],
+                        "fragment": [max_fragment+1],
                         "modified": [1],
                         "class_name": [None],
                         "chunk": [chunk]
@@ -100,8 +118,8 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize)
     if extra_rows:
         extra_data=pd.concat(extra_rows, axis=0).reset_index(drop=True)
         new_data=pd.concat([
+            extra_data[new_data.columns],
             new_data,
-            extra_data[new_data.columns]
-        ], axis=0).reset_index(drop=True).sort_values(["frame_number", "local_identity"])
+        ], axis=0).reset_index(drop=True).sort_values(["frame_number", "validated", "local_identity"], ascending=[True, False, True])
     
     return new_data
