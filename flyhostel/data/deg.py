@@ -19,7 +19,19 @@ LABELS=["walk", "background", "groom", "feed", "inactive+rejection", "inactive+p
 SOCIAL_BEHAVIORS=["rejection", "touch", "interactor", "interactee"]
 RESTORE_FROM_CACHE_ENABLED=False
 
+def parse_rejections_entry(data_entry, verbose=True):
+    tokens = data_entry.split("_")
+    tokens=tokens[:4] + [int(tokens[5])//CHUNKSIZE] + [int(tokens[7])]
+    if len(tokens) != 6:
+        if verbose:
+            logger.error(f"Invalid entry: {data_entry}")
+        return False, None
+
+    return True, tokens
 def parse_entry(data_entry, verbose=True):
+    if "rejections" in data_entry:
+        return parse_rejections_entry(data_entry, verbose=verbose)
+
     tokens = data_entry.split("_")
     if len(tokens) != 6:
         if verbose:
@@ -375,19 +387,16 @@ def melt_labels(labels, behaviors, tracks=None):
         return None
     
 
-    
-def read_label_file(data_entry, labels_file, verbose=False, **kwargs):
-
+def read_label_file_raw(labels_file, **kwargs):
     labels_raw=pd.read_csv(labels_file, index_col=0)
-
-    # if pe and inactive ae true, then it's a separate behavior
-    # labels["inactive+pe"]=((labels["pe"]==1) & (labels["inactive"]==1))*1
-    # labels.loc[labels["inactive+pe"]==1, "pe"]=0
-    # labels.loc[labels["inactive+pe"]==1, "inactive"]=0
-    
     for key, value in kwargs.items():
         labels_raw[key]=value
     labels_raw["frame_idx"]=np.arange(labels_raw.shape[0])
+    return labels_raw
+
+def read_label_file(data_entry, labels_file, verbose=False, **kwargs):
+   
+    labels_raw=read_label_file_raw(labels_file, **kwargs)
 
     labels, tracks=apply_semantic_rules(data_entry, labels_raw)
     behavr_count_per_frame = (labels[BEHAVIORS].values==1).sum(axis=1)
