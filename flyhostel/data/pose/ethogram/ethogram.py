@@ -18,7 +18,11 @@ from flyhostel.data.pose.ml_classifier import load_one_animal
 
 logger=logging.getLogger(__name__)
 try:
-    from deepethogram.postprocessing import remove_short_bouts_from_trace, get_bout_length_percentile, compute_background
+    from deepethogram.postprocessing import (
+        remove_short_bouts_from_trace,
+        get_bout_length_percentile,
+        compute_background
+    )
     from deepethogram import projects, file_io
 except ModuleNotFoundError:
     remove_short_bouts_from_trace=None

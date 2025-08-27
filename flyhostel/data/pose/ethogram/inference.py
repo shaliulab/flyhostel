@@ -49,6 +49,7 @@ def inference(
             dataset["frame_number"].isin(frame_numbers)
         ]
 
+    print(f"Loading {model_path}")
     with open(model_path, "rb") as handle:
         model, features, scaler= pickle.load(handle)
    
@@ -91,8 +92,8 @@ def inference(
             logger.warning("Ignoring field %s", col)
     predictions[final_cols].reset_index(drop=True).to_feather(feather_out)
 
-    logger.debug("Saving prediction files")
-    save_deg_prediction_file(experiment, predictions, features, column="prediction2")
+    # logger.debug("Saving prediction files")
+    # save_deg_prediction_file(experiment, predictions, features, column="prediction2")
 
 
 def inference_(dataset, label, model_path, inactive_states):
@@ -110,7 +111,8 @@ def inference_(dataset, label, model_path, inactive_states):
     x_test=dataset[features].values
     logger.debug("Predicting %s points", x_test.shape[0])
     z_test=scaler.transform(x_test)
-    
+    print(f"Running ML model")
+
     probabilities=model.predict_proba(z_test)
     predictions=[model.classes_[i] for i in probabilities.argmax(axis=1)]
     confidence=probabilities.max(axis=1)

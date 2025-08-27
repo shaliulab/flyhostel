@@ -64,10 +64,9 @@ class BehaviorLoader():
     def load_store_index(self):
         raise NotImplementedError
 
-
     def get_behavior_feather_file(self, experiment, identity, fail=False):
         file=get_behavior_feather_file_path(experiment, identity)
-        assert os.path.exists(file)
+        assert os.path.exists(file), f"{file} not found"
         return file
 
             

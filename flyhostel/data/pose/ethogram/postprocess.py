@@ -76,7 +76,7 @@ def postprocess_behaviors(dataset, percentile=1, column="behavior", behaviors=No
     T, K = predictions.shape
     for i in range(K):
         trace = predictions[:, i]
-        print(unique_behaviors[i], bout_lengths[i])
+        print(f"{percentile}% percentile bout length for {unique_behaviors[i]}={bout_lengths[i]}")
         trace = remove_short_bouts_from_trace(trace, bout_lengths[i])
         predictions_smoothed.append(trace)
 

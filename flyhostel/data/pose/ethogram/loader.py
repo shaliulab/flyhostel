@@ -302,6 +302,8 @@ def load_wavelets(loader, filters, frames, wavelet_file=None):
         wavelet_file=os.path.join(wavelets_folder, loader.experiment + "__" + str(loader.identity).zfill(2) + "-pcaModes-wavelets.mat")
 
         wavelet_file=validate_file(wavelet_file)
+    
+    print(f"Loading wavelets from {wavelet_file}")
     wavelets, (frequencies, freq_names)=loader.load_wavelets(matfile=wavelet_file, frames=frames)
     loader.wavelets=wavelets
 
@@ -503,6 +505,7 @@ def process_animal(
             if load_deg_data and loader.deg is None:
                 logger.warning("Data could not be loaded for %s", loader)
                 return None
+            print("Compiling dataset")
             data=compile_dataset(loader, out)
                 
         if load_time_data and "t" not in data.columns:
