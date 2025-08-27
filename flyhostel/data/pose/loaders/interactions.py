@@ -2,6 +2,8 @@ import logging
 import os.path
 import numpy as np
 import pandas as pd
+from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
+from flyhostel.utils import annotate_local_identity, build_interaction_video_key
 
 logger=logging.getLogger(__name__)
 
@@ -94,6 +96,27 @@ class InteractionsLoader:
         self.interaction=None
         self.all_interactions=None
         super(InteractionsLoader, self).__init__(*args, **kwargs)
+
+    
+    def load_interaction_database(self):
+        
+        """
+
+        Populates interaction_database with a DataFrame with columns
+        ___
+        """
+
+        feather_file=os.path.join(self.basedir, "interactions", self.experiment + "_database.feather")
+        interaction_database=pd.read_feather(feather_file)
+        interaction_database=interaction_database.loc[interaction_database["id"]==self.ids[0]]
+        interaction_database["identity"]=interaction_database["id"].str.slice(start=-2).astype(int)
+        interaction_database["identity_partner"]=interaction_database["nn"].str.slice(start=-2).astype(int)
+        interaction_database["chunk"]=interaction_database["frame_number"]//CHUNKSIZE
+        interaction_database=annotate_local_identity(interaction_database, self.experiment)
+        interaction_database["key"]=[build_interaction_video_key(self.experiment, row) for _, row in interaction_database.iterrows()]
+
+        self.interaction_database=interaction_database       
+
 
     def load_interaction_data(
             self, experiment=None, identity=None,

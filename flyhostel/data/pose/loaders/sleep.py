@@ -55,7 +55,12 @@ class SleepLoader:
         else:
             pass
 
+        if "t_round" in dataset.columns:
+            dataset=dataset\
+                .drop("t", axis=1, errors="ignore")\
+                .rename({"t_round": "t"}, axis=1, errors="ignore")
 
+        assert "t" in dataset.columns
 
         if min_time is not None:
             dataset=dataset.loc[dataset["t"]>=min_time]

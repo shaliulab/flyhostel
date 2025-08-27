@@ -102,7 +102,7 @@ class PoseLoader:
         ret=False
         pose=None
         cache_path=None
-    
+
         if cache is not None and min_time is None and max_time is None:
             cache_path = f"{cache}/{self.experiment}__{str(identity).zfill(2)}_{stride}_pose_data.pkl"
             if write_only:
@@ -123,7 +123,7 @@ class PoseLoader:
             if len(animals)==0 or len(ids)==0:
                 logger.error("animal with identity %s not available", identity)
             
-            out=load_pose_data_compiled(animals, ids, self.lq_thresh, stride=stride, files=files, min_time=min_time, max_time=max_time, store_index=self.store_index)
+            out=load_pose_data_compiled(animals, ids, self.lq_thresh, stride=stride, files=files, store_index=self.store_index)
 
             if out is not None:
                 pose, _, index_pandas=out
@@ -149,7 +149,9 @@ class PoseLoader:
                 pose["id"]=pd.Categorical(pose["id"])
                 pose["identity"]=identity
                 pose=self.filter_pose_by_identity(pose, identity)
+                # this line works even if pose has no annotation on t, because only the frame_number is needed
                 pose=self.filter_pose_by_time(pose=pose, min_time=min_time, max_time=max_time)
+                assert pose.shape[0]>0, f"No pose data after filtering"
                 if cache_path is not None:
                     save_cache(cache_path, (pose, meta_pose))
                         
@@ -213,23 +215,30 @@ class PoseLoader:
             
     def filter_pose_by_time(self, min_time, max_time, pose=None):
         if pose is None:
-            pose=self.pose
+            pose = self.pose
 
-        if len(pose) > 0:
-            
-            if min_time is not None and max_time is not None:
-                t=self.store_index["frame_time"]+self.meta_info["t_after_ref"]
-                min_fn=self.store_index["frame_number"].iloc[
-                    np.argmax(t>=min_time)
-                ]
-                max_fn=self.store_index["frame_number"].iloc[
-                    -(np.argmax(t[::-1]<max_time)-1)
-                ]
-                pose=pose.loc[
-                    (pose["frame_number"] >= min_fn) & (pose["frame_number"] < max_fn)
-                ]
-    
+        if len(pose) > 0 and min_time is not None and max_time is not None:
+            t = self.store_index["frame_time"] + self.meta_info["t_after_ref"]
+            frame_numbers = self.store_index["frame_number"]
+
+            # Handle min_time
+            if min_time <= t.min():
+                min_fn = frame_numbers.min()
+            else:
+                min_fn = frame_numbers.iloc[np.argmax(t >= min_time)]
+
+            # Handle max_time
+            if max_time >= t.max():
+                max_fn = frame_numbers.max() + 1  # +1 ensures exclusive filtering
+            else:
+                max_fn = frame_numbers.iloc[np.argmax(t >= max_time)]
+
+            pose = pose.loc[
+                (pose["frame_number"] >= min_fn) & (pose["frame_number"] < max_fn)
+            ]
+
         return pose
+
 
 
     def boxcar_filter(self, pose, features, bodyparts, framerate=150):
