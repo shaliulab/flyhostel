@@ -158,7 +158,15 @@ def get_features(
 
     # column-stack all features
     X = np.column_stack(
-        [dist, v1.real, np.abs(v1.imag), theta1, v2.real, np.abs(v2.imag), theta2]
+        [
+            dist,            # 0
+            v1.real,         # 1
+            np.abs(v1.imag), # 2
+            theta1,          # 3
+            v2.real,         # 4
+            np.abs(v2.imag), # 5
+            theta2           # 6
+        ]
     )
 
     if np.isnan(X).sum()>0:
@@ -443,6 +451,7 @@ def load_data_all(experiment, identities, min_time=None, max_time=None, max_work
             loaders.append(FlyHostelLoader(experiment=experiment, identity=identity))
     except Exception as error:
         logger.error(error)
+        logger.error(traceback.print_exc())
         return []
 
     new_loaders=[]
@@ -452,6 +461,7 @@ def load_data_all(experiment, identities, min_time=None, max_time=None, max_work
                 new_loaders.append(load_data(loader, min_time=min_time, max_time=max_time, **kwargs))
             except Exception as error:
                 logger.error(error)
+                logger.error(traceback.print_exc())
                 pass
     else:
         # Parallel loading using processes
@@ -467,15 +477,12 @@ def load_data_all(experiment, identities, min_time=None, max_time=None, max_work
         after=time.time()
         print(f"sociability.load_data_all done in {after-before} seconds")
 
-
     loaders=new_loaders
     for loader in loaders:
         for bp in GET_FEATURES_BODYPARTS:
             logger.info("%s - Interpolating %s", loader, bp)
             loader.pose_complex[bp]=interpolate_bp(loader.pose_complex[bp])
-            # if loader.pose_complex[bp].isna().sum()!=0:
             assert loader.pose_complex[bp].isna().sum()==0
-
 
     return loaders
 
@@ -488,7 +495,7 @@ def analyze_experiment(loaders, window_s, *args, **kwargs):
     min_time=loaders[0].dt["t"].min()
     max_time=loaders[0].dt["t"].max()
 
-    index["keep"]=True
+    index["keep"]=False
 
     index=index.merge(
         store_index[["frame_number", "t"]].rename({
@@ -508,12 +515,12 @@ def analyze_experiment(loaders, window_s, *args, **kwargs):
     index.loc[
         interactions_within_zt_limits,
         "keep"
-    ]=False
-    df["features"]=df["features"].iloc[np.where(index["keep"])]
+    ]=True
+    df["features"]=df["features"].iloc[np.where(index["keep"].values)]
     index=index.loc[index["keep"]]
 
     is_missing=np.isnan(df["features"].values).any(axis=1)
-    assert is_missing.sum()==0, f"Features are missing in {is_mising.sum()} instances"
+    assert is_missing.sum()==0, f"Features are missing in {is_missing.sum()} instances"
     features=df["features"]
     return features, index
 
@@ -730,6 +737,7 @@ def process_experiment(experiment, identities, *args, window_s=1, cache=True, ti
                 pd.IndexSlice[feat, :, :]
             ] for feat in feature_names
         ], axis=1)
+        assert index.shape[0]==features.shape[0],  f"Interaction index is not aligned to features database"
 
     except Exception as error:
         logger.error("Cannot process experiment %s", experiment)

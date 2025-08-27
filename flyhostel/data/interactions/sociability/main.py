@@ -7,7 +7,7 @@ from flyhostel.data.pose.constants import framerate as FRAMERATE
 from .sociability import process_experiment
 
 ANIMALS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
-GROUPS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/interaction_detection/fly_groups.csv"
+GROUPS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/interaction_detection/index.csv"
 
 N_CLUSTERS=20
 WINDOW_S=1
@@ -15,7 +15,7 @@ MIN_TIME=6*3600
 MAX_TIME=30*360
 
 
-def load_experiments(number_of_animals=6):
+def load_experiments(number_of_animals=6, interactions=False):
     """
     Load experiment name for all experiments
     whose behavior and interaction pipelines are complete
@@ -26,7 +26,8 @@ def load_experiments(number_of_animals=6):
     metadata_inters=pd.read_csv(GROUPS_CSV, header=None)
     metadata_inters.columns=["basedir", "experiment", "number_of_animals", "status", "select"]
     metadata_inters=metadata_inters.loc[metadata_inters["select"]=="SELECT"]
-    if number_of_animals>1:
+
+    if number_of_animals>1 and interactions:
         metadata=metadata_inters[["experiment"]].merge(metadata_beh, on="experiment", how="inner")
     else:
         metadata=metadata_beh
