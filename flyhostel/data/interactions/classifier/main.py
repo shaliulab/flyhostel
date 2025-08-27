@@ -20,7 +20,7 @@ from flyhostel.data.pose.ethogram.plot import bin_behavior_table_v2
 from flyhostel.data.pose.constants import BEHAVIOR_IDX_MAP
 from flyhostel.data.pose.constants import framerate as FRAMERATE
 from sync_paper.sleep import sleep_annotation_rf
-from sync_paper.constants import INACTIVE_STATES
+from sync_paper.constants import PURE_INACTIVE_STATES
 
 from .inter_orientation import calculate_angles_with_vertical_batch, compute_inter_orientation
 from .dtw import  compress_interaction
@@ -75,7 +75,7 @@ def load_fly_data(loader, min_time, max_time):
     loader.load_behavior_data(loader.experiment, loader.identity, min_time=min_time, max_time=max_time)
 
     print("Computing sleep")
-    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(INACTIVE_STATES)
+    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(PURE_INACTIVE_STATES)
     loader.sleep=sleep_annotation_rf(loader.behavior)
 
 
