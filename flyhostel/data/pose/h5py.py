@@ -76,7 +76,11 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
 
         filehandle_raw=h5py.File(h5_file_raw)
         logger.debug("Opening %s", h5_file_filtered)
-        filehandle=h5py.File(h5_file_filtered)
+        try:
+            filehandle=h5py.File(h5_file_filtered)
+        except Exception as error:
+            logger.error("Cannot open %s", h5_file_filtered)
+            raise error
         
         before=time.time()
         first_chunk=int(os.path.basename(filehandle["files"][0].decode()).split(".")[0])

@@ -2,7 +2,6 @@ import time
 import pickle
 import io
 import shutil
-import itertools
 import h5py
 import glob
 import time
@@ -22,19 +21,18 @@ from imgstore.interface import VideoCapture
 from flyhostel.data.pose.loaders.wavelets import WaveletLoader
 from flyhostel.data.pose.loaders.behavior import BehaviorLoader
 from flyhostel.data.pose.landmarks import LandmarksLoader
-
 from flyhostel.data.pose.loaders.pose import PoseLoader
 from flyhostel.data.pose.loaders.sleep import SleepLoader
 from flyhostel.data.pose.loaders.interactions import InteractionsLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import framerate as FRAMERATE
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import ROI_WIDTH_MM
 from flyhostel.data.pose.sleep import SleepAnnotator
 from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
 from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
-from flyhostel.utils import get_pose_file
+from flyhostel.utils import get_pose_file, get_number_of_animals
+
 try:
     from motionmapperpy import setRunParameters
     wavelet_downsample=setRunParameters().wavelet_downsample
@@ -516,3 +514,41 @@ def validate_h5py_file(file):
     except Exception as e:
         print(f"File {file} integrity check failed: {e}")
         return False
+
+
+def init_loaders(experiment, metadata):
+    number_of_animals=get_number_of_animals(experiment)
+    
+    if number_of_animals==1:
+        identities=[0]
+    else:
+        identities=list(range(1, number_of_animals+1))
+    
+    loaders=[FlyHostelLoader(experiment, identity=identity) for identity in identities]
+    loaders=filter_loaders(loaders, metadata)
+    return loaders
+
+
+def filter_loaders(loaders, metadata):
+    skip_experiment=False
+    for meta_prop, value in metadata.items():
+        try:
+            val=loaders[0].metadata[meta_prop].iloc[0]
+        except KeyError as error:
+            logger.warning("%s not available for %s", meta_prop, loaders[0].experiment)
+            # logger.error(error)
+            val=np.nan
+
+        # val==val passes if it's not nan
+        # np.isnan fails if val is a str
+        if val!=val:
+            pass
+        elif val!=value:
+            skip_experiment=True
+            logger.info("meta property %s value %s != %s", meta_prop, val, value)
+            break
+    
+    if skip_experiment:
+        return []
+    
+    return loaders
