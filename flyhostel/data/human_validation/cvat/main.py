@@ -268,9 +268,10 @@ def integrate_human_annotations(
     new_data["frame_idx"]=new_data["frame_number"]%chunksize
     new_data=assign_in_frame_indices(new_data)
 
-    out_file=os.path.join(folder, f"{experiment}.feather")
+    out_file=os.path.join(folder, f"{experiment}_without_identity.feather")
     try:
         logger.debug("Annotate identity")
+        print(f"Saving data until annotate_identity to {out_file}")
         new_data.reset_index(drop=True).to_feather(out_file)
         out=annotate_identity(cudf.DataFrame(new_data), number_of_animals)
     except Exception as error:
@@ -279,6 +280,7 @@ def integrate_human_annotations(
         import ipdb; ipdb.set_trace()
 
     # Save result!
+    out_file=os.path.join(folder, f"{experiment}.feather")
     logger.debug("Saving ---> %s", out_file)
     out.reset_index(drop=True).to_feather(out_file)
 

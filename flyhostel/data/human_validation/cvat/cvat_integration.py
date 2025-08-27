@@ -418,7 +418,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                 if selection_method=="contour":
                     match_idx, n=select_by_contour(contour, contours_list, debug=False)
                     if match_idx is None:
-                        logger.debug("Could not select by contour in frame %s", frame_number)
+                        logger.warning("Could not select by contour in frame %s", frame_number)
 
                     # elif frame_number==13532157:
                     #     print(annotation.iloc[annot_idx_2], df.iloc[match_idx])

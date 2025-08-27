@@ -45,7 +45,7 @@ def select_by_contour(contour, contours_list, debug=False):
         match_idx=None
         n=0
     elif winner_tied:
-        logger.error(f"The annotated contour is fully contained in {n_winners} yolo boxes")
+        logger.debug(f"The annotated contour is fully contained in {n_winners} yolo boxes")
         match_idx=None
         n=-1
     elif tied:
@@ -94,7 +94,10 @@ def polygon_to_blob(polygon, frame_width, frame_height, number_of_cols, original
     
     contour=np.array(polygon).reshape((-1, 1, 2)).astype(np.int32)
     frame_idx_in_block=contour_to_frame_idx_in_block(contour, frame_width, frame_height, number_of_cols)
-    contour=reproject_contour(contour, frame_width, frame_height, original_resolution)
+    if number_of_cols==1:
+        contour=reproject_contour_uni_frame(contour, frame_width, frame_height, original_resolution)
+    else:
+        contour=reproject_contour(contour, frame_width, frame_height, original_resolution)
 
     x, y=contour_to_centroid(contour)
     # x=int(x / frame_width * original_resolution[0])
@@ -143,7 +146,11 @@ def rle_to_blob(*args, frame_width, frame_height, number_of_cols, original_resol
     assert len(contours)==1, "This annotation is segmented into >1 contour. Does it have a hole in it?"
     contour=contours[0]
     frame_idx_in_block=contour_to_frame_idx_in_block(contour, frame_width, frame_height, number_of_cols)
-    contour=reproject_contour(contour, frame_width, frame_height, original_resolution)
+    if number_of_cols==1:
+        contour=reproject_contour_uni_frame(contour, frame_width, frame_height, original_resolution)
+    else:
+        contour=reproject_contour(contour, frame_width, frame_height, original_resolution)
+
     x, y=contour_to_centroid(contour)
     
     return frame_idx_in_block, (x, y), contour
@@ -177,3 +184,15 @@ def reproject_contour(contour, frame_width, frame_height, original_resolution):
     contour=contour.astype(np.int32)
     
     return contour
+
+
+def reproject_contour_uni_frame(contour, frame_width, frame_height, original_resolution):
+
+    # projcting back in to the original resolution
+    contour[:,:,0]=original_resolution[0]*contour[:,:,0]/frame_width
+    contour[:,:,1]=original_resolution[1]*contour[:,:,1]/frame_height
+    
+    contour=contour.astype(np.int32)
+    
+    return contour
+
