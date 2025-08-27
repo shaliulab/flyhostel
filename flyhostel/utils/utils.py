@@ -276,6 +276,7 @@ def get_local_identities_from_experiment(experiment, frame_number):
 
 
 def get_local_identities_v1(dbfile, frame_numbers, identity_table="IDENTITY"):
+    chunksize=get_chunksize(dbfile)
 
     with sqlite3.connect(dbfile) as conn:
         cursor = conn.cursor()
@@ -288,12 +289,17 @@ def get_local_identities_v1(dbfile, frame_numbers, identity_table="IDENTITY"):
         table = cursor.fetchall()
     
     table=pd.DataFrame.from_records(table, columns=["frame_number", "identity", "local_identity"])
+    table["chunk"]=table["frame_number"]//chunksize
+    
     return table
 
-def get_local_identities_v2(dbfile, frame_numbers, identity_table=None):
+def get_local_identities_v2(dbfile, frame_numbers=None, identity_table=None):
     chunksize=get_chunksize(dbfile)
-    chunks=(np.array(frame_numbers)//chunksize).tolist()
 
+    if frame_numbers is not None:
+        chunks=(np.array(frame_numbers)//chunksize).tolist()
+    else:
+        chunks=None
     with sqlite3.connect(dbfile) as conn:
         cursor = conn.cursor()
         query = "SELECT * FROM CONCATENATION_VAL;"
@@ -304,7 +310,10 @@ def get_local_identities_v2(dbfile, frame_numbers, identity_table=None):
     table["local_identity"]=table["local_identity"].astype(np.int32)
     table["identity"]=table["identity"].astype(np.int32)
     
-    table=table.loc[table["chunk"].isin(chunks)]
+    
+    if chunks is not None:
+        table=table.loc[table["chunk"].isin(chunks)]
+    
     table["frame_number"]=table["chunk"]*chunksize
 
     return table
@@ -319,6 +328,19 @@ def get_local_identities(dbfile, *args, **kwargs):
         return get_local_identities_v1(dbfile, *args, **kwargs)
 
 
+def annotate_local_identity(df, experiment):
+    """
+    Add a new column local_identity based on the experiemnt+identity+frame_number link
+    """
+    assert "chunk" in df.columns
+    assert "identity" in df.columns
+    assert "frame_number" in df.columns   
+
+    dbfile=get_dbfile(get_basedir(experiment))
+    
+    local_identity_index=get_local_identities(dbfile, df["frame_number"])[["identity", "chunk", "local_identity"]]
+    df=df.merge(local_identity_index, on=["chunk", "identity"], how="left")
+    return df
 
 def get_chunksize(dbfile):
     with sqlite3.connect(dbfile) as conn:
@@ -451,3 +473,12 @@ def get_local_identity(dbfile, chunk, identity):
         cursor.execute(cmd)
         local_identity=int(cursor.fetchone()[0])
         return local_identity
+
+
+def build_interaction_video_key(experiment, row, interaction_name="rejections"):
+    return f"{experiment}_{interaction_name}" + \
+        "_" + str(row["first_frame"]) + \
+        "_" + str(row["last_frame_number"]) + \
+        "_" + str(row["local_identity"]).zfill(3) + \
+        "_" + str(row["identity"]).zfill(2)
+
