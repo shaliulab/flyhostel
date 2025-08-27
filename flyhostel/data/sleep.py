@@ -1,8 +1,9 @@
 import numpy as np
 from ethoscopy.analyse import sleep_contiguous
-INACTIVE_STATES=["inactive", "inactive+pe", "inactive+micromovement", "inactive+rejection", "feed"]
+from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
+# INACTIVE_STATES=["inactive", "inactive+pe", "inactive+micromovement", "inactive+rejection", "feed"]
 PURE_INACTIVE_STATES=["inactive", "inactive+pe", "inactive+micromovement", "inactive+rejection"]
-SLEEP_STATES={"WO_FEED": PURE_INACTIVE_STATES, "WITH_FEED": INACTIVE_STATES}
+SLEEP_STATES={"WO_FEED": PURE_INACTIVE_STATES, "WITH_FEED": None}
 
 # Sleep functions
 def apply_inactive_rule(dataset_window, time_window_length, min_time_immobile):
@@ -79,3 +80,53 @@ def bin_apply_all(data, feature, summary_FUN, x_bin_length):
         "zt", axis=1, errors="ignore"
     ).groupby(grouping_columns).agg(aggregation).reset_index()
     return dt_bin
+
+
+def compute_latency(df):
+    """
+    Compute sleep latency at each timepoint
+    sleep latency = seconds until start of next bout of sleep
+
+    Arguments:
+        df (pd.DataFrame): Contains columns id, t, and asleep
+    Returns:
+        df (pd.DataFrame): Contains columns latency and others
+    """
+
+    # need to become int
+    # otherwise diff([True, False]) i.e. wake up is 1
+    # (in int version it is -1 and therefore it is ignored)
+    diff=np.diff(df["asleep"].astype(int))
+    df["sleep_transition"]=0
+    df["sleep_transition_idx"]=np.nan
+    transition_loc=np.where(diff==1)[0]
+    df["sleep_transition"].iloc[transition_loc]=1
+    df["sleep_transition_idx"].iloc[transition_loc]=np.arange(len(transition_loc))+1
+    df["sleep_transition_idx"].bfill(inplace=True)
+
+    df=df.merge(
+        df[df["sleep_transition"]!=0].rename({"t": "sleep_onset"}, axis=1)[["id", "sleep_onset", "sleep_transition_idx"]],
+        on=["id", "sleep_transition_idx"],
+        how="left"
+    )
+    df["latency"]=df["sleep_onset"]-df["t"]
+    df.loc[df["asleep"]==True, "latency"]=-1
+    return df
+
+
+def compute_time_asleep(df, column="asleep"):
+    """
+    Compute time asleep at each timepoint
+    time asleep = seconds since the start of the current bout of sleep
+    Arguments:
+        df (pd.DataFrame): Contains columns id, t, and asleep
+    Returns:
+        df (pd.DataFrame): Contains columns time_asleep and others
+    """
+
+    df=annotate_bout_duration(annotate_bouts(df, variable=column), fps=1)
+    df[f"time_{column}"]=df["bout_in"].copy()
+    df.loc[~df[column], f"time_{column}"]=-1
+    df.drop(["bout_out"], axis=1, inplace=True)
+    df.rename({"duration": f"duration_{column}"}, axis=1, inplace=True)
+    return df
