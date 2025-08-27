@@ -25,7 +25,7 @@ from flyhostel.data.pose.constants import framerate as FRAMERATE
 logger=logging.getLogger(__name__)
 
 from sync_paper.sleep import sleep_annotation_rf
-from sync_paper.constants import INACTIVE_STATES
+from sync_paper.constants import PURE_INACTIVE_STATES
 
 def load_fly_data(loader, min_time, max_time, n_jobs=1, framerate=50, **kwargs):
     loader.load_centroid_data(min_time=min_time, max_time=max_time, n_jobs=n_jobs)
@@ -35,7 +35,7 @@ def load_fly_data(loader, min_time, max_time, n_jobs=1, framerate=50, **kwargs):
     loader.load_behavior_data(min_time=min_time, max_time=max_time)
     loader.behavior.sort_values(["frame_number"], inplace=True)
     print("Computing sleep")
-    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(INACTIVE_STATES)
+    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(PURE_INACTIVE_STATES)
     loader.sleep=sleep_annotation_rf(loader.behavior)
 
 

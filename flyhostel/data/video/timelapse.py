@@ -6,6 +6,8 @@ for visualization purposes
 import os
 import traceback
 import logging
+import pickle
+
 import yaml
 from imgstore.interface import VideoCapture
 import matplotlib.pyplot as plt
@@ -23,14 +25,13 @@ from flyhostel.utils import (
     get_number_of_animals,
 )
 from flyhostel.data.video.utils import (
-    add_info_box
+    add_info_box_gpt
 )
 
 from flyhostel.data.sleep import sleep_annotation_rf, SLEEP_STATES
-from flyhostel.data.pose.constants import (
-    framerate,
-    chunksize
-)
+from flyhostel.data.pose.constants import chunksize
+from flyhostel.data.pose.constants import framerate as FRAMERATE
+
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.video.utils import draw_sleep_state
 plt.set_cmap("gray")
@@ -62,7 +63,8 @@ def draw_trace(video_data, img, fn, identities, step, n_steps, roi_width=None, p
     # annotate frame number
     
     frame_is_annotated=False
-    properties=["frame_number", "zt"]
+    video_data["fn"]=video_data["frame_number"].copy()
+    properties=["fn", "zt"]
     animal_frame=None
 
     # img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
@@ -128,7 +130,7 @@ def draw_trace(video_data, img, fn, identities, step, n_steps, roi_width=None, p
             last_y = y
 
             if animal_frame is not None and not frame_is_annotated and step_count==0:
-                img=add_info_box(img, properties, animal_frame)
+                img=add_info_box_gpt(img, properties, animal_frame)
                 frame_is_annotated=True
 
     return img
@@ -228,6 +230,14 @@ def draw_clock(hour, clock_size=200):
 
     plt.close(fig)  # Close the figure
     return clock
+
+
+def save_pkl(imgs_t, filename):
+    
+    pkl_file=os.path.splitext(filename)[0] + ".pkl"
+    with open(pkl_file, "wb") as handle:
+        pickle.dump(imgs_t, handle)
+
 
 
 def save_video(imgs_t, filename, mask, fps, clock_size=None):
@@ -331,12 +341,18 @@ def make_timelapse_from_data(
         fns[i*partition_size:(i+1)*partition_size]
         for i in range(fns.size//partition_size+1)
     ]
+    fns_partition = [part for part in fns_partition if len(part) > 0]
+
+
+    MARGIN=back_in_time*framerate*2
 
     out=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             draw_frame
         )(
-           df, index, basedir, fns,
+           df.loc[(df["frame_number"] >= min(fns)-MARGIN) & (df["frame_number"] < max(fns)+MARGIN)],
+           index.loc[index["frame_number"].isin(fns)],
+           basedir, fns,
            identities=identities,
            step=framerate*seconds_between,
            n_steps=n_steps,
@@ -352,17 +368,29 @@ def make_timelapse_from_data(
             if img is None:
                 continue
             imgs_t.append((img, t))
+
+    save_pkl(imgs_t, output_video)
     save_video(imgs_t, output_video, mask=mask, fps=fps, clock_size=None)
+    os.remove(os.path.splitext(output_video)[0] + ".pkl")
 
 
-def main(experiment, back_in_time_min=15, n_jobs=20):
+MIN_TIME=6*3600
+MAX_TIME=30*3600
+
+def main(experiment, back_in_time_min=15, n_jobs=20, cache=False, min_time=MIN_TIME, max_time=MAX_TIME, seconds_between=60, dest_video="./video.mp4"):
 
     basedir=get_basedir(experiment)
     number_of_animals=get_number_of_animals(experiment)
 
+    dirpath = os.path.dirname(dest_video)
+    if dirpath:
+        os.makedirs(dirpath, exist_ok=True)
+        
+    if cache and os.path.exists(dest_video):
+        return
+
     loaders=[FlyHostelLoader(experiment=experiment, identity=identity) for identity in list(range(1, number_of_animals+1))]
-    MIN_TIME=6*3600
-    MAX_TIME=30*3600
+
     postprocessing=[draw_sleep_state]
     inactive_mode="WO_FEED"
     inactive_states=SLEEP_STATES[inactive_mode]
@@ -370,15 +398,15 @@ def main(experiment, back_in_time_min=15, n_jobs=20):
 
     for loader in loaders:
         loader.load_centroid_data(
-            min_time=MIN_TIME,
-            max_time=MAX_TIME,
+            min_time=min_time,
+            max_time=max_time,
             cache="/flyhostel_data/cache/",
             identity_table="IDENTITY_VAL",
             roi_0_table="ROI_0_VAL"
         )
 
         loader.load_behavior_data(
-            min_time=MIN_TIME, max_time=MAX_TIME,
+            min_time=min_time, max_time=max_time,
         )
 
     for loader in loaders:
@@ -394,19 +422,19 @@ def main(experiment, back_in_time_min=15, n_jobs=20):
     
     df=pd.concat([loader.dt_asleep for loader in loaders], axis=0).reset_index(drop=True)
     df["zt"]=(df["t"]//3600).astype(int)
-    df["zt"]=df["zt"].astype(str) + ":" + ((df["t"]%3600)/60).astype(int).astype(str).str.zfill(2)
+    df["zt"]=df["zt"].astype(str).str.zfill(2) + ":" + ((df["t"]%3600)/60).astype(int).astype(str).str.zfill(2)
 
     make_timelapse_from_data(
         df,
-        os.path.join(basedir, "flyhostel", f"{experiment}_timelapse.mp4"),
+        dest_video,
         basedir,
         back_in_time=60*back_in_time_min,
-        seconds_between=60,
+        seconds_between=seconds_between,
         fps=15,
         min_chunk=0,
         max_chunk=float("inf"),
         n_jobs=n_jobs,
         partition_size=5,
-        framerate=150,
+        framerate=FRAMERATE,
         postprocessing=postprocessing,
     )
