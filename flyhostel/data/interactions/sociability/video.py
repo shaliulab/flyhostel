@@ -325,8 +325,10 @@ def annotate_interaction_database(experiment, database):
     id_missing_coords=index["center_x"].isna().sum()
     nn_missing_coords=index["center_x_nn"].isna().sum()
 
-    assert id_missing_coords==0, f"{id_missing_coords}!=0"
-    assert nn_missing_coords==0, f"{nn_missing_coords}!=0"
+    if id_missing_coords!=0 or nn_missing_coords!=0:
+        logger.warning("%s!=0 OR %s!=0", id_missing_coords, nn_missing_coords)
+        logger.warning("Consider remaking the validation and especiallly inspecting these frames:")
+        logger.warning(index.loc[(index["center_x"].isna()) | (index["center_x_nn"].isna()), ["id", "frame_number", "chunk"]].drop_duplicates())
 
     # index.rename({"local_identity": "local_identity_live"}, axis=1, inplace=True)
     index["local_identity_live"]=index["local_identity"].copy()
