@@ -31,7 +31,7 @@ from flyhostel.data.pose.sleep import SleepAnnotator
 from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
 from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
-from flyhostel.utils import get_pose_file, get_number_of_animals
+from flyhostel.utils import get_pose_file, get_number_of_animals, get_basedir
 
 try:
     from motionmapperpy import setRunParameters
@@ -350,7 +350,50 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         out=pd.concat(out, axis=0)
         return out
 
-    def load_store_index(self, cache=None):
+    def load_store_index_v2(self, min_time=None, max_time=None):
+        """
+        Load rows from STORE_INDEX with an optional time window.
+        min_time / max_time are in seconds relative to ZT0.
+        STORE_INDEX.frame_time is in milliseconds relative to experiment start (t=0 at start).
+        self.meta_info["t_after_ref"] (t0) is seconds from ZT0 to experiment start.
+
+        The WHERE clause enforces:
+            frame_time >= (min_time - t0) * 1000       [if min_time is not None]
+            frame_time <= (max_time - t0) * 1000       [if max_time is not None]
+        """
+        t0 = self.meta_info["t_after_ref"]  # seconds from ZT0 to experiment start
+
+        clauses = []
+        params = []
+
+        # Convert ZT0-relative times to experiment-relative milliseconds
+        if min_time is not None:
+            min_rel_ms = (min_time - t0) * 1000.0
+            clauses.append("frame_time >= ?")
+            params.append(min_rel_ms)
+
+        if max_time is not None:
+            max_rel_ms = (max_time - t0) * 1000.0
+            clauses.append("frame_time <= ?")
+            params.append(max_rel_ms)
+
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        cmd = f"SELECT * FROM STORE_INDEX {where_clause};"
+
+        with sqlite3.connect(self.dbfile) as conn:
+            cursor = conn.cursor()
+            cursor.execute(cmd, params)
+            rows = cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+
+        self.store_index = pd.DataFrame(rows, columns=cols)
+        
+        # Convert to seconds for downstream use
+        self.store_index["frame_time"] = self.store_index["frame_time"] / 1000.0
+        self.store_index["t"]=self.store_index["frame_time"] + t0
+        return self.store_index
+
+    def load_store_index(self,cache=None):
 
         if cache is not None:
             path = os.path.join(cache, f"{self.experiment}_store_index.pkl")
@@ -524,6 +567,9 @@ def init_loaders(experiment, metadata):
     else:
         identities=list(range(1, number_of_animals+1))
     
+    basedir = get_basedir(experiment)
+    if not os.path.exists(basedir):
+        return []
     loaders=[FlyHostelLoader(experiment, identity=identity) for identity in identities]
     loaders=filter_loaders(loaders, metadata)
     return loaders
