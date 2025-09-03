@@ -12,9 +12,15 @@ from flyhostel.utils import restore_cache, save_cache
 from flyhostel.data.pose.filters import filter_pose, arr2df
 from flyhostel.data.pose.gpu_filters import filter_pose_df
 from flyhostel.data.pose.constants import get_bodyparts
-from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from flyhostel.data.pose.constants import framerate as FRAMERATE
-from flyhostel.data.pose.constants import PARTITION_SIZE
+from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
+from flyhostel.data.pose.constants import (
+    MIN_TIME,
+    MAX_TIME,
+    PARTITION_SIZE,
+    SQUARE_WIDTH,
+    SQUARE_HEIGHT
+)
 
 BODYPARTS=get_bodyparts()
 
@@ -36,13 +42,70 @@ def project_to_absolute_coords(pose, bodypart):
     pose[f"{bodypart}_y"]+=pose["center_y"]
     return pose
 
+
+
+def times_to_frame_slice(store_index, min_time=None, max_time=None):
+    """
+    Convert min_time/max_time to frame numbers suitable for slicing:
+      - min_time -> first frame at or after min_time (>=)
+      - max_time -> first frame strictly after max_time (>).
+        If none exists, returns last_frame+1.
+    If a time is None, returns None so you can do full_data[min_f:max_f] unchanged.
+
+    Assumes store_index has columns 't' and 'frame_number'.
+    Returns:
+      (min_frame_number, max_frame_number, t_slice)
+        where t_slice are the 't' values for frames in [min_frame_number:max_frame_number]
+    """
+    t_vals = store_index['t'].to_numpy()
+    frames = store_index['frame_number'].to_numpy()
+    n = len(frames)
+    last_plus_one = (frames[-1] + 1) if n else 0
+
+    def first_frame_at_or_after(time_val):
+        if time_val is None:
+            return None
+        idx = np.searchsorted(t_vals, time_val, side='left')  # >=
+        if idx < n:
+            return int(frames[idx])
+        return int(last_plus_one)
+
+    def first_frame_after(time_val):
+        if time_val is None:
+            return None
+        idx = np.searchsorted(t_vals, time_val, side='right')  # >
+        if idx < n:
+            return int(frames[idx])
+        return int(last_plus_one)
+
+    min_frame_number = first_frame_at_or_after(min_time)
+    max_frame_number = first_frame_after(max_time)
+
+    # collect the times corresponding to the slice
+    if min_frame_number is None:
+        start_idx = 0
+    else:
+        start_idx = np.searchsorted(frames, min_frame_number, side="left")
+
+    if max_frame_number is None:
+        end_idx = len(frames)
+    else:
+        end_idx = np.searchsorted(frames, max_frame_number, side="left")
+
+    t_slice = t_vals[start_idx:end_idx]
+
+    return min_frame_number, max_frame_number, t_slice
+
+
+
+
+
 class PoseLoader:
 
     filters=None
     dt=None
 
     def __init__(self, *args, **kwargs):
-
         self.experiment=None
         self.ids=None
         self.pose=None
@@ -79,6 +142,59 @@ class PoseLoader:
     @abstractmethod
     def load_store_index(self, cache):
         raise NotImplementedError()
+    
+
+    def load_pose_data_v2(self, min_time, max_time, absolute=False):
+        """
+        Used interactively, allows filtering by time
+        Eventually should be merged with load_pose_data, I just dont wanna change load_pose_data because
+        it is used in the automatic pipelines
+        """
+
+        identity=self.identity
+        animals=[animal for animal in self.datasetnames if animal.endswith(str(identity).zfill(2))]
+        ids=[ident for ident in self.ids if ident.endswith(str(identity).zfill(2))]
+        files=[(
+            self.get_pose_file_h5py(pose_name="filter_rle-jump"),
+            self.get_pose_file_h5py(pose_name="raw")
+        )]
+
+        self.load_store_index_v2(min_time=min_time-1, max_time=max_time+1)
+        stride=1
+
+        min_frame_number, max_frame_number, ts=times_to_frame_slice(self.store_index, min_time=min_time, max_time=max_time)
+        frame_number=np.arange(min_frame_number, max_frame_number, stride)
+        
+        with h5py.File(files[0][0]) as file:
+            first_chunk=int(os.path.basename(file["files"][0].decode()).split(".")[0])
+            first_frame_number=first_chunk*CHUNKSIZE
+            x0=min_frame_number-first_frame_number
+            x1=max_frame_number-first_frame_number
+            bodyparts=[bp.decode() for bp in file["node_names"][:]]
+        
+            pose=pd.concat([
+                # 0, x/y, bodyparts, time
+                pd.DataFrame(file["tracks"][0, 0, :, x0:x1:stride].T, columns=[f"{bp}_x" for bp in bodyparts]),
+                pd.DataFrame(file["tracks"][0, 1, :, x0:x1:stride].T, columns=[f"{bp}_y" for bp in bodyparts])
+            ], axis=1)
+
+        pose.insert(0, "frame_number", frame_number)
+        pose.insert(1, "id", self.ids[0])
+        pose.insert(2, "t", ts)
+        
+        if absolute:
+            self.dt=None
+            self.load_centroid_data(min_time=min_time-1, max_time=max_time+1)
+            pose=pose.merge(self.dt[["frame_number", "id", "x", "y"]], on=["frame_number", "id"], how="left")
+            self.dt=None
+
+            pose["center_x"]=pose["x"]*self.roi_width-SQUARE_WIDTH//2
+            pose["center_y"]=pose["y"]*self.roi_width-SQUARE_HEIGHT//2
+            for bodypart in BODYPARTS:
+                pose=project_to_absolute_coords(pose, bodypart)
+
+        return pose
+
 
     def load_pose_data(self, experiment=None, identity=None, min_time=None, max_time=None, time_system="zt", stride=1, cache=None, verbose=False, files=None, write_only=False):
 
