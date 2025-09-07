@@ -9,7 +9,7 @@ from flyhostel.utils.utils import get_dbfile
 logger=logging.getLogger(__name__)
 
 
-def assign_in_frame_indices(data):
+def assign_in_frame_indices(data, number_of_animals):
     """
     Populate in_frame_index column so that no nan values are left
     """
@@ -23,7 +23,14 @@ def assign_in_frame_indices(data):
     new_rows=[]
     for frame_number in tqdm(fn_index, desc="Assign in frame index"):
         one_frame_data=rows_to_annotate.loc[rows_to_annotate["frame_number"]==frame_number]
-        last_in_frame_index=np.nanmax(one_frame_data["in_frame_index"])
+        try:
+            last_in_frame_index=np.nanmax(one_frame_data["in_frame_index"])
+        except AttributeError as error:
+            if one_frame_data.shape[0]!=number_of_animals:
+                raise error
+            else:
+                last_in_frame_index=-1
+
         if np.isnan(last_in_frame_index):
             last_in_frame_index=-1
         for i, row in one_frame_data.iterrows():

@@ -213,7 +213,6 @@ def integrate_human_annotations(
     # Write test that verifies in experiment FlyHostel4_6X_2023-08-31_13-00-00  chunk 220 frame_idx 25181 (7090181) that the flies get local_identity 5 and 2
     # Also frame 10194436 from same experiment
 
-
     duplications=annotations_without_clean_spatial_machine_data_and_rest_of_machine_data[["chunk", "fragment"]].drop_duplicates().merge(
         human_data_and_propagation_via_fragments[["chunk", "fragment"]].drop_duplicates(), how="outer", indicator=True
     )
@@ -222,7 +221,7 @@ def integrate_human_annotations(
         how="left",
         on=["chunk", "fragment"]
     )
-    
+
     # combine all data sources
     updated_data=pd.concat([
         human_data_and_propagation_via_fragments,
@@ -230,7 +229,6 @@ def integrate_human_annotations(
     ], axis=0).sort_values(["frame_number", "validated"], ascending=[True, False])\
         .reset_index(drop=True)
         # .drop_duplicates(["frame_number", "fragment"])
-    
 
     # flies_lid_0=list_flies_with_lid_0(new_data)
     # flies_lid_0.to_csv(os.path.join(folder, "flies_lid_0.csv"))
@@ -272,12 +270,12 @@ def integrate_human_annotations(
 
     logger.debug("Assign in frame index")
     test_duplicated_blobs(new_data, chunksize)
-    new_data=assign_in_frame_indices(new_data)
+    new_data=assign_in_frame_indices(new_data, number_of_animals)
 
     logger.debug("Assing in_frame_index")
     new_data.sort_values("frame_number", inplace=True)
     new_data["frame_idx"]=new_data["frame_number"]%chunksize
-    new_data=assign_in_frame_indices(new_data)
+    new_data=assign_in_frame_indices(new_data, number_of_animals)
 
     out_file=os.path.join(folder, f"{experiment}_without_identity.feather")
     try:
