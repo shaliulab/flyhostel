@@ -106,6 +106,17 @@ def integrate_human_annotations(
         roi_0_machine[["frame_number", "in_frame_index", "fragment", "x", "y", "modified", "class_name"]],
         on=["frame_number", "in_frame_index"]
     )
+    
+    max_machine_fn=machine_data["frame_number"].max()
+    max_human_fn=annotations_df["frame_number"].max()
+
+
+    assert max_machine_fn >= max_human_fn, \
+        f"""
+        You have validations outside of the machine data range ({max_machine_fn} < {max_human_fn}).
+        Did you pass an erroneous fn-interval?
+        """
+    
     machine_data["chunk"]=machine_data["frame_number"]//chunksize
     machine_data["validated"]=0
 
