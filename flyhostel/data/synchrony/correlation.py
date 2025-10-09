@@ -192,6 +192,8 @@ def annotator(df, lags, feature="asleep", FUNs={}, auto=False, summary_FUN="mean
     }
     
     X=tables[summary_FUN]
+    experiment_index=df[["id",  "experiment"]].drop_duplicates().reset_index(drop=True)
+
 
     ids=X.columns.tolist()
     pairs=list(itertools.combinations(ids, 2))
@@ -202,15 +204,20 @@ def annotator(df, lags, feature="asleep", FUNs={}, auto=False, summary_FUN="mean
     records=[]
     for lag in tqdm(lags, desc="Analyzing lags"):
         for id1, id2 in pairs:
+
+            if id1[:26]==id2[:26]:
+                experiment=experiment_index.loc[experiment_index["id"]==id1, "experiment"].iloc[0]
+            else:
+                experiment="virtual"
             for FUN, FUN_name in FUNs.items():
                 val, N=FUN(X, id1, id2, lag=lag, **kwargs)
                 records.append((
-                    id1, id2, lag, val, FUN_name, N
+                    id1, id2, lag, val, FUN_name, N, experiment
                 ))
 
     df=pd.DataFrame.from_records(
         records,
-        columns=["id1", "id2", "lag", "value", "metric", "N"]
+        columns=["id1", "id2", "lag", "value", "metric", "N", "experiment"]
     )
-    df=df.pivot(index=["id1", "id2", "lag", "N"], columns="metric", values="value").reset_index()
+    df=df.pivot(index=["id1", "id2", "lag", "N", "experiment"], columns="metric", values="value").reset_index()
     return df
