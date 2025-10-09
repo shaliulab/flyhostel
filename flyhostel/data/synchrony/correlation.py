@@ -102,6 +102,19 @@ def euclidean_distance(df, col1, col2, lag=0, nan=0):
         distance=nan
     return distance, n_points
 
+def psi(df, col1, col2, lag, nan=0):
+    """
+    Population Synchrony Index
+    https://www.science.org/doi/10.1126/science.adr3339
+    """
+
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    mean_across_animals=np.stack([series1, series2]).mean(axis=0)
+
+    mean_across_animals=mean_across_animals[~np.isnan(mean_across_animals)]
+    coefficient_of_variation=np.std(mean_across_animals) / np.mean(mean_across_animals)
+    return coefficient_of_variation, n_points
+
 
 def cross_correlationv2(df, col1, col2, lag=0, nan=0):
     """
