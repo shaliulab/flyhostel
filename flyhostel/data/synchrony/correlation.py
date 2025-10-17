@@ -1,8 +1,13 @@
 import itertools
+import random
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
 from scipy.stats import kendalltau
+from .correlation_utils import (
+    real_groups_iter,
+    virtual_combinations_iter
+)
 
 def phi_corr(series1, series2):
     assert all([e in [0, 1] for e in series1])
@@ -115,6 +120,24 @@ def psi(df, col1, col2, lag, nan=0):
     coefficient_of_variation=np.std(mean_across_animals) / np.mean(mean_across_animals)
     return coefficient_of_variation, n_points
 
+def group_psi(df, lag, nan=0):
+    """
+    Population Synchrony Index
+    https://www.science.org/doi/10.1126/science.adr3339
+    """
+    col1, col2=df.columns[:2]
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    series=[series1, series2]
+  
+    for id in df.columns[2:]:
+        _, series_n, n_points=preprocess(df, col1, id, lag)
+        series.append(series_n)
+   
+    mean_across_animals=np.stack(series).mean(axis=0)
+    mean_across_animals=mean_across_animals[~np.isnan(mean_across_animals)]
+    coefficient_of_variation=np.std(mean_across_animals) / np.mean(mean_across_animals)
+    return coefficient_of_variation, n_points
+
 
 def cross_correlationv2(df, col1, col2, lag=0, nan=0):
     """
@@ -215,6 +238,26 @@ def annotator(df, lags, feature="asleep", FUNs={}, auto=False, summary_FUN="mean
                     id1, id2, lag, val, FUN_name, N, experiment
                 ))
 
+      
+        for experiment, ids_per_groups in real_groups_iter(ids):
+            for FUN, FUN_name in group_FUNs.items():
+                val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
+                for id1, id2 in itertools.combinations(ids_per_groups, 2):
+                    records.append((
+                        id1, id2, lag, val, FUN_name, N, experiment
+                    ))
+        
+        virtual_combos=random.sample(list(virtual_combinations_iter(ids)), 100)
+        counter=0
+        for experiment, ids_per_groups in virtual_combos:
+            for FUN, FUN_name in group_FUNs.items():
+                val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
+                for id1, id2 in itertools.combinations(ids_per_groups, 2):
+                    records.append((
+                        id1, id2, lag, val, FUN_name, N, f"{experiment}_{counter}"
+                    ))
+            counter+=1
+    
     df=pd.DataFrame.from_records(
         records,
         columns=["id1", "id2", "lag", "value", "metric", "N", "experiment"]
