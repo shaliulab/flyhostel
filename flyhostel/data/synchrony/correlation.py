@@ -1,9 +1,12 @@
 import itertools
 import random
+import logging
+
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
 from scipy.stats import kendalltau
+logger=logging.getLogger(__name__)
 from .correlation_utils import (
     real_groups_iter,
     virtual_combinations_iter
@@ -58,7 +61,8 @@ def rmse(df, col1, col2, lag=0):
 
 def preprocess(df, col1, col2, lag):
     """
-    
+    Apply a lag to the timeseries in col1 and col2,
+    while keeping only the timepoints that are shared between both    
     """
     
     if lag == 0:
@@ -109,7 +113,7 @@ def euclidean_distance(df, col1, col2, lag=0, nan=0):
 
 def psi(df, col1, col2, lag, nan=0):
     """
-    Population Synchrony Index
+    Pairwise population Synchrony Index
     https://www.science.org/doi/10.1126/science.adr3339
     """
 
@@ -201,7 +205,7 @@ def mean_squared_difference(df, col1, col2, lag=0, nan=0):
     return msq_diff, n_points
 
 
-def annotator(df, lags, feature="asleep", FUNs={}, auto=False, summary_FUN="mean", **kwargs):
+def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, summary_FUN="mean", **kwargs):
 
     assert df.shape[0]>0
     wide_table=df.reset_index().pivot_table(index=['t'], columns='id', values=feature)
@@ -225,42 +229,56 @@ def annotator(df, lags, feature="asleep", FUNs={}, auto=False, summary_FUN="mean
             pairs.append((id, id))
 
     records=[]
+    records_group=[]
     for lag in tqdm(lags, desc="Analyzing lags"):
         for id1, id2 in pairs:
 
             if id1[:26]==id2[:26]:
                 experiment=experiment_index.loc[experiment_index["id"]==id1, "experiment"].iloc[0]
+                comparison="real"
             else:
                 experiment="virtual"
+                comparison="virtual"
             for FUN, FUN_name in FUNs.items():
                 val, N=FUN(X, id1, id2, lag=lag, **kwargs)
+                if np.isnan(val):
+                    logger.debug("%s between %s and %s is na", FUN_name, id1, id2)
                 records.append((
-                    id1, id2, lag, val, FUN_name, N, experiment
+                    id1, id2, lag, val, FUN_name, N, experiment, comparison
                 ))
-
       
         for experiment, ids_per_groups in real_groups_iter(ids):
             for FUN, FUN_name in group_FUNs.items():
                 val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
-                for id1, id2 in itertools.combinations(ids_per_groups, 2):
-                    records.append((
-                        id1, id2, lag, val, FUN_name, N, experiment
-                    ))
-        
-        virtual_combos=random.sample(list(virtual_combinations_iter(ids)), 100)
+                ids_str=";".join(ids_per_groups)
+                records_group.append((
+                    ids_str, None, lag, val, FUN_name, N, experiment, "real"
+                ))
+
+        virtual_combos=list(virtual_combinations_iter(ids))
+        sample_size=min(1000, len(virtual_combos))
+        virtual_combos=random.sample(virtual_combos, sample_size)
         counter=0
         for experiment, ids_per_groups in virtual_combos:
             for FUN, FUN_name in group_FUNs.items():
                 val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
-                for id1, id2 in itertools.combinations(ids_per_groups, 2):
-                    records.append((
-                        id1, id2, lag, val, FUN_name, N, f"{experiment}_{counter}"
-                    ))
+                ids_str=";".join(ids_per_groups)
+                records_group.append((
+                    ids_str, None, lag, val, FUN_name, N, f"{experiment}_{counter}", "virtual"
+                ))
+        
             counter+=1
-    
+
     df=pd.DataFrame.from_records(
         records,
-        columns=["id1", "id2", "lag", "value", "metric", "N", "experiment"]
-    )
-    df=df.pivot(index=["id1", "id2", "lag", "N", "experiment"], columns="metric", values="value").reset_index()
+        columns=["id1", "id2", "lag", "value", "metric", "N", "experiment", "comparison"]
+    ).reset_index()
+    
+    df_group=pd.DataFrame.from_records(
+        records_group,
+        columns=["id1", "id2", "lag", "value", "metric", "N", "experiment", "comparison"]
+    ).reset_index()
+    df["metric_level"]="pairwise"
+    df_group["metric_level"]="population"
+    df=pd.concat([df, df_group], axis=0)
     return df
