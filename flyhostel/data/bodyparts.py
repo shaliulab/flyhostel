@@ -7,7 +7,7 @@ import itertools
 import numpy as np
 import pandas as pd
 import joblib
-SQUARE_WIDTH=SQUARE_HEIGHT=100
+from flyhostel.data.pose.constants import SQUARE_WIDTH, SQUARE_HEIGHT
 ANCHOR_BP="thorax"
 
 
