@@ -1,6 +1,8 @@
 from collections import OrderedDict, defaultdict
 from itertools import combinations, product
+import logging
 from typing import Iterable, Iterator, List, Tuple, Dict
+logger=logging.getLogger(__name__)
 
 def group_by_experiment(
     ids: Iterable[str], prefix_len: int = 26
@@ -44,6 +46,9 @@ def virtual_combinations_iter(
     if len(sizes) != 1:
         raise ValueError(f"Experiments have different sizes: {sorted(sizes)}")
     k = sizes.pop()
+
+    if len(groups) < k:
+        logger.warning("Not enough experiments of group_size = %s", k)
 
     # choose k distinct experiments, then pick one id from each (cartesian product)
     exps = list(groups.keys())
