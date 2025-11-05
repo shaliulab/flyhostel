@@ -389,7 +389,18 @@ def main(experiment, back_in_time_min=15, n_jobs=20, cache=False, min_time=MIN_T
     if cache and os.path.exists(dest_video):
         return
 
-    loaders=[FlyHostelLoader(experiment=experiment, identity=identity) for identity in list(range(1, number_of_animals+1))]
+    if number_of_animals>1:
+        identities=list(range(1, number_of_animals+1))
+        identity_table="IDENTITY_VAL"
+        roi_0_table="ROI_0_VAL"
+
+    else:
+        identities=[0]
+        identity_table="IDENTITY"
+        roi_0_table="ROI_0"
+
+
+    loaders=[FlyHostelLoader(experiment=experiment, identity=identity) for identity in identities]
 
     postprocessing=[draw_sleep_state]
     inactive_mode="WO_FEED"
@@ -401,8 +412,8 @@ def main(experiment, back_in_time_min=15, n_jobs=20, cache=False, min_time=MIN_T
             min_time=min_time,
             max_time=max_time,
             cache="/flyhostel_data/cache/",
-            identity_table="IDENTITY_VAL",
-            roi_0_table="ROI_0_VAL"
+            identity_table=identity_table,
+            roi_0_table=roi_0_table
         )
 
         loader.load_behavior_data(
