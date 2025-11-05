@@ -111,7 +111,7 @@ class MP4Reader:
         self._cur=self.connection.cursor()
         self.check_validation_tables()
 
-        self._cur.execute(self.sqlite_query,(self._chunk,))
+        self._cur.execute(self.sqlite_query, (self._chunk,))
         self._data = pd.DataFrame(self._cur.fetchall())
 
         if self._data.shape[0] == 0:
