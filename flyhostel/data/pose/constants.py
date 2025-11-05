@@ -32,8 +32,8 @@ bodyparts_wo_joints = [
 ]
 
 WITH_JOINTS=True
-def get_bodyparts():
-    if WITH_JOINTS:
+def get_bodyparts(with_joints=WITH_JOINTS):
+    if with_joints:
         bodyparts=bodyparts_wo_joints + [
             "fRLJ","mRLJ","rRLJ",
             "fLLJ","mLLJ","rLLJ",       
