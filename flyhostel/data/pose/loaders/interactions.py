@@ -7,8 +7,8 @@ from flyhostel.utils import annotate_local_identity, build_interaction_video_key
 
 logger=logging.getLogger(__name__)
 
-CONTACT_THRESHOLD=3 # mm
-PROXIMITY_THRESHOLD=4 # mm
+CONTACT_THRESHOLD=4 # mm
+PROXIMITY_THRESHOLD=5 # mm
 DURATION_THRESHOLD=.5 # seconds
 MIN_TIME_BETWEEN_INTERACTIONS=1 # seconds
 
@@ -147,8 +147,9 @@ class InteractionsLoader:
         * interaction: Unique interaction identifier within each pair of partners
         * duration: Duration of the interaction in seconds
         * within_limits: Fraction of frames during the interaction where the animals pass the proximity threshold
-            Not necessarily 1 because 2 interactions where within_limits=1 that are closer than 
-            min_time_between_interactions seconds in time become a single interaction
+            Not necessarily 100 % (=1) because 2 interactions where within_limits=1 that are closer than 
+            min_time_between_interactions seconds in time become a single interaction,
+            and therefore the time in between becomes part of a new super interaction
 
 
 
