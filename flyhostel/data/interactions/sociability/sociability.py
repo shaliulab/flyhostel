@@ -22,6 +22,7 @@ from mplex import Grid
 from flyhostel.data.interactions.classifier.inter_orientation import (
     sync_datasources
 )
+from flyhostel.data.pose.loaders.interactions import CONTACT_THRESHOLD
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 logger=logging.getLogger(__name__)
@@ -362,7 +363,7 @@ def get_features_multi(pose_complex1, pose_complex2, frame_indices_all, *args, *
     return df
 
 
-def load_data(loader, min_time=None, max_time=None, loaders_cache=None, identities=None):
+def load_data(loader, min_time=None, max_time=None, contact_threshold=CONTACT_THRESHOLD, loaders_cache=None, identities=None):
 
     cache_file=f"{loaders_cache}/{loader.experiment}__{str(loader.identity).zfill(2)}.pkl"
     
@@ -376,7 +377,9 @@ def load_data(loader, min_time=None, max_time=None, loaders_cache=None, identiti
     else:
         loader=out
 
-    loader.load_interaction_data(proximity_threshold=5, identities=identities)
+
+    # describe interactions?
+    loader.load_interaction_data(proximity_threshold=5, contact_threshold=contact_threshold, identities=identities)
 
     loader.add_centroid_data_to_pose()
     loader.project_to_absolute_coords_all(GET_FEATURES_BODYPARTS)
