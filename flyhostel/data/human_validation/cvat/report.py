@@ -47,7 +47,7 @@ def qc2(lid_fragment_index):
 
     return impure_fragments
 
-def make_report(out, folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals):
+def make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals):
 
     fragment_crossing_fraction=qc1(roi0_annotations, identity_annotations)
     fragment_crossing_fraction.to_csv(
@@ -93,7 +93,6 @@ def make_report(out, folder, identity_tracks, roi0_annotations, identity_annotat
             folder, "number_of_animals_qc_fail.csv"
         )
     )
-    jump_report(out, folder, number_of_animals)
 
 
 def jump_report(out, folder, number_of_animals):
