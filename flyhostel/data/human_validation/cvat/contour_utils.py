@@ -49,7 +49,12 @@ def select_by_contour(contour, contours_list, debug=False):
         match_idx=None
         n=-1
     elif tied:
-        logger.error(f"The annotated contour equally overlaps with {(np.diff(scores[scores>0])==0).sum()+1} yolo boxes")
+        n_boxes=(np.diff(scores[scores>0])==0).sum()+1
+        if n_boxes==2:
+            logger.debug(f"The annotated contour equally overlaps with {n_boxes} yolo boxes")
+        else:
+            logger.error(f"The annotated contour equally overlaps with {n_boxes} yolo boxes")
+        
         match_idx=None
         n=-1
     else:
