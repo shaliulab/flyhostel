@@ -589,6 +589,15 @@ def filter_loaders(loaders, metadata):
         # np.isnan fails if val is a str
         if val!=val:
             pass
+    
+        elif isinstance(value, list):
+            if val not in value:
+                skip_experiment=True
+                logger.info("meta property %s value %s != %s", meta_prop, val, value)
+                break
+            else:
+                pass
+        
         elif val!=value:
             skip_experiment=True
             logger.info("meta property %s value %s != %s", meta_prop, val, value)
