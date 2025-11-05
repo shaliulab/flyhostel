@@ -10,7 +10,7 @@ from flyhostel.data.interactions.sociability.main import (
     process_all_experiments,
     load_experiments
 )
-
+raise DeprecationWarning
 import numpy as np
 
 ANIMALS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
@@ -116,7 +116,7 @@ def immobility_annotations(loader, interactions_database, framerate):
     for sleep_name in sleep_names:
         interactions_database[f"pre_{sleep_name}_time_before_interaction"]=interactions_database[f"pre_{sleep_name}_bout_in"]*TIME_WINDOW_LENGTH
         interactions_database[f"post_{sleep_name}_time_after_interaction"]=interactions_database[f"post_{sleep_name}_duration"]-interactions_database[f"post_{sleep_name}_bout_in"]*TIME_WINDOW_LENGTH
-    return index
+    return interactions_database
 
 
 
