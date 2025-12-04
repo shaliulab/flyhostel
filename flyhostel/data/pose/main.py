@@ -20,7 +20,7 @@ from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from imgstore.interface import VideoCapture
 from flyhostel.data.pose.loaders.wavelets import WaveletLoader
 from flyhostel.data.pose.loaders.behavior import BehaviorLoader
-from flyhostel.data.pose.landmarks import LandmarksLoader
+from flyhostel.data.pose.loaders.landmarks import LandmarksLoader
 from flyhostel.data.pose.loaders.pose import PoseLoader
 from flyhostel.data.pose.loaders.sleep import SleepLoader
 from flyhostel.data.pose.loaders.interactions import InteractionsLoader
