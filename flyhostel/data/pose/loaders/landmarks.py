@@ -40,6 +40,8 @@ class LandmarksLoader:
 
     @property
     def number_of_food_blobs(self):
+        if self.landmarks is None:
+            self.load_landmarks()
         food_blobs=self.landmarks.loc[self.landmarks["shape"]=="food"]
         return food_blobs.shape[0]
 
