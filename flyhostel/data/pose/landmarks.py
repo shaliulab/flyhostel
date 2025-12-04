@@ -166,6 +166,10 @@ class LandmarksLoader:
         landmarks_norm=pd.concat(landmarks_norm, axis=0)
         self.landmarks["specification_norm"]=landmarks_norm["specification"].values
 
+    @property
+    def number_of_food_blobs(self):
+        food_blobs=self.landmarks.loc[self.landmarks["shape"]=="food"]
+        return food_blobs.shape[0]
 
     def compute_if_fly_on_food_patch(self, include_outside=1):
         
