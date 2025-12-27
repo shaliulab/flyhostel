@@ -78,7 +78,7 @@ def main():
         joblib.delayed(
             pipeline
         )(
-            experiment_name, identity, concatenation, args.chunks, output=args.output#, write_only=args.write_only
+            experiment_name, identity, concatenation, args.chunks, output=args.output, strict=False #, write_only=args.write_only
         )
         for identity in identities
     )

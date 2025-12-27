@@ -21,7 +21,6 @@ from .hungarian import hungarian_matching
 from .utils import select_loader
 from .distance import compute_min_distance
 from flyhostel.data.interactions.classifier.inter_orientation import compute_inter_orientation_one_pair
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 logger=logging.getLogger(__name__)
 
 from sync_paper.sleep import sleep_annotation_rf
@@ -87,7 +86,8 @@ def process_experiment(experiment, identities, min_time, max_time, sources=["ope
 def process_data(loaders, sources, n_jobs):
     ellipse_data=model_ellipses(loaders, sources, n_jobs=n_jobs)
     describe_interactions_between_ellipses(loaders, ellipse_data)
-    temporal_features=quantify_activity_in_context(loaders, [10, 60, 300], FRAMERATE)
+    framerate=loaders[0].framerate
+    temporal_features=quantify_activity_in_context(loaders, [10, 60, 300], framerate)
     return temporal_features
 
 

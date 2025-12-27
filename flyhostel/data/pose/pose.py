@@ -16,12 +16,11 @@ from flyhostel.data.pose.filters import (
     filter_pose,
     arr2df,
 )
-from flyhostel.data.pose.constants import framerate as POSE_FRAMERATE
 from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import min_score as MIN_SCORE
 
-from flyhostel.utils import restore_cache, save_cache
+from flyhostel.utils import restore_cache, save_cache, get_partition_size, get_framerate
 from .gpu_filters import filter_and_interpolate_pose_single_animal_gpu_
 
 
@@ -67,13 +66,15 @@ class FilterPose(ABC):
     )
     """
 
-
+    experiment=None
+    framerate=None
+    partition_size=None
+    pixels_per_mm=None
     def __init__(self, *args, **kwargs):
 
         self.pose=None
         self.pose_boxcar=None
         self.pose_interpolated=None
-        self.experiment=None
         super(FilterPose, self).__init__(*args, **kwargs)
 
 
@@ -117,12 +118,14 @@ class FilterPose(ABC):
 
     def filter_and_interpolate_pose_single_animal_all_filters(self, pose, *args, bodyparts=BODYPARTS, filters=None, min_score=MIN_SCORE, useGPU=-1, cache=None, **kwargs):
 
+        self.partition_size=get_partition_size(self.experiment)
+
         logger.debug("Removing low quality points")
         logger.debug(min_score)
         pose=self.ignore_low_q_points(pose, bodyparts, min_score=min_score)
 
         if useGPU >= 0:
-            out=self.filter_and_interpolate_pose_single_animal_gpu(pose, bodyparts, filters, *args, **kwargs)
+            out=self.filter_and_interpolate_pose_single_animal_gpu(pose, bodyparts, self.framerate, self.partition_size, filters, self.pixels_per_mm, *args, **kwargs)
         else:
             raise NotImplementedError()
             out=self.filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, *args, **kwargs)
@@ -162,75 +165,75 @@ class FilterPose(ABC):
         return pose
 
 
-    @staticmethod
-    def filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, framerate=POSE_FRAMERATE):
-        """
-        Process the raw pose data of a single animal
+    # @staticmethod
+    # def filter_and_interpolate_pose_single_animal_cpu(pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5, framerate=POSE_FRAMERATE):
+    #     """
+    #     Process the raw pose data of a single animal
 
-        Information in the neighboring frames can be leveraged to improve the estimate of each frame
-        Example -> a body part movement which moves to point B in only one frame, and is in point A one frame before and after
-        is unlikely to really have moved and instead is probably a spurious pose estimate error.
-        This function processes the passed pose data with multiple steps and returns all these steps
+    #     Information in the neighboring frames can be leveraged to improve the estimate of each frame
+    #     Example -> a body part movement which moves to point B in only one frame, and is in point A one frame before and after
+    #     is unlikely to really have moved and instead is probably a spurious pose estimate error.
+    #     This function processes the passed pose data with multiple steps and returns all these steps
 
-        NOTE: This function assumes there are at least two bodyparts called head and proboscis.
-        If the proboscis is missing, it is imputed to be where the head is
+    #     NOTE: This function assumes there are at least two bodyparts called head and proboscis.
+    #     If the proboscis is missing, it is imputed to be where the head is
 
-        Arguments:
+    #     Arguments:
 
-            pose (pd.DataFrame): Raw pose estimate containing, for every bodypart foo, columns foo_x, foo_y, foo_likelihood, foo_is_interpolated as well as columns id, frame_number, t
-            bodyparts (list)
-            filters (dict): Dictionary of filters to apply. The keys must be numpy functions, and the values must be another dictionary with keys window_size, min_window_size, and order
-            window_size_seconds (float): Window size used to compute the median to remove spurious "jumps"
-            max_jump_mm (float): Number of mm away from the window median that a prediction must be for it to be considered a jump
-            interpolate_seconds (float): Body parts missing are imputed forward and backwards (pd.Series.interpolate limit_direction both) up to this many seconds
+    #         pose (pd.DataFrame): Raw pose estimate containing, for every bodypart foo, columns foo_x, foo_y, foo_likelihood, foo_is_interpolated as well as columns id, frame_number, t
+    #         bodyparts (list)
+    #         filters (dict): Dictionary of filters to apply. The keys must be numpy functions, and the values must be another dictionary with keys window_size, min_window_size, and order
+    #         window_size_seconds (float): Window size used to compute the median to remove spurious "jumps"
+    #         max_jump_mm (float): Number of mm away from the window median that a prediction must be for it to be considered a jump
+    #         interpolate_seconds (float): Body parts missing are imputed forward and backwards (pd.Series.interpolate limit_direction both) up to this many seconds
 
-        Returns: Dictionary with keys:
-            jumps (pd.DataFrame): detections of a body part more than max_jump_mm mm away from the median of a rolling window of window_size_seconds seconds are ignored
-            filters (dict): Contains one entry per filter in filters. Each of them is a dataframe based on the pose of the previous filter (given by its order attribute, lowest first).
-               The filter consists of applying the numpy function to windows of up to min_window_size points but actually only the points within window_size seconds
-               So each new processed point will be the result of applying the numpy function to points within window_size seconds of it
-               The filter with order 0 is run on the pose_jumps dataset
+    #     Returns: Dictionary with keys:
+    #         jumps (pd.DataFrame): detections of a body part more than max_jump_mm mm away from the median of a rolling window of window_size_seconds seconds are ignored
+    #         filters (dict): Contains one entry per filter in filters. Each of them is a dataframe based on the pose of the previous filter (given by its order attribute, lowest first).
+    #            The filter consists of applying the numpy function to windows of up to min_window_size points but actually only the points within window_size seconds
+    #            So each new processed point will be the result of applying the numpy function to points within window_size seconds of it
+    #            The filter with order 0 is run on the pose_jumps dataset
 
-        """
-        raise NotImplementedError()
-        useGPU=-1
-        logger.debug("Filtering jumps deviating from median")
-        pose=filter_pose_far_from_median(
-            pose, bodyparts, window_size_seconds=window_size_seconds, max_jump_mm=max_jump_mm,
-            useGPU=useGPU
-        )
-        logger.debug("Interpolating pose")
+    #     """
+    #     raise NotImplementedError()
+    #     useGPU=-1
+    #     logger.debug("Filtering jumps deviating from median")
+    #     pose=filter_pose_far_from_median(
+    #         pose, bodyparts, window_size_seconds=window_size_seconds, max_jump_mm=max_jump_mm,
+    #         useGPU=useGPU
+    #     )
+    #     logger.debug("Interpolating pose")
 
-        bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
+    #     bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
 
-        pose_jumps=interpolate_pose(pose, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
-        logger.debug("Imputing proboscis to head")
-        pose_jumps=impute_proboscis_to_head(pose_jumps)
+    #     pose_jumps=interpolate_pose(pose, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=POSE_FRAMERATE)
+    #     logger.debug("Imputing proboscis to head")
+    #     pose_jumps=impute_proboscis_to_head(pose_jumps)
 
 
-        pose_filters={}
-        filters_sorted=sorted([(filters[f]["order"], f) for f in filters], key=lambda x: x[0])
-        filters_sorted=[e[1] for e in filters_sorted]
-        pose_filtered=pose_jumps
+    #     pose_filters={}
+    #     filters_sorted=sorted([(filters[f]["order"], f) for f in filters], key=lambda x: x[0])
+    #     filters_sorted=[e[1] for e in filters_sorted]
+    #     pose_filtered=pose_jumps
 
-        for filt in filters_sorted:
-            filter_f=filt
-            window_size=filters[filt]["window_size"]
-            min_window_size=filters[filt]["min_window_size"]
+    #     for filt in filters_sorted:
+    #         filter_f=filt
+    #         window_size=filters[filt]["window_size"]
+    #         min_window_size=filters[filt]["min_window_size"]
 
-            logger.debug("Applying %s filter to pose", filt)
-            pose_filtered_arr, _ = filter_pose(
-                filter_f=filter_f, pose=pose_filtered, bodyparts=bodyparts,
-                window_size=window_size, min_window_size=min_window_size,
-                useGPU=useGPU
-            )
-            assert filter_f not in pose_filters
-            logger.debug("Imputing proboscis to head")
-            pose_filtered=impute_proboscis_to_head(arr2df(pose, pose_filtered_arr, bodyparts))
-            del pose_filtered_arr
-            pose_filters[filter_f]=pose_filtered
+    #         logger.debug("Applying %s filter to pose", filt)
+    #         pose_filtered_arr, _ = filter_pose(
+    #             filter_f=filter_f, pose=pose_filtered, bodyparts=bodyparts,
+    #             window_size=window_size, min_window_size=min_window_size,
+    #             useGPU=useGPU
+    #         )
+    #         assert filter_f not in pose_filters
+    #         logger.debug("Imputing proboscis to head")
+    #         pose_filtered=impute_proboscis_to_head(arr2df(pose, pose_filtered_arr, bodyparts))
+    #         del pose_filtered_arr
+    #         pose_filters[filter_f]=pose_filtered
 
-        return {"jumps": pose_jumps, "filters": pose_filters}
+    #     return {"jumps": pose_jumps, "filters": pose_filters}
 
 
     def filter_pose_by_time(self, min_time, max_time, pose):

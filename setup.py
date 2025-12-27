@@ -38,6 +38,7 @@ setup(
         "yolov7tools==1.1",
         "vidio",
         "webcolors",
+        "GitPython",
         # "sleap-io",
         #"cupy>=12.2.0",
         #"cudf>=23.10.02",
@@ -68,7 +69,10 @@ setup(
             "fh-make-video=flyhostel.data.bin.video:main",
             "fh-make-csv=flyhostel.data.bin.video:save_csv",            
             "find-chunk-interval=flyhostel.data.bin.find_chunk_interval:main",
-            "get-wavelet-profile=flyhostel.data.bin.get_wavelet_profile:main",
+            "get-wavelet-profile=flyhostel.data.bin.utils:main_get_wavelet_profile",
+            "get-framerate=flyhostel.data.bin.utils:main_get_framerate",
+            "get-chunksize=flyhostel.data.bin.utils:main_get_chunksize",
+            "get-number-of-animals=flyhostel.data.bin.utils:main_get_number_of_animals",
 
             ]
     },

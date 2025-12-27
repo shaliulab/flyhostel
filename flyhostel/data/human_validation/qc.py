@@ -25,9 +25,6 @@ tests=["yolov7_qc", "all_found_qc", "all_id_expected_qc", "first_frame_idx_qc", 
 
 BATCH_SIZE=20000
 
-
-from flyhostel.data.pose.constants import chunksize
-
 def intra_qc(window, number_of_animals):
     """
     Return True if all of these conditions are met, and False otherwise
@@ -101,12 +98,21 @@ def all_qc_batch(all_kwargs):
     return qc
 
 
-def first_frame_idx_qc(window):
+def first_frame_idx_qc(window, chunksize):
     return window[0, frame_number_idx] % chunksize != 0
 
 
 # @profile
-def all_qc(i, number_of_animals, behavior_window, window_before=None, window_after=None, logfile=None):
+def all_qc(i, number_of_animals, behavior_window, chunksize, window_before=None, window_after=None, logfile=None, ):
+    """
+    For every group of windows, verify:
+
+        * That yolov7 was not used (potential AI mistake) in behavior_window
+        * That all animals are found in behavior_window
+        * That all animals have the expected identities (1, 2, 3, ...) in behavior_window
+        * That behavior_window is not in the first frame of a chunk
+        * That there was no fragment change (potential errors) between the three windows
+    """
 
     frame_number=int(behavior_window[0, frame_number_idx])
     chunk=int(behavior_window[0, chunk_idx])
@@ -114,7 +120,7 @@ def all_qc(i, number_of_animals, behavior_window, window_before=None, window_aft
     yolov7_pass=yolov7_qc(behavior_window)
     all_found_pass=all_found_qc(behavior_window, number_of_animals)
     all_id_expected_pass=all_id_expected_qc(behavior_window, number_of_animals)
-    first_frame_idx_pass=first_frame_idx_qc(behavior_window)
+    first_frame_idx_pass=first_frame_idx_qc(behavior_window, chunksize)
 
     if i == 0:
         inter_qc_pass=True
@@ -133,7 +139,7 @@ def annotate_nan_frames(df):
 
 
 
-def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, n_jobs=1):
+def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, chunksize, n_jobs=1):
     """
     Quality control (QC) of idtrackerai+yolov7 results
 
@@ -150,7 +156,15 @@ def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, n_j
     df.sort_values(["chunk", "frame_number"], inplace=True)
     logger.debug("Setting index of data")
 
-    n_windows=df[["chunk", "frame_number"]].drop_duplicates().shape[0]    
+    n_windows=df[["chunk", "frame_number"]].drop_duplicates().shape[0]
+    # 0 local_identity
+    # 1 identity
+    # 2 chunk
+    # 3 fragment
+    # 4 modified
+    # 5 frame_number
+    # 6 x
+    # 7 y
     all_windows=df[["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].groupby([
         "chunk", "frame_number"
     ]).__iter__()
@@ -164,7 +178,6 @@ def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, n_j
     pb=tqdm(total=n_windows)
     logfile="qc.log"
     i=0
-    # df.loc[df["frame_number"]==570169]
 
     while not has_finished:
         try:
@@ -183,7 +196,8 @@ def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, n_j
             "logfile": logfile,
             "window_before": window_group[0],
             "behavior_window": window_group[1],
-            "window_after": window_group[2]
+            "window_after": window_group[2],
+            "chunksize": chunksize,
         })
         pb.update(1)
         i+=1
@@ -210,6 +224,7 @@ def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, n_j
     # kwargs={"i": -1, "number_of_animals": 2, "logfile": "foo.txt", "window_before": window_before, "behavior_window": behavior_window, "window_after": window_after}
     # all_qc(**kwargs)
 
+
     qc=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             all_qc_batch
@@ -219,6 +234,17 @@ def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, n_j
         for j in range(len(batches))
     )
     qc=pd.concat(qc, axis=0)
+
+    # fns=[13123686, 13123687, 13123688]
+
+    # my_windows=df.loc[df["frame_number"].isin(fns)][["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].groupby([
+    #     "chunk", "frame_number"
+    # ]).__iter__()
+    # my_windows=[e.values.astype(np.int32) for _, e in my_windows]
+    # import ipdb; ipdb.set_trace()
+    # all_qc(i=9999999, number_of_animals=4, window_before=my_windows[0], behavior_window=my_windows[1], window_after=my_windows[2], logfile=logfile)
+
+
     extra_check=np.bitwise_and(
         qc["inter_qc"],
         np.bitwise_or(

@@ -8,15 +8,12 @@ from tqdm.auto import tqdm
 
 from flyhostel.data.sleep import sleep_annotation_rf
 from flyhostel.data.sleep import PURE_INACTIVE_STATES
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
 from flyhostel.utils import get_basedir, get_number_of_animals
 from flyhostel.data.pose.main import FlyHostelLoader
 
 SLEEP_PERIODS=[(10, "longImmobile"), (600, "longAsleep"), (300, "asleep")]
 
-BEHAVIOR_FRAMERATE=30
-STEP=FRAMERATE//BEHAVIOR_FRAMERATE
 WINDOW_S=1
 MIN_TIME=6*3600
 MAX_TIME=30*3600
@@ -132,7 +129,7 @@ def annotate_behavior_database_id(interactions_database, behavior):
     return interactions_database
 
 
-def compute_behavior_features(interactions_database, behavior, window_s):
+def compute_behavior_features(interactions_database, behavior, window_s, framerate):
     """
     Compute numerical descriptors of each interaction as a function of the behaviors produced during the interaction
 
@@ -141,19 +138,18 @@ def compute_behavior_features(interactions_database, behavior, window_s):
         inactive+rejection_mean        
         centroid_speed        
     """
-
-    interactions_database["frame_number_raw"]=interactions_database["frame_number"].copy()
-    interactions_database["frame_number"]=STEP*(interactions_database["frame_number_raw"]//STEP)
-
-    interactions_database["frame_number_start"]=interactions_database["frame_number"]-window_s/2*FRAMERATE
-    interactions_database["frame_number_end"]=interactions_database["frame_number"]+window_s/2*FRAMERATE
+    interactions_database["frame_number_start"]=np.ceil(interactions_database["frame_number"]-window_s/2*framerate)
+    interactions_database["frame_number_end"]=np.floor(interactions_database["frame_number"]+window_s/2*framerate)
 
     interactions_database=annotate_behavior_database_id(interactions_database, behavior)
     stats=[]
     intervals=zip(interactions_database["row_id_start"], interactions_database["row_id_end"])
     prob_features=[]
     for interval in tqdm(intervals, total=interactions_database.shape[0]):
-        probs=behavior["inactive+rejection"].iloc[interval[0]:interval[1]]
+        if "inactive+rejection" in behavior.columns:
+            probs=behavior["inactive+rejection"].iloc[interval[0]:interval[1]]
+        else:
+            probs=np.array([0,] * (interval[1]-interval[0]))
         speed=behavior["centroid_speed"].iloc[interval[0]:interval[1]]
         stats.append([
             probs.max(),
@@ -202,26 +198,26 @@ def annotate_interaction_database_using_behavior_data(interactions_database, fea
         idx=immobility_annotations(
             loader,
             interactions_database.loc[focal_fly_indices],
-            FRAMERATE,
+            loader.framerate,
             sleep_names=[f[1] for f in sleep_periods]
         )
-        focal_database, prob_features=compute_behavior_features(idx, loader.behavior, window_s)
+        focal_database, prob_features=compute_behavior_features(idx, loader.behavior, window_s, loader.framerate)
         interactions_database_l.append(focal_database)
         probs_l.extend(prob_features)
         features_l.append(features.iloc[np.where(focal_fly_indices)])
+
+    framerate=loaders[0].framerate
 
     interactions_database=pd.concat(interactions_database_l, axis=0).reset_index(drop=True)
     prob_features=pd.DataFrame.from_records(probs_l)
     features=pd.concat(features_l, axis=0).reset_index(drop=True)
 
     assert interactions_database.shape[0]==prob_features.shape[0]
-
-    # prob_features=prob_features.loc[interactions_database["keep"]==True]
-    n_steps=window_s*BEHAVIOR_FRAMERATE
+    n_steps=prob_features.shape[1]
 
     prob_features.columns=pd.MultiIndex.from_arrays([
             ["probability",]*n_steps,
-            np.arange(-window_s/2*FRAMERATE, window_s/2*FRAMERATE, FRAMERATE//BEHAVIOR_FRAMERATE),
+            np.arange(n_steps) - (window_s/2)*framerate,
             ["1",]*n_steps
         ],
         names=["feature", "position", "timepoint"]
@@ -258,6 +254,8 @@ def process_experiment(experiment, number_of_animals, window_s=10):
         
     identities=list(range(1, number_of_animals+1))
     loaders=[FlyHostelLoader(experiment=experiment, identity=identity) for identity in identities]
+    framerate=loaders[0].framerate
+
     interactions_database=pd.read_csv(index_csv)
     features=pd.read_pickle(features_pkl)
     assert interactions_database.shape[0]==features.shape[0], f"Interaction index is not aligned to features database"
@@ -268,7 +266,7 @@ def process_experiment(experiment, number_of_animals, window_s=10):
         window_s=window_s,
         sleep_periods=SLEEP_PERIODS
     )
-    interactions_database["interaction_duration"]=(interactions_database["last_frame_number"]-interactions_database["first_frame"])/FRAMERATE
+    interactions_database["interaction_duration"]=(interactions_database["last_frame_number"]-interactions_database["first_frame"])/framerate
     interactions_database["idx"]=interactions_database["id"] + "_" + interactions_database["nn"] + "_" + interactions_database["frame_number"].astype(str)
 
     interactions_database["label"]=np.nan

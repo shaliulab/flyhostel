@@ -6,30 +6,31 @@ import datetime
 
 import pandas as pd
 import numpy as np
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
-from flyhostel.data.pose.constants import framerate as FRAMERATE
+
 from flyhostel.data.deg import parse_chunk, parse_experiment, parse_local_identity, read_label_file_raw
+from flyhostel.utils import (
+    get_chunksize,
+)
 from .constants import DATA_DIR, METADATA_PIPELINE_FILE
 
-def read_label_file_rejections(labels_file):
+def read_label_file_rejections(labels_file, chunksize):
     data_entry=os.path.basename(os.path.dirname(os.path.realpath(labels_file)))
-    
-    local_identity=parse_local_identity(data_entry)
+    chunk=parse_chunk(data_entry, chunksize=chunksize)
+    experiment=parse_experiment(data_entry, chunksize=chunksize)
+
+    local_identity=parse_local_identity(data_entry, chunksize=chunksize)
     identity=int(data_entry.split("_")[-1])
-    
-    chunk=parse_chunk(data_entry)
-    experiment=parse_experiment(data_entry)
     
     first_frame_number=int(data_entry.split("_")[5])
     last_frame_number=int(data_entry.split("_")[6])
 
-    assert chunk == first_frame_number//CHUNKSIZE
+    assert chunk == first_frame_number//chunksize
     
     labels=read_label_file_raw(labels_file, chunk=chunk, local_identity=local_identity)
     labels["frame_number"]=first_frame_number+np.arange(labels.shape[0])
     labels["first_frame"]=first_frame_number
     labels["last_frame_number"]=last_frame_number
-    labels["frame_idx"]=labels["frame_number"]%CHUNKSIZE
+    labels["frame_idx"]=labels["frame_number"]%chunksize
     labels["experiment"]=experiment
     labels["identity"]=identity
     labels["data_entry"]=data_entry
@@ -102,6 +103,7 @@ def annotate_pre_post_of_nn(df):
 
     # Load manual annotations
 def load_manual_annotations(experiments, time_index):
+    raise NotImplementedError()
     files=sorted(list(itertools.chain(*[glob.glob(f"{DATA_DIR}/{experiment}*/{experiment}*_labels.csv") for experiment in experiments])))
     labels=[]
     for file in tqdm(files, desc="Reading DEG-REJECTIONS labels database"):

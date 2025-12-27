@@ -3,7 +3,6 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 from .sociability import process_experiment
 
 ANIMALS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
@@ -47,7 +46,6 @@ def main():
     outputs_dir = Path("./outputs/")
     figures_dir = outputs_dir / "figures"
     figures_dir.mkdir(exist_ok=True, parents=True)
-    window_f=WINDOW_S*FRAMERATE
 
     number_of_animals=6
     experiments=load_experiments(number_of_animals)

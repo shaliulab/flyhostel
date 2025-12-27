@@ -25,8 +25,7 @@ from .filters import (
 
 # upload to GPU batches of 1 hour long data
 
-from flyhostel.data.pose.constants import MAX_JUMP_MM, JUMP_WINDOW_SIZE_SECONDS, PARTITION_SIZE, min_score, PX_PER_CM
-from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.data.pose.constants import MAX_JUMP_MM, JUMP_WINDOW_SIZE_SECONDS, min_score
 
 
 def filter_pose_df(data, *args, columns=None, download=False, nx=cp, n_jobs=1, **kwargs):
@@ -119,12 +118,12 @@ def split_xy(arr, nx=cp):
     ], axis=2)
 
 
-def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window_size_seconds=JUMP_WINDOW_SIZE_SECONDS, max_jump_mm=MAX_JUMP_MM, framerate=FRAMERATE, n_jobs=1):
+def filter_pose_far_from_median_gpu(pose, bodyparts, framerate, partition_size, pixels_per_mm, window_size_seconds=JUMP_WINDOW_SIZE_SECONDS, max_jump_mm=MAX_JUMP_MM, n_jobs=1):
     """
     Ignore points that deviate from the median
 
     Points deviating from the median are those farther than `max_jump_mm` mm of the median computed on a window around them, of `window_size_seconds` seconds
-    framerate tells the program how many points make one second and px_per_cm how many pixels are 1 cm
+    framerate tells the program how many points make one second and px_per_mm how many pixels are 1 mm
     """
 
     window_size=int(window_size_seconds*framerate)
@@ -138,7 +137,7 @@ def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window
     nx=np
     # arr=cp.from_dlpack(pose.interpolate(method="linear", axis=0, limit_direction="both").fillna(method="bfill", axis=0).to_dlpack())
 
-    median_arr=filter_pose_partitioned(arr, nx.median, window_size, PARTITION_SIZE, pad=True, nx=nx, n_jobs=n_jobs)
+    median_arr=filter_pose_partitioned(arr, nx.median, window_size, partition_size, pad=True, nx=nx, n_jobs=n_jobs)
 
     # we make the split after computing the median
     # because only 2D arrays are supported (time x features is supported, but not time x features x XY_dimensions)
@@ -147,7 +146,7 @@ def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window
     jump_px=nx.sqrt(nx.sum((median_arr-arr)**2, axis=2))
     del arr
     del median_arr
-    jump_mm=(10*jump_px/px_per_cm)
+    jump_mm=(jump_px/pixels_per_mm)
     del jump_px
     jump_matrix=(jump_mm>max_jump_mm)
     del jump_mm
@@ -164,8 +163,8 @@ def filter_pose_far_from_median_gpu(pose, bodyparts, px_per_cm=PX_PER_CM, window
 
 
 def filter_and_interpolate_pose_single_animal_gpu_(
-        pose, bodyparts, filters, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5,
-        download=True, framerate=150, n_jobs=1, filters_order=None,
+        pose, bodyparts, framerate, partition_size, filters, pixels_per_mm, window_size_seconds=0.5, max_jump_mm=1, interpolate_seconds=0.5,
+        download=True, n_jobs=1, filters_order=None,
     ):
 
     bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
@@ -200,16 +199,18 @@ def filter_and_interpolate_pose_single_animal_gpu_(
         logger.debug("Filtering jumps deviating from median")
         pose_cudf=filter_pose_far_from_median_gpu(
             pose_cudf, bodyparts,
+            framerate=framerate,
+            partition_size=partition_size,
+            pixels_per_mm=pixels_per_mm,
             window_size_seconds=window_size_seconds,
             max_jump_mm=max_jump_mm,
-            framerate=framerate,
             n_jobs=n_jobs,
         )
         filters.append(f"jump(max_jump_mm={max_jump_mm})")
     
 
     # Apply linear filters: mean and median, if contained in filters_order
-    pose_cudf, filters=apply_linear_filters(pose_cudf, filters, interpolate_seconds, filters_order=filters_order, bodyparts_xy=bodyparts_xy, n_jobs=n_jobs)
+    pose_cudf, filters=apply_linear_filters(pose_cudf, framerate, partition_size, filters, interpolate_seconds, filters_order=filters_order, bodyparts_xy=bodyparts_xy, n_jobs=n_jobs)
     # Set the data that was originally missing to missing
     # The previous interpolation were only done because the filters needed to have no missing data
     # however, we want to reflect the missing data in the output
@@ -240,9 +241,9 @@ def download_from_gpu(pose_cudf):
     return out
     
 
-def apply_linear_filters(pose_cudf, filters, interpolate_seconds, filters_order, bodyparts_xy, n_jobs):
+def apply_linear_filters(pose_cudf, framerate, partition_size, filters, interpolate_seconds, filters_order, bodyparts_xy, n_jobs):
     logger.debug("Interpolating pose")
-    pose_cudf=interpolate_pose(pose_cudf, bodyparts_xy, seconds=interpolate_seconds, pose_framerate=FRAMERATE)
+    pose_cudf=interpolate_pose(pose_cudf, framerate, bodyparts_xy, seconds=interpolate_seconds)
     # NOTE be aware this interpolation is not necessarily complete
     # only up to a given amount of seconds are interpolated!
     logger.debug("Imputing proboscis to head")
@@ -251,13 +252,14 @@ def apply_linear_filters(pose_cudf, filters, interpolate_seconds, filters_order,
     extra_filters=[filter_FUN for filter_FUN in filters_order if filter_FUN in ["mean", "median"]]
     nx=np
     for filter_FUN in extra_filters:
-        window_size=int(0.2*FRAMERATE)
+        window_size=int(0.2*framerate)
         before=time.time()
         logger.debug("Applying %s filter on pose (%s)", filter_FUN, nx)
         pose_cudf=filter_pose_df(
             pose_cudf, columns=pose_cudf.columns,
             f=getattr(nx, filter_FUN),
-            window_size=window_size, partition_size=PARTITION_SIZE,
+            window_size=window_size,
+            partition_size=partition_size,
             pad=True, nx=nx, n_jobs=n_jobs
         )
         after=time.time()

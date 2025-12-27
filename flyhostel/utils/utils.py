@@ -51,6 +51,7 @@ def get_spaced_colors_util(n, norm=False, black=True, cmap="jet"):
 def get_experiment_identifier(basedir):
     return "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:])
 
+    
 
 def get_dbfile(basedir):
     dbfile=os.path.join(
@@ -65,12 +66,21 @@ def get_basedir(experiment):
     basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
     return basedir
 
+def get_pixels_per_mm(experiment):
+    dbfile=get_dbfile(get_basedir(experiment))
+    return int(float(load_metadata_prop("pixels_per_cm", dbfile=dbfile))/10)
 
 def get_number_of_animals(experiment):
     tokens = experiment.split("_")
     number_of_animals=int(tokens[1].rstrip("X"))
     return number_of_animals
 
+def get_wavelet_downsample(experiment):
+    DOWNSAMPLES={
+        150: 5,
+        47: 1,
+    }
+    return DOWNSAMPLES[int(get_framerate(experiment))]
 
 def add_suffix(filename, suffix=""):
 
@@ -79,6 +89,17 @@ def add_suffix(filename, suffix=""):
         filename = basename + "_" + suffix + ext
     
     return filename
+
+def get_square_width(experiment):
+    pixels_per_mm=get_pixels_per_mm(experiment)
+    if pixels_per_mm < 25:
+        return 100
+    else:
+        return 200
+
+
+def get_square_height(*args, **kwargs):
+    return get_square_width(*args, **kwargs)
 
 
 def load_config(path=CONFIG_FILE):
@@ -202,6 +223,8 @@ def clean_copy(file, dest_path):
 
 def get_sqlite_file(animal):
 
+    logger.warning("Deprecated. Please replace with get_dbfile")
+
     tokens = animal.split("_")[:4]
     sqlite_files = glob.glob(f"{os.environ['FLYHOSTEL_VIDEOS']}/{tokens[0]}/{tokens[1]}/{tokens[2]}_{tokens[3]}/{'_'.join(tokens)}.db")
     assert len(sqlite_files) == 1
@@ -225,6 +248,21 @@ def load_metadata_prop(prop, animal=None, dbfile=None):
         raise error
     else:
         return prop
+    
+def get_wavelet_profile(experiment):
+    framerate=get_framerate(experiment)
+    PROFILES={150: "default", 47: "highres", 47.1: "highres2"}
+    return PROFILES[framerate]
+
+
+def get_framerate(experiment):
+    dbfile=get_dbfile(get_basedir(experiment))
+    return float(load_metadata_prop("framerate", dbfile=dbfile))
+
+def get_partition_size(experiment):
+    return int(
+        100 * np.floor(get_framerate(experiment)*3600 / 100)
+    )
 
 def load_roi_width(dbfile):
     try:
@@ -276,7 +314,7 @@ def get_local_identities_from_experiment(experiment, frame_number):
 
 
 def get_local_identities_v1(dbfile, frame_numbers, identity_table="IDENTITY"):
-    chunksize=get_chunksize(dbfile)
+    chunksize=get_chunksize(dbfile=dbfile)
 
     with sqlite3.connect(dbfile) as conn:
         cursor = conn.cursor()
@@ -294,7 +332,7 @@ def get_local_identities_v1(dbfile, frame_numbers, identity_table="IDENTITY"):
     return table
 
 def get_local_identities_v2(dbfile, frame_numbers=None, identity_table=None):
-    chunksize=get_chunksize(dbfile)
+    chunksize=get_chunksize(dbfile=dbfile)
 
     if frame_numbers is not None:
         chunks=(np.array(frame_numbers)//chunksize).tolist()
@@ -342,18 +380,24 @@ def annotate_local_identity(df, experiment):
     df=df.merge(local_identity_index, on=["chunk", "identity"], how="left")
     return df
 
-def get_chunksize(dbfile):
+def get_chunksize(experiment=None, dbfile=None):
+
+    if dbfile is None:
+        assert experiment is not None
+        dbfile = get_dbfile(get_basedir(experiment))
+
     with sqlite3.connect(dbfile) as conn:
         cursor=conn.cursor()
         cursor.execute(f"SELECT value FROM METADATA WHERE field = 'chunksize';",)
         chunksize = int(float(cursor.fetchone()[0]))
     return chunksize
 
-def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
+def get_single_animal_video(basedir, frame_number, table, identity, chunksize):
     """
     
     table: data frame containing columns frame_number, identity, local_identity
     """
+    assert os.path.isdir(basedir)
     chunk = frame_number // chunksize
     table_current_frame = table.loc[(table["frame_number"] == frame_number)]
 
@@ -362,7 +406,7 @@ def get_single_animal_video(dbfile, frame_number, table, identity, chunksize):
         single_animal_video=None
     else:
         local_identity=local_identity.item()
-        single_animal_video = os.path.join(os.path.dirname(dbfile), "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
+        single_animal_video = os.path.join(basedir, "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
     
     if single_animal_video is None:
         logger.warning("identity %s not found in chunk %s", identity, chunk)
@@ -421,7 +465,7 @@ def establish_dataframe_framework(dt):
 
 def get_first_frame(dbfile):
 
-    chunksize=get_chunksize(dbfile)
+    chunksize=get_chunksize(dbfile=dbfile)
     with sqlite3.connect(dbfile) as conn:
         cursor=conn.cursor()
         cursor.execute("SELECT chunk FROM CONCATENATION LIMIT 1;")
@@ -432,7 +476,7 @@ def get_first_frame(dbfile):
 
 def get_last_frame(dbfile):
 
-    chunksize=get_chunksize(dbfile)
+    chunksize=get_chunksize(dbfile=dbfile)
     with sqlite3.connect(dbfile) as conn:
         cursor=conn.cursor()
         cursor.execute("SELECT chunk FROM CONCATENATION ORDER BY chunk DESC LIMIT 1;")
@@ -482,3 +526,15 @@ def build_interaction_video_key(experiment, row, interaction_name="rejections"):
         "_" + str(row["local_identity"]).zfill(3) + \
         "_" + str(row["identity"]).zfill(2)
 
+
+def get_deg_data_folder(experiment):
+    framerate=get_framerate(experiment)
+    ROOT="/flyhostel_data/fiftyone/FlyBehaviors/DEG"
+    if int(framerate)==47:
+        return f"{ROOT}/FlyHostel_deepethogram_47fps/DATA"
+    else:
+        return f"{ROOT}/FlyHostel_deepethogram/DATA"
+
+
+def animal_to_id(individual):
+    return individual[:26] + "|" + individual.split("__")[1]

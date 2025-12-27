@@ -8,6 +8,7 @@ from flyhostel.data.pose.export import load_concatenation_table, parse_number_of
 def get_parser():
 
     ap = argparse.ArgumentParser()
+    ap.add_argument("experiment", type=str)
     ap.add_argument("basedir", type=str)
     ap.add_argument("flyhostel_db", type=str)
     ap.add_argument("concatenation_table_name", type=str, default=None)
@@ -19,6 +20,7 @@ def main():
 
     args=ap.parse_args()
     basedir = args.basedir
+    experiment=args.experiment
     flyhostel_db = args.flyhostel_db
     concatenation_table_name=args.concatenation_table_name
 
@@ -53,7 +55,7 @@ def main():
 
     with open('chunks.txt', 'w') as fout:
         for chunk in range(start_chunk, end_chunk+1):
-            fout.write(f"{basedir},{flyhostel_db},{concatenation_table_name},{str(chunk).zfill(6)}\n")
+            fout.write(f"{experiment},{basedir},{flyhostel_db},{concatenation_table_name},{str(chunk).zfill(6)}\n")
 
 if __name__ == "__main__":
     main()

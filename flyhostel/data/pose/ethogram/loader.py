@@ -10,18 +10,14 @@ logger=logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
-from flyhostel.data.pose.constants import DEG_DATA
 
-from flyhostel.data.pose.constants import chunksize, bodyparts_xy
-from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.data.pose.constants import bodyparts_xy
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.main import FlyHostelLoader
-from motionmapperpy import setRunParameters
 
 from flyhostel.data.pose.distances import compute_distance_features_pairs
 from flyhostel.data.pose.orientation import compute_orientation
 
-wavelet_downsample=setRunParameters().wavelet_downsample
 DEFAULT_FILTERS="rle-jump"
 DISTANCE_FEATURES_PAIRS=[("head", "proboscis"),]
 
@@ -45,6 +41,7 @@ def validate_animals_data(animals, filters=DEFAULT_FILTERS):
 
         # validate deg
         loader.load_deg_data_long(verbose=False)
+        assert loader.deg is not None, f"{loader} has no deg data available"
         behaviors=loader.deg["behavior"].unique()
         print(f"{loader}: {behaviors}")
 
@@ -60,8 +57,8 @@ def validate_animals_data(animals, filters=DEFAULT_FILTERS):
             raise ValueError(f"{loader} pose data is not readable")
 
 
-def get_dataset_version():
-    repo = git.Repo(os.path.join(DEG_DATA, ".."))
+def get_dataset_version(deg_folder):
+    repo = git.Repo(deg_folder)
     hexhash=repo.head.object.hexsha
     return hexhash
 
@@ -73,18 +70,18 @@ def get_pose_model_version():
     model_name=[line for line in config if "sleap_model" in line][-1].strip("\n").split("/models/")[-1].rstrip('"')
     return model_name
 
-def document_provenance():
-
+def document_provenance(deg_folder):
     model_name=get_pose_model_version()
-    deg_data_version=get_dataset_version()
+    deg_data_version=get_dataset_version(deg_folder=deg_folder)
 
     return {
         "SLEAP_model_name": model_name,
+        "DEG_Folder": deg_folder,
         "DEG_data_version": deg_data_version, 
     }
 
 
-def compute_distance(pose, bodyparts_xy, time_window_length=1, framerate=FRAMERATE//wavelet_downsample, FUN="sum"):
+def compute_distance(pose, bodyparts_xy, framerate, time_window_length=1, FUN="sum"):
     
     k=int(time_window_length*framerate)
     
@@ -105,7 +102,6 @@ def compute_distance(pose, bodyparts_xy, time_window_length=1, framerate=FRAMERA
     dist_df=pd.DataFrame(final_array, columns=bodyparts_distance, index=pose.index)
     pose=pd.concat([pose, dist_df], axis=1)
     return pose, bodyparts_distance
-         
 
 
 def load_deg(loader):
@@ -114,8 +110,6 @@ def load_deg(loader):
     if loader.deg is None:
         logger.warning("%s does not have DEG data", loader)
         return
-
-
 
 def load_scores(loader, files=None, frame_numbers=None):
     if files is None:
@@ -129,7 +123,7 @@ def load_scores(loader, files=None, frame_numbers=None):
 
         files=sorted([e.decode() for e in file["files"][:]], key=lambda x: os.path.basename(x))
         chunks=[int(os.path.basename(file).split(".")[0]) for file in files]
-        frame_numbers=np.array(list(itertools.chain(*[(np.arange(0, chunksize)+chunksize*chunk).tolist() for chunk in chunks])))
+        frame_numbers=np.array(list(itertools.chain(*[(np.arange(0, loader.chunksize)+loader.chunksize*chunk).tolist() for chunk in chunks])))
     
     scores["frame_number"]=frame_numbers
     scores["id"]=loader.ids[0]
@@ -146,15 +140,14 @@ def compute_proboscis_visibility_timing(pose):
     return pose
 
 
-def compute_bp_speeds(pose):
+def compute_bp_speeds(pose, **kwargs):
     bodyparts=[bp for bp in BODYPARTS if "J" not in bp and not bp in ["thorax"]]
     for bp in tqdm(bodyparts, desc="Computing bodypart speeds"):
-        pose=compute_bp_speed(pose, bp)
+        pose=compute_bp_speed(pose, bp, **kwargs)
 
-    
     return pose
 
-def compute_bp_speed(dt, bp):
+def compute_bp_speed(dt, bp, framerate):
         
     diff=np.diff(dt[[f"{bp}_x", f"{bp}_y"]].values, axis=0)
     dist=np.sqrt((diff**2).sum(axis=1))
@@ -162,7 +155,7 @@ def compute_bp_speed(dt, bp):
         remove_t=False
     else:
         remove_t=True
-        dt["t"]=dt["frame_number"]/FRAMERATE
+        dt["t"]=dt["frame_number"]/framerate
 
     deltaT=np.diff(dt["t"])
 
@@ -188,7 +181,7 @@ def compute_bp_speed(dt, bp):
 
 
 def load_pose(
-        loader, chunksize, files=None, frame_numbers=None, load_distance_travelled_features=False,
+        loader, files=None, frame_numbers=None, load_distance_travelled_features=False,
         load_inter_bp_distance_features=True,
         load_bp_speeds=True,
         load_angle_speeds=True,
@@ -212,7 +205,7 @@ def load_pose(
             files=sorted([e.decode() for e in file["files"][:]], key=lambda x: os.path.basename(x))
             chunks=[int(os.path.basename(file).split(".")[0]) for file in files]
             local_identities=[int(os.path.basename(os.path.dirname(file))) for file in files]
-            frame_number_available=np.array(list(itertools.chain(*[(np.arange(0, chunksize)+chunksize*chunk).tolist() for chunk in chunks])))
+            frame_number_available=np.array(list(itertools.chain(*[(np.arange(0, loader.chunksize)+loader.chunksize*chunk).tolist() for chunk in chunks])))
             first_fn=frame_number_available[0]
             loader.first_fn=first_fn
 
@@ -231,9 +224,9 @@ def load_pose(
             pose.columns=list(itertools.chain(*[[bp +"_x", bp+"_y"] for bp in node_names]))
             
             if frame_numbers is None:
-                frame_numbers=np.array(list(itertools.chain(*[(np.arange(0, chunksize)+chunksize*chunk).tolist() for chunk in chunks])))
+                frame_numbers=np.array(list(itertools.chain(*[(np.arange(0, loader.chunksize)+loader.chunksize*chunk).tolist() for chunk in chunks])))
 
-            local_identities=np.array(list(itertools.chain(*[[local_identities[i],]*chunksize for i, chunk in enumerate(chunks)])))
+            local_identities=np.array(list(itertools.chain(*[[local_identities[i],]*loader.chunksize for i, chunk in enumerate(chunks)])))
             if frames is not None:
                 local_identities=local_identities[frames]
     
@@ -245,7 +238,7 @@ def load_pose(
     columns = list(itertools.chain(*[[bp +"_x", bp+"_y"] for bp in node_names]))
     if load_distance_travelled_features:
         logger.debug("Adding distance features %s", pose.shape)
-        pose, bodyparts_distance=compute_distance(pose, bodyparts_xy, framerate=150, time_window_length=.2)
+        pose, bodyparts_distance=compute_distance(pose, bodyparts_xy, framerate=loader.framerate, time_window_length=.2)
         columns+=bodyparts_distance
         logger.debug("Done %s", pose.shape)
 
@@ -269,7 +262,7 @@ def load_pose(
 
     
     if load_bp_speeds:
-        pose=compute_bp_speeds(pose)
+        pose=compute_bp_speeds(pose, framerate=loader.framerate)
     
     # if load_angle_speeds:
     #     pose=compute_angular_speeds(pose, ANGULAR_SPEED_FEATURES_PAIRS)
@@ -369,9 +362,8 @@ def load_animal_data(
         wavelet_file=None,
         files=None,
         raw_files=None,
-        chunksize=45000,
         frame_numbers=None,
-        downsample=5
+        downsample=None
     ):
     """
     Load pose, deg labels and wavelets for a single animal
@@ -387,6 +379,9 @@ def load_animal_data(
 
     load_centroids(loader, frame_numbers=frame_numbers)
     load_landmarks(loader)
+
+    if downsample is None:
+        downsample = loader.wavelet_downsample
 
     if load_scores_data:
         load_scores(loader, files=raw_files, frame_numbers=frame_numbers)
@@ -412,7 +407,7 @@ def load_animal_data(
         labeled_frames_wt=None
 
     if load_pose_data:
-        load_pose(loader, chunksize, files=files, filters=filters, downsample=downsample, frame_numbers=labeled_frames)
+        load_pose(loader, files=files, filters=filters, downsample=downsample, frame_numbers=labeled_frames)
         if load_scores_data:
             loader.pose=loader.pose.merge(loader.scores, how="left", on=["frame_number", "id"])
 
@@ -477,7 +472,7 @@ def compile_dataset(loader, out=None):
 
 
 def process_animal(
-        loader, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, downsample=wavelet_downsample, files=None, raw_files=None, wavelet_file=None,
+        loader, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, downsample=None, files=None, raw_files=None, wavelet_file=None,
         load_deg_data=True, load_pose_data=True, load_wavelets_data=True, load_scores_data=True, load_time_data=True, on_fail="raise", **kwargs
     ):
     try:
@@ -497,9 +492,10 @@ def process_animal(
         if must_load:
             loader=load_animal_data(
                 loader,
-                load_deg_data=load_deg_data, load_pose_data=load_pose_data, load_wavelets_data=load_wavelets_data,
+                load_deg_data=load_deg_data, load_pose_data=load_pose_data,
+                load_wavelets_data=load_wavelets_data,
                 load_scores_data=load_scores_data,
-                filters=filters, downsample=downsample, chunksize=chunksize,
+                filters=filters, downsample=downsample,
                 wavelet_file=wavelet_file, files=files, raw_files=raw_files, **kwargs
             )
             if load_deg_data and loader.deg is None:
@@ -515,6 +511,12 @@ def process_animal(
 
         # data.set_index(["id", "frame_number"], inplace=True)
         print(f"Loading dataset of shape {data.shape} for animal {loader.experiment}__{str(loader.identity).zfill(2)}")
+
+        logger.debug("Read dataset of shape %s", data.shape)
+        data["chunk"]=data["frame_number"]//loader.chunksize
+        data["frame_idx"]=data["frame_number"]%loader.chunksize
+        data["zt"]=(data["t"]/3600).round(2)
+
         return data
     
     except Exception as error:
@@ -540,7 +542,7 @@ def load_animals(animals, cache=None, refresh_cache=True, filters=DEFAULT_FILTER
                 identity=int(animal.split("__")[1]),
                 chunks=range(0, 400),
                 identity_table=identity_table,
-                roi_0_table=roi_0_table,                
+                roi_0_table=roi_0_table,
             )
         )
     data = joblib.Parallel(n_jobs=n_jobs)(

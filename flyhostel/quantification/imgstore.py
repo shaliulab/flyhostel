@@ -7,7 +7,12 @@ import sqlite3
 import numpy as np
 import yaml
 from flyhostel.constants import INDEX_FORMAT
-from imgstore.constants import STORE_MD_KEY, STORE_MD_FILENAME
+try:
+    from imgstore.constants import STORE_MD_KEY, STORE_MD_FILENAME
+except ModuleNotFoundError:
+    STORE_MD_FILENAME=None
+    STORE_MD_KEY=None
+
 
 logger = logging.getLogger(__name__)
 

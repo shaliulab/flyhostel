@@ -1,7 +1,6 @@
 import logging
 import os.path
 logger=logging.getLogger(__name__)
-DEEPETHOGRAM_PROJECT_PATH=os.environ["DEEPETHOGRAM_PROJECT_PATH"]
 
 import numpy as np
 try:
@@ -50,41 +49,46 @@ def one_hot_encoding(strings, unique_strings):
 
     return np.array(encoding_table)
 
-def postprocess_behaviors(dataset, percentile=1, column="behavior", behaviors=None):
-    """
-    Remove short bouts of behaviors and join simultanous behaviors
-    
-    A short bout of behavior is a bout shorter than the _percentile_ percentile bout length
-    in the DEG database
-    """
-    
-    if behaviors is None:
-        unique_behaviors=dataset[column].unique().tolist()
-    else:
-        unique_behaviors=list(behaviors.keys())
 
-    if "background" in unique_behaviors:
-        unique_behaviors.pop(unique_behaviors.index("background"))
-    unique_behaviors=["background"] + unique_behaviors
-    predictions=one_hot_encoding(dataset[column], unique_behaviors)
-
-    bout_length_dict=get_bout_length_percentile_from_project(DEEPETHOGRAM_PROJECT_PATH, percentile=percentile, behaviors=behaviors)
-    logger.debug("Bout length cutoff %s", bout_length_dict)
+def postprocess_behaviors(*args, **kwargs):
+    raise Exception("Please replace import with " \
+    "from flyhostel.data.pose.ethogram import postprocess_behaviors")
+# def postprocess_behaviors(dataset, percentile=1, column="behavior", behaviors=None):
+#     """
+#     Remove short bouts of behaviors and join simultanous behaviors
     
-    bout_lengths=[int(bout_length_dict.get(behav, 1)) for behav in unique_behaviors]
-    predictions_smoothed = []
-    T, K = predictions.shape
-    for i in range(K):
-        trace = predictions[:, i]
-        print(f"{percentile}% percentile bout length for {unique_behaviors[i]}={bout_lengths[i]}")
-        trace = remove_short_bouts_from_trace(trace, bout_lengths[i])
-        predictions_smoothed.append(trace)
+#     A short bout of behavior is a bout shorter than the _percentile_ percentile bout length
+#     in the DEG database
+#     """
+#     raise NotImplementedError()
 
-    predictions = np.stack(predictions_smoothed, axis=1)
-    confusing_rows=predictions.sum(axis=1)>1
-    predictions[confusing_rows, :]=0
-    predictions = compute_background(predictions)
-    rows,cols=np.where(predictions==1)
-    prediction=[unique_behaviors[i] for i in cols]
-    dataset[column]=prediction
-    return dataset
+#     if behaviors is None:
+#         unique_behaviors=dataset[column].unique().tolist()
+#     else:
+#         unique_behaviors=list(behaviors.keys())
+
+#     if "background" in unique_behaviors:
+#         unique_behaviors.pop(unique_behaviors.index("background"))
+#     unique_behaviors=["background"] + unique_behaviors
+#     predictions=one_hot_encoding(dataset[column], unique_behaviors)
+
+#     bout_length_dict=get_bout_length_percentile_from_project(DEEPETHOGRAM_PROJECT_PATH, percentile=percentile, behaviors=behaviors)
+#     logger.debug("Bout length cutoff %s", bout_length_dict)
+    
+#     bout_lengths=[int(bout_length_dict.get(behav, 1)) for behav in unique_behaviors]
+#     predictions_smoothed = []
+#     T, K = predictions.shape
+#     for i in range(K):
+#         trace = predictions[:, i]
+#         print(f"{percentile}% percentile bout length for {unique_behaviors[i]}={bout_lengths[i]}")
+#         trace = remove_short_bouts_from_trace(trace, bout_lengths[i])
+#         predictions_smoothed.append(trace)
+
+#     predictions = np.stack(predictions_smoothed, axis=1)
+#     confusing_rows=predictions.sum(axis=1)>1
+#     predictions[confusing_rows, :]=0
+#     predictions = compute_background(predictions)
+#     rows,cols=np.where(predictions==1)
+#     prediction=[unique_behaviors[i] for i in cols]
+#     dataset[column]=prediction
+#     return dataset

@@ -12,9 +12,6 @@ from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_pri
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.groups.group import FlyHostelGroup
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
-from flyhostel.data.pose.constants import SQUARE_WIDTH, SQUARE_HEIGHT
-from flyhostel.data.pose.constants import framerate as FRAMERATE
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.interactions.touch import preprocess_data, check_intersections
 
 logger=logging.getLogger(__name__)
@@ -70,7 +67,7 @@ def download_from_gpu(df):
 def infer_neighbors_by_time_partitions(
         group,
         partition_size=None,
-        framerate=30,
+        step=1,
         store="RAM"
     ):
 
@@ -107,7 +104,8 @@ def infer_neighbors_by_time_partitions(
         dt_neighbors_=find_neighbors(
             group,
             centroid_dataset,
-            framerate=framerate,
+            step=step,
+            chunksize=group.chunksize
         )
         if dt_neighbors_ is not None:
             dt_neighbors_cpu=download_from_gpu(dt_neighbors_)
@@ -139,17 +137,18 @@ def infer_neighbors_by_time_partitions(
 
 
 def analyze_group(
-        group, framerate=15,
+        group, fps=50,
         useGPU=True, interval=None,
         partition_size=None,
         **kwargs
     ):
     """
     Detect interactions between animals in a group
+    This is the function that runs as the first process of the interactions pipeline
     """
 
     # load the x y coordinates of the centroids of each animal over time
-    group.dt=group.load_centroid_data(framerate=framerate, useGPU=useGPU)
+    group.dt=group.load_centroid_data(fps=fps, useGPU=useGPU)
     
     if useGPU:
         assert isinstance(group.dt, cudf.DataFrame)
@@ -163,7 +162,7 @@ def analyze_group(
     # interactions
     neighbors=infer_neighbors_by_time_partitions(
         group,
-        framerate=framerate,
+        step=1,
         partition_size=partition_size,
         **kwargs
     )
@@ -175,7 +174,10 @@ def analyze_group(
     return group
 
 
-def find_neighbors(group, dt, framerate):
+def find_neighbors(group, dt, step, chunksize):
+    """
+    Some preprocessing and calls the group method
+    """
 
     dt["centroid_x"]=dt["center_x"]
     dt["centroid_y"]=dt["center_y"]
@@ -184,14 +186,14 @@ def find_neighbors(group, dt, framerate):
     dt_neighbors=group.find_neighbors(
         dt[["id", "frame_number", "centroid_x", "centroid_y", "t"]],
         dist_max_mm=group.dist_max_mm,
-        framerate=framerate,
+        step=step,
     )
 
-    dt_neighbors["chunk"]=dt_neighbors["frame_number"]//CHUNKSIZE
-    dt_neighbors["frame_idx"]=dt_neighbors["frame_number"]%CHUNKSIZE
+    dt_neighbors["chunk"]=dt_neighbors["frame_number"]//chunksize
+    dt_neighbors["frame_idx"]=dt_neighbors["frame_number"]%chunksize
     return dt_neighbors
 
-def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10):
+def annotate_interactions(group, framerate, time_window_length=10, asleep_annotation_age=10):
 
     assert group.dt_sleep is not None
 
@@ -212,7 +214,7 @@ def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10
     interactions.sort_values(["frame_number", "id"], inplace=True)
 
     # how many seconds in the past should the sleep annotation come from
-    dt_sleep["frame_number"]+=FRAMERATE*asleep_annotation_age
+    dt_sleep["frame_number"]+=framerate*asleep_annotation_age
     # this is useful so that the sleep state at the time of the interaction can be defined based on the behavior
     # from a little bit before in time
 
@@ -222,7 +224,7 @@ def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10
         dt_sleep, by="id",
         on="frame_number",
         direction="backward",
-        tolerance=FRAMERATE*time_window_length
+        tolerance=framerate*time_window_length
     )
 
     # remove all data until the first annotation of sleep
@@ -247,7 +249,7 @@ def annotate_interactions(group, time_window_length=10, asleep_annotation_age=10
 
 def compute_experiment_neighbors(
         group,
-        framerate=15,
+        fps=15,
         partition_size=None,
         interval=None,
         **kwargs
@@ -258,7 +260,7 @@ def compute_experiment_neighbors(
     """
     analyze_group(
         group,
-        framerate=framerate,
+        fps=fps,
         partition_size=partition_size,
         interval=interval,
         **kwargs

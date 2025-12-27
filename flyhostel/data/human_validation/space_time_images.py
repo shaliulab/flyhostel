@@ -9,12 +9,15 @@ import joblib
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
+from flyhostel.utils import (
+    get_basedir,
+    get_dbfile,
+    get_chunksize,
+)
 
 NUMBER_OF_ROWS=1
 NUMBER_OF_COLS=1
 RESOLUTION=(1000, 1000)
-
-from flyhostel.data.pose.constants import chunksize
 
 logger=logging.getLogger(__name__)
 
@@ -86,7 +89,7 @@ def load_yaml_qc(path, scene):
         qc.insert(0, "scene", scene)
     return qc
 
-def load_qc(folder):
+def load_qc(folder, chunksize):
     yaml_files=sorted(glob.glob(f"{folder}/movies/*yaml"))
     logger.debug(f"{len(yaml_files)} yaml files found")
     qc=[]
@@ -102,7 +105,9 @@ def load_qc(folder):
 
 def make_space_time_images(folder, experiment, time_window_length, n_jobs):
 
-    qc=load_qc(folder)
+    chunksize=get_chunksize(experiment)
+
+    qc=load_qc(folder, chunksize)
     pass_qc=qc.loc[(qc["gap_n_frames"]==0) & (qc["gap_distance"]==0)]
 
     with open(os.path.join(folder, "qc_pass.txt"), "w") as handle:

@@ -2,19 +2,19 @@
 Generate short videos whenever the tracking analysis captured in the dbfile
 has issues
 """
-import sqlite3
 import os.path
 import logging
 
-import yaml
-from tqdm.auto import tqdm
-import numpy as np
 import pandas as pd
 import joblib
 
-from flyhostel.utils.utils import get_first_frame, get_last_frame 
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
-from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.utils.utils import (
+    get_framerate,
+    get_first_frame,
+    get_last_frame,
+    get_dbfile,
+    get_chunksize,
+)
 from flyhostel.data.human_validation.utils import load_tracking_data, FIELD
 from flyhostel.data.human_validation.qc import analyze_video
 from flyhostel.data.human_validation.video import generate_validation_video
@@ -54,6 +54,10 @@ def annotate_for_validation(
     df=None
     qc_fail=None
 
+    dbfile = get_dbfile(basedir)
+    chunksize = get_chunksize(experiment)
+    framerate = get_framerate(experiment)
+
     if min_frame_number is None:
         min_frame_number=get_first_frame(dbfile)
 
@@ -81,8 +85,10 @@ def annotate_for_validation(
             ]
     else:
         
-        logger.debug("Binning into %s second windows", time_window_length)
-        df_bin=bin_windows(df, time_window_length=time_window_length)
+        # logger.debug("Binning into %s second windows", time_window_length)
+        df_bin=df.copy()
+        df_bin["t_round"]=df_bin["t"].copy()
+        # df_bin=bin_windows(df, time_window_length=time_window_length)
 
     logger.debug("Running QC of experiment %s", experiment)
 
@@ -90,6 +96,7 @@ def annotate_for_validation(
         df_bin.copy(), number_of_animals,
         min_frame_number=min_frame_number,
         max_frame_number=max_frame_number,
+        chunksize = chunksize,
         n_jobs=n_jobs,
     )
     logger.info("%s %% of %s passes QC", round(100*qc["qc"].mean(), 2), experiment)
@@ -115,7 +122,7 @@ def annotate_for_validation(
     
     
     margin_size=1
-    qc_fail["last_frame_number"]=qc_fail["frame_number"]+qc_fail["duration"]*FRAMERATE+margin_size
+    qc_fail["last_frame_number"]=qc_fail["frame_number"]+qc_fail["length"]+margin_size
     qc_fail["frame_number"]-=margin_size    
     qc_fail.to_csv(output_path_csv)
 
@@ -142,7 +149,7 @@ def annotate_for_validation(
         )(
             store_path, row=kwargs[i]["row"], df=kwargs[i]["tracking_data"],
             number_of_animals=number_of_animals, output_folder=movies_folder,
-            framerate=FRAMERATE, format=format, field=FIELD
+            chunksize=chunksize, framerate=framerate, format=format, field=FIELD
         )
         for i in range(len(kwargs))
     )
@@ -155,6 +162,7 @@ def bin_windows(df, time_window_length=1):
     gets a separate bin
     """
     df["t_round"]=time_window_length*(df["t"]//time_window_length)
+    # df["t_round"]=df["t"].copy()
 
     df_bin=df.drop_duplicates(["t_round","local_identity", "identity", "chunk", "fragment", "modified"])[[
         "t_round","local_identity", "identity", "chunk", "fragment", "modified", "x", "y"

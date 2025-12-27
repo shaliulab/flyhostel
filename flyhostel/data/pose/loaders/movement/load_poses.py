@@ -3,13 +3,9 @@ import os.path
 import h5py
 import numpy as np
 
-try:
-    from movement.io import load_poses
-except ImportError:
-    load_poses=None
-
-from flyhostel.data.pose.constants import framerate as FRAMERATE
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
+# Fix these imports
+# from flyhostel.data.pose.constants import framerate as FRAMERATE
+# from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 
 def add_frame_number_index(path, ds):
     
@@ -23,6 +19,7 @@ def add_frame_number_index(path, ds):
     return ds
 
 def from_sleap_file(path):
+    raise NotImplementedError()
     if load_poses is None:
         raise ImportError("Movement installation is not updated")
     ds = load_poses.from_sleap_file(path, fps=FRAMERATE)

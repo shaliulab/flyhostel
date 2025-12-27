@@ -9,7 +9,9 @@ from tqdm.auto import tqdm
 
 import sleap_io as sio
 # from movement.io import load_poses
-from flyhostel.data.pose.constants import chunksize, framerate
+
+# TODO Fix these imports
+#from flyhostel.data.pose.constants import chunksize, framerate
 
 logger=logging.getLogger(__name__)
 

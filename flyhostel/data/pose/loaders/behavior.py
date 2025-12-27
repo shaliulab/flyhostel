@@ -1,23 +1,8 @@
-import time
-import shutil
 import logging
 import os.path
 import pandas as pd
-import h5py
 from tqdm.auto import tqdm
 logger=logging.getLogger(__name__)
-
-from flyhostel.data.pose.constants import framerate as FRAMERATE
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
-from flyhostel.utils import restore_cache, save_cache
-from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
-from flyhostel.data.pose.distances import add_interdistance_features
-try:
-    from motionmapperpy import setRunParameters
-    wavelet_downsample=setRunParameters().wavelet_downsample
-except ModuleNotFoundError:
-    wavelet_downsample=5
-
 
 def get_behavior_feather_file_path(experiment, identity):
     tokens=experiment.split("_")
@@ -27,7 +12,7 @@ def get_behavior_feather_file_path(experiment, identity):
         tokens[1],
         "_".join(tokens[2:4])
     )
-    
+
     feather_path=os.path.join(
         basedir,
         "motionmapper",
@@ -44,7 +29,7 @@ def interpolate_wavelets(dt, interpolate_frames=0):
         df=dt.copy()
         df["frame_number"]+=i
         dt_t_complete.append(df)
-    
+
     dt=pd.concat(dt_t_complete, axis=0)
     del dt_t_complete
     dt.sort_values(["id", "frame_number"], inplace=True)
@@ -69,7 +54,7 @@ class BehaviorLoader():
         assert os.path.exists(file), f"{file} not found"
         return file
 
-            
+
     def load_behavior_data(self, min_time=None, max_time=None):
         """
         Load a behavior timeseries computed at 30 FPS from an original centroid timeseries at 150 FPS
@@ -105,7 +90,7 @@ class BehaviorLoader():
         else:
             logger.warning("%s does not exist", feather_path)
             return
-        
+
         if min_time is not None:
             dt=dt.loc[dt["t"]>=min_time]
         if max_time is not None:
@@ -115,5 +100,5 @@ class BehaviorLoader():
         if duplicated_locations>0:
             logger.warning("%s duplicated rows in behavior dataset found", duplicated_locations)
             dt.drop_duplicates(["id", "frame_number"], inplace=True)
-            
+
         self.behavior=dt

@@ -1,5 +1,7 @@
 import argparse
 from flyhostel.data.pose.ethogram.inference import inference as make_ethogram
+
+# do not delete this line, the entrypoint draw-ethogram depends on it
 from flyhostel.data.pose.ethogram.plot import main as draw_ethogram
 
 def get_parser():
@@ -16,6 +18,7 @@ def get_parser():
     #                    help="path to input video on which annotations will be drawn. If ")
     ap.add_argument("--output", required=False, type=str, default=".")
     ap.add_argument("--model-path")
+    ap.add_argument("--deg-folder")
     ap.add_argument("--frame-number", type=int, nargs="+", default=None)
     ap.add_argument("--t0", type=int, default=None)
     ap.add_argument("--postprocess", action="store_true", default=False)
@@ -30,6 +33,7 @@ def main():
     make_ethogram(
         args.experiment, str(args.identity).zfill(2),
         model_path=args.model_path,
+        deg_folder=args.deg_folder,
         files=args.files,
         raw_files=args.raw_files,
         wavelet_file=args.wavelets,

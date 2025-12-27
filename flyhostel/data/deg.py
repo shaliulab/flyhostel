@@ -6,10 +6,14 @@ import os.path
 from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
-from flyhostel.data.pose.constants import DEG_DATA
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.utils import restore_cache, save_cache
-from flyhostel.utils import get_local_identities_from_experiment, get_sqlite_file, get_chunksize
+from flyhostel.utils import (
+    get_dbfile,
+    get_basedir,
+    get_local_identities_from_experiment,
+    get_chunksize,
+    get_deg_data_folder,
+)
 from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
 
 logger = logging.getLogger(__name__)
@@ -19,23 +23,24 @@ LABELS=["walk", "background", "groom", "feed", "inactive+rejection", "inactive+p
 SOCIAL_BEHAVIORS=["rejection", "touch", "interactor", "interactee"]
 RESTORE_FROM_CACHE_ENABLED=False
 
-def parse_rejections_entry(data_entry, verbose=True):
+def parse_rejections_entry(data_entry, chunksize, verbose=True):
     tokens = data_entry.split("_")
-    tokens=tokens[:4] + [int(tokens[5])//CHUNKSIZE] + [int(tokens[7])]
+    tokens=tokens[:4] + [int(tokens[5])//chunksize] + [int(tokens[7])]
     if len(tokens) != 6:
         if verbose:
             logger.error(f"Invalid entry: {data_entry}")
         return False, None
 
     return True, tokens
-def parse_entry(data_entry, verbose=True):
+
+
+def parse_entry(data_entry, **kwargs):
     if "rejections" in data_entry:
-        return parse_rejections_entry(data_entry, verbose=verbose)
+        return parse_rejections_entry(data_entry, **kwargs)
 
     tokens = data_entry.split("_")
     if len(tokens) != 6:
-        if verbose:
-            logger.error(f"Invalid entry: {data_entry}")
+        logger.error(f"Invalid entry: {data_entry}")
         return False, None
 
     return True, tokens
@@ -44,14 +49,16 @@ def load_deg_data_gt_single_animal(experiment=None, identity=None, verbose=True)
     all_labels=[]
 
     counter=0
-    ignored_suffixes=[".dvc", ".pkl"]
+    ignored_suffixes=[".dvc", ".pkl", ".md"]
     ignored_prefixes=["."]
-    entries=os.listdir(DEG_DATA)
-
+    deg_data_folder=get_deg_data_folder(experiment)
+    entries=os.listdir(deg_data_folder)
     pb=tqdm(total=len(entries))
 
-
     for data_entry in entries:
+
+        experiment_entry="_".join(data_entry.split("_")[:4])
+
         if data_entry=="split.yaml":
             pb.update(1)
             continue
@@ -64,8 +71,21 @@ def load_deg_data_gt_single_animal(experiment=None, identity=None, verbose=True)
             pb.update(1)
             continue
 
-        chunk=parse_chunk(data_entry)
-        labels_file=f"{DEG_DATA}/{data_entry}/{str(chunk).zfill(6)}_labels.csv"
+        try:
+            dbfile=get_dbfile(get_basedir(experiment_entry))
+        except AssertionError:
+            logger.debug("dbfile missing for entry: %s", data_entry)
+            pb.update(1)
+            continue
+        except IndexError:
+            logger.error("Invalid entry: %s", data_entry)
+            pb.update(1)
+            continue
+    
+        chunksize=get_chunksize(experiment_entry)
+
+        chunk=parse_chunk(data_entry, chunksize=chunksize)
+        labels_file=f"{deg_data_folder}/{data_entry}/{str(chunk).zfill(6)}_labels.csv"
 
         if not os.path.exists(labels_file):
             if verbose:
@@ -73,14 +93,13 @@ def load_deg_data_gt_single_animal(experiment=None, identity=None, verbose=True)
             pb.update(1)
             continue
 
-
         if identity is not None:
-            ret = filter_by_id(data_entry, experiment=experiment, identity=identity, chunksize=CHUNKSIZE, verbose=verbose)
+            ret = filter_by_id(data_entry, experiment=experiment, identity=identity, chunksize=chunksize)
         else:
             ret=True
         
-        local_identity=parse_local_identity(data_entry)
-        chunk=parse_chunk(data_entry)
+        local_identity=parse_local_identity(data_entry, chunksize=chunksize)
+        chunk=parse_chunk(data_entry, chunksize=chunksize)
 
         if not ret:
             pb.update(1)
@@ -98,13 +117,13 @@ def load_deg_data_gt_single_animal(experiment=None, identity=None, verbose=True)
             pb.update(1)
             continue
 
-        labels["frame_number"]=labels["chunk"]*CHUNKSIZE+labels["frame_idx"]
+        labels["frame_number"]=labels["chunk"]*chunksize+labels["frame_idx"]
         labels["entry"]=data_entry
         all_labels.append(labels)
         del labels
         counter+=1
         pb.update(1)
-
+    
     if len(all_labels)>0:
         all_labels=pd.concat(all_labels, axis=0)
         return all_labels
@@ -112,8 +131,8 @@ def load_deg_data_gt_single_animal(experiment=None, identity=None, verbose=True)
         return None
 
 
-def parse_experiment(data_entry):
-    ret, tokens = parse_entry(data_entry)
+def parse_experiment(data_entry, **kwargs):
+    ret, tokens = parse_entry(data_entry, **kwargs)
     if ret:
         experiment = "_".join(tokens[:-2])
         return experiment
@@ -121,16 +140,16 @@ def parse_experiment(data_entry):
         return None
 
 
-def parse_chunk(data_entry):
-    ret, tokens = parse_entry(data_entry)
+def parse_chunk(data_entry, **kwargs):
+    ret, tokens = parse_entry(data_entry, **kwargs)
     if ret:
         chunk = int(tokens[-2])
         return chunk
     else:
         return None
 
-def parse_local_identity(data_entry):
-    ret, tokens = parse_entry(data_entry)
+def parse_local_identity(data_entry, **kwargs):
+    ret, tokens = parse_entry(data_entry, **kwargs)
     if ret:
         local_identity = int(tokens[-1])
         return local_identity
@@ -138,19 +157,19 @@ def parse_local_identity(data_entry):
         return None
 
 
-def parse_number_of_animals(data_entry):
-    ret, tokens = parse_entry(data_entry)
+def parse_number_of_animals(data_entry, **kwargs):
+    ret, tokens = parse_entry(data_entry, **kwargs)
     if ret:
         number_of_animals=int(tokens[1].replace("X",""))
         return number_of_animals
     else:
         return None
 
-def filter_by_id(data_entry, experiment, identity, chunksize=45000, verbose=True):
+def filter_by_id(data_entry, experiment, identity, chunksize):
 
-    local_identity=parse_local_identity(data_entry)
-    chunk=parse_chunk(data_entry)
-    experiment_=parse_experiment(data_entry)
+    local_identity=parse_local_identity(data_entry, chunksize=chunksize)
+    chunk=parse_chunk(data_entry, chunksize=chunksize)
+    experiment_=parse_experiment(data_entry, chunksize=chunksize)
 
     if local_identity is None:
         logger.warning("%s is corrupt. No local_identity can be parsed", data_entry)
@@ -172,7 +191,11 @@ def filter_by_id(data_entry, experiment, identity, chunksize=45000, verbose=True
         logger.debug(error)
         return False
 
-    identity_=int(table["identity"].loc[table["local_identity"]==local_identity])
+    try:
+        identity_=int(table["identity"].loc[table["local_identity"]==local_identity])
+    except TypeError as error:
+        logger.error("Cannot find identity for %s at frame %s with local_identity %s", data_entry, frame_number, local_identity)
+        raise error
 
     if not (experiment_ == experiment and identity_ == identity):
         return False

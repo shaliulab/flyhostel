@@ -2,8 +2,11 @@ import logging
 import os.path
 import numpy as np
 import pandas as pd
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
-from flyhostel.utils import annotate_local_identity, build_interaction_video_key
+from flyhostel.utils import (
+    get_chunksize,
+    annotate_local_identity,
+    build_interaction_video_key
+)
 
 logger=logging.getLogger(__name__)
 
@@ -89,6 +92,7 @@ class InteractionsLoader:
     basedir=None
     experiment=None
     identity=None
+    chunksize=None
     ids=[]
     dt=None
 
@@ -111,7 +115,7 @@ class InteractionsLoader:
         interaction_database=interaction_database.loc[interaction_database["id"]==self.ids[0]]
         interaction_database["identity"]=interaction_database["id"].str.slice(start=-2).astype(int)
         interaction_database["identity_partner"]=interaction_database["nn"].str.slice(start=-2).astype(int)
-        interaction_database["chunk"]=interaction_database["frame_number"]//CHUNKSIZE
+        interaction_database["chunk"]=interaction_database["frame_number"]//self.chunksize
         interaction_database=annotate_local_identity(interaction_database, self.experiment)
         interaction_database["key"]=[build_interaction_video_key(self.experiment, row) for _, row in interaction_database.iterrows()]
 

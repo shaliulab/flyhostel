@@ -2,12 +2,8 @@ import logging
 
 import pandas as pd
 import joblib
-import numpy as np
-
-from motionmapperpy import setRunParameters
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.pose.loaders.centroids import to_behavpy
-wavelet_downsample=setRunParameters().wavelet_downsample
 
 logger=logging.getLogger(__name__)
 

@@ -4,7 +4,11 @@ import sqlite3
 import os.path
 from tqdm.auto import tqdm
 from .reader import MP4Reader
+import cv2
+from flyhostel.utils import get_square_height, get_square_width
 logger=logging.getLogger(__name__)
+
+DEBUG=False
 FLYHOSTEL_SINGLE_VIDEOS="./flyhostel/single_animal/"
 
 class MP4VideoMaker(ABC):
@@ -12,6 +16,7 @@ class MP4VideoMaker(ABC):
     _basedir = None
     _number_of_animals = None
     video_writer=None
+    experiment=None
     _flyhostel_dataset = None
     _index_db=None
     framerate=None
@@ -31,12 +36,16 @@ class MP4VideoMaker(ABC):
     def save_coords_to_csv(self, chunks, output):
         store_path=os.path.join(self._basedir, "metadata.yaml")
 
+        square_width=get_square_width(self.experiment)
+        square_height=get_square_height(self.experiment)
+
+
         with sqlite3.connect(f"file:{self._flyhostel_dataset}?mode=ro", uri=True) as conn:
             for chunk in chunks:
                 with MP4Reader(
                         "flyhostel", connection=conn, store_path=store_path,
                         number_of_animals=self._number_of_animals,
-                        width=100, height=100, resolution=(100, 100),
+                        width=square_width, height=square_height, resolution=(square_width, square_height),
                         background_color=255, chunks=[chunk]
                     ) as mp4_reader:
                     data=mp4_reader._data.reset_index()
@@ -50,7 +59,6 @@ class MP4VideoMaker(ABC):
                         ])
                         os.makedirs(output_folder, exist_ok=True)
                         df.to_csv(csv)
-
 
     def _make_single_video(self, chunks, output, frame_size, resolution, background_color=255, **kwargs):
         width, height = frame_size
@@ -82,9 +90,7 @@ class MP4VideoMaker(ABC):
                             raise Exception(f"Cannot fetch data for chunk {chunk}")
                             
                             
-                        resolution_full=(resolution[0] * self._number_of_animals, resolution[1])
                         written_images={identifier: 0 for identifier in [0] + self._identifiers}
-                       
 
                         while True:
 
@@ -96,20 +102,12 @@ class MP4VideoMaker(ABC):
                             if img is None:
                                 break
 
-                            if self._stacked:
-                                fn, written_images_=self.write_frame(img, output, chunk, frame_number, 0, resolution_full, index_cur=index_cur, written_images=written_images[0], **kwargs)
+                            for i, identifier in enumerate(self._identifiers):
+                                fn, written_images_=self.write_frame(img[i], output, chunk, frame_number, identifier, resolution, index_cur=index_cur, written_images=written_images[identifier], **kwargs)
                                 written_images[identifier]=written_images_
                                 if fn is not None:
-                                    logger.debug(f"Working on chunk 000/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
-
-
-                            else:
-                                for i, identifier in enumerate(self._identifiers):
-                                    fn, written_images_=self.write_frame(img[i], output, chunk, frame_number, identifier, resolution, index_cur=index_cur, written_images=written_images[identifier], **kwargs)
-                                    written_images[identifier]=written_images_
-                                    if fn is not None:
-                                        logger.debug(f"Working on chunk {str(identifier).zfill(3)}/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
-                                
+                                    logger.debug(f"Working on chunk {str(identifier).zfill(3)}/{chunk}. Initialized {fn}. start_next_chunk = {self.start_next_chunk}, chunks={chunks}")
+                            
                             target_fn=frame_number+mp4_reader.step
 
 
@@ -135,8 +133,12 @@ class MP4VideoMaker(ABC):
 
 
     def write_frame(self, img, output, chunk, frame_number, identifier, resolution, index_cur, written_images, **kwargs):
+        
+        paded_identifier=str(identifier).zfill(3)
+        
         if self.video_writer[identifier] is None:
-            output=os.path.join(FLYHOSTEL_SINGLE_VIDEOS, str(identifier).zfill(3))
+            
+            output=os.path.join(FLYHOSTEL_SINGLE_VIDEOS, paded_identifier)
             os.makedirs(output, exist_ok=True)
             fn, written_images = self.init_video_writer(basedir=output, frame_size=resolution, identifier=identifier,chunk=chunk, **kwargs)
             if fn is None:
@@ -144,6 +146,25 @@ class MP4VideoMaker(ABC):
             logger.debug("Working on chunk %s. Initialized %s. start_next_chunk = %s", chunk, fn, self.start_next_chunk)
             assert img.shape == resolution[::-1], f"{img.shape} != {resolution[::-1]}"
             assert str(chunk).zfill(6) in fn
+
+        if DEBUG:
+            text = str(frame_number)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.8
+            thickness = 2
+
+            # Frame is 100x100
+            frame_h, frame_w = 100, 100
+
+            # Get text size
+            (text_w, text_h), _ = cv2.getTextSize(text, font, font_scale, thickness)
+
+            # Compute bottom-left corner so that text is centered
+            x = (frame_w - text_w) // 2
+            y = (frame_h + text_h) // 2
+
+            cv2.putText(img, text, (x, y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
 
         frame_time = self.fetch_frame_time(index_cur, frame_number)
         assert img.shape == resolution[::-1], f"{img.shape} != {resolution[::-1]}"
@@ -153,6 +174,10 @@ class MP4VideoMaker(ABC):
             start_next_chunk=self.start_next_chunk
         )
 
+        if DEBUG:
+            folder=f"images_{paded_identifier}"
+            os.makedirs(folder, exist_ok=True)
+            cv2.imwrite(f"{folder}/img_{str(frame_number).zfill(10)}.png", img)
 
         # pb.update(1)
         if written_images % (self.framerate * 1) == 0:

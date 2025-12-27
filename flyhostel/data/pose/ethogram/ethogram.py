@@ -13,8 +13,9 @@ from tqdm.auto import tqdm
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.pose.ethogram.loader import process_animal
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
-from flyhostel.data.pose.constants import chunksize, framerate, inactive_states
+from flyhostel.data.pose.constants import inactive_states
 from flyhostel.data.pose.ml_classifier import load_one_animal
+from flyhostel.utils import get_chunksize, get_wavelet_downsample
 
 logger=logging.getLogger(__name__)
 try:
@@ -32,11 +33,7 @@ except ModuleNotFoundError:
 
 logger.warning("Deprecated module")
 
-DEEPETHOGRAM_PROJECT_PATH=os.environ["DEEPETHOGRAM_PROJECT_PATH"]
 FLYHOSTEL_VIDEOS=os.environ["FLYHOSTEL_VIDEOS"]
-
-from motionmapperpy import setRunParameters
-wavelet_downsample=setRunParameters().wavelet_downsample
 
 
 def get_bout_length_percentile_from_project(project_path, percentile=1, behaviors=None):
@@ -104,6 +101,9 @@ def enforce_behavioral_context(dataset, modify, context, replacement, seconds=5,
 
     dataset=enforce_behavioral_context(dataset, modify="inactive+pe", context=["inactive"], replacement="pe", seconds=5, framerate=1)
     """
+
+
+    raise NotImplementedError()
     
     n = int(seconds * framerate) # Number of rows to consider before first and after last 'foo'
     
@@ -219,8 +219,7 @@ def make_ethogram(
      2) a list of columns that should be used as features
     """
 
-    raise DeprecationWarning()
-
+    raise NotImplementedError()
 
     # dataset, (frequencies, freq_names, features)=load_dataset(experiment=experiment, identity=identity, cache=cache, **kwargs)
     loader=FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
@@ -265,7 +264,7 @@ def make_ethogram(
 
     if postprocess:
         logger.debug("Postprocessing predictions")
-        dataset=postprocess_behaviors(dataset)
+        # dataset=postprocess_behaviors(dataset)
     
         
     if correct_by_all_inactive:
@@ -315,14 +314,14 @@ def make_ethogram(
     # save_deg_prediction_file(experiment, dataset, features)
 
 
-def postprocess_behaviors(dataset, percentile=1, column="behavior", behaviors=None):
+def postprocess_behaviors(dataset, deg_folder, percentile=1, column="behavior", behaviors=None):
     """
     Remove short bouts of behaviors and join simultanous behaviors
     
     A short bout of behavior is a bout shorter than the _percentile_ percentile bout length
     in the DEG database
     """
-    
+   
     if behaviors is None:
         unique_behaviors=dataset[column].unique().tolist()
     else:
@@ -333,7 +332,7 @@ def postprocess_behaviors(dataset, percentile=1, column="behavior", behaviors=No
     unique_behaviors=["background"] + unique_behaviors
     predictions=one_hot_encoding(dataset[column], unique_behaviors)
 
-    bout_length_dict=get_bout_length_percentile_from_project(DEEPETHOGRAM_PROJECT_PATH, percentile=percentile, behaviors=behaviors)
+    bout_length_dict=get_bout_length_percentile_from_project(deg_folder, percentile=percentile, behaviors=behaviors)
     logger.debug("Bout length cutoff %s", bout_length_dict)
     
     bout_lengths=[int(bout_length_dict.get(behav, 1)) for behav in unique_behaviors]
@@ -349,7 +348,6 @@ def postprocess_behaviors(dataset, percentile=1, column="behavior", behaviors=No
     confusing_rows=predictions.sum(axis=1)>1
     predictions[confusing_rows, :]=0
     predictions = compute_background(predictions)
-    
 
     rows,cols=np.where(predictions==1)
     prediction=[unique_behaviors[i] for i in cols]
@@ -365,6 +363,9 @@ def save_deg_prediction_file(experiment, dataset, features, group_name="motionma
     
     chunk_lids=dataset[["chunk", "local_identity"]].drop_duplicates().sort_values("chunk").values.tolist()
     dataset, behaviors=reverse_behaviors(dataset)
+
+    chunksize=get_chunksize(experiment)
+    wavelet_downsample=get_wavelet_downsample(experiment)
 
     for chunk, local_identity in tqdm(chunk_lids, desc="Saving prediction files"):
 

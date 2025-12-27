@@ -99,13 +99,12 @@ def load_data(dbfile, tracking_fields, min_frame_number=None, max_frame_number=N
         )
 
         logger.debug("Loading from %s - STORE_INDEX", dbfile)
-        # last_chunk=roi0["frame_number"].iloc[-1]//CHUNKSIZE
         store_index=load_store_index(conn,
             min_frame_number=min_frame_number,
             max_frame_number=max_frame_number
         )
     
-    chunksize=get_chunksize(dbfile)
+    chunksize=get_chunksize(dbfile=dbfile)
 
     store_index["t"]=store_index["frame_time"]/1000
     data=identity.merge(roi0, on=["frame_number", "in_frame_index"]).sort_values(["frame_number", "fragment"])
@@ -155,7 +154,7 @@ def load_tracking_data(
 
     output_path_feather_df=os.path.join(folder, experiment + f"_tracking_data.feather")
 
-    chunksize=get_chunksize(dbfile)
+    chunksize=get_chunksize(experiment)
     if min_frame_number is None:
         min_frame_number=get_first_frame(dbfile)
 

@@ -16,8 +16,11 @@ from sklearn.model_selection import train_test_split
 from flyhostel.data.pose.constants import get_bodyparts, chunksize
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.pose.distances import add_speed_features, add_interdistance_features
-from flyhostel.utils.utils import restore_cache, save_cache
-from motionmapperpy import setRunParameters
+from flyhostel.utils.utils import (
+    get_wavelet_downsample,
+    restore_cache,
+    save_cache
+)
 from sklearn.metrics import confusion_matrix, roc_curve, auc
 
 
@@ -26,7 +29,6 @@ OUTPUT_FOLDER="output"
 logger=logging.getLogger(__name__)
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-WAVELET_DOWNSAMPLE=setRunParameters().wavelet_downsample
 
 
 NUMBER_OF_SAMPLES={"walk": 30_000, "inactive": 10_000, "groom": 30_000}
@@ -82,6 +84,8 @@ def downsample_dataset(labeled_datasets, n, n_min=0):
 def load_one_animal(experiment, identity, feature_types, pose_key="pose", behavior_key="deg", segregate=True, bodyparts=None, cache=None):
 
     loader = FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
+
+    wavelet_downsample=get_wavelet_downsample(experiment)
     
     if cache is not None:
         path=os.path.join(cache, experiment + "__" + str(identity).zfill(2) + "_" + "-".join(sorted(feature_types)) + "_" + str(segregate) + "_classifier_data.pkl")
@@ -113,7 +117,7 @@ def load_one_animal(experiment, identity, feature_types, pose_key="pose", behavi
             useGPU=0
         )
     out=loader.load_dataset(
-        pose=getattr(loader, pose_key).iloc[::WAVELET_DOWNSAMPLE],
+        pose=getattr(loader, pose_key).iloc[::wavelet_downsample],
         feature_types=feature_types, deg=getattr(loader, behavior_key), wavelets=None,
         segregate=segregate
     )

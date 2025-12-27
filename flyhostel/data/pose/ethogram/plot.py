@@ -12,9 +12,11 @@ import matplotlib.pyplot as plt
 from textwrap import wrap
 
 from flyhostel.data.pose.ethogram.utils import find_window_winner, find_window_winner, postprocessing
-from flyhostel.data.pose.constants import chunksize, framerate
 from flyhostel.data.pose.constants import BEHAVIOR_IDX_MAP
-
+from flyhostel.utils import (
+    get_chunksize,
+    get_framerate
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +44,21 @@ def get_parser():
     ap.add_argument("--input", required=True, help="Path to feather dataset")
     ap.add_argument("--output", required=False, type=str, default=".")
     ap.add_argument("--time-window-length", type=int, default=1)
+    ap.add_argument("--experiment", type=str, required=True)
     return ap
-    
+
 
 def main():
     ap=get_parser()
     args=ap.parse_args()
     dataset=pd.read_feather(args.input)
-    fig=draw_ethogram(dataset, time_window_length=args.time_window_length, t0=None)
+
+    chunksize=get_chunksize(args.experiment)
+    framerate=get_framerate(args.experiment)
+    fig=draw_ethogram(
+        dataset, chunksize, framerate,
+        time_window_length=args.time_window_length, t0=None
+    )
     html_out=os.path.join(args.output, "plot.html")
     json_out=os.path.join(args.output, "plot.json")
     logger.info("Saving to ---> %s", html_out)
@@ -57,7 +66,7 @@ def main():
     fig.write_json(json_out)
 
 
-def bin_behavior_table(df, time_window_length=1, x_var="seconds", t0=None, behavior_col="behavior"):
+def bin_behavior_table(df, chunksize, framerate, time_window_length=1, x_var="seconds", t0=None, behavior_col="behavior"):
 
     df["zt"]=(df["t"]/3600).round(2)
     df["zt_"]=(df["t"]/3600)
@@ -78,7 +87,7 @@ def bin_behavior_table(df, time_window_length=1, x_var="seconds", t0=None, behav
     return df, x_var
 
 
-def bin_behavior_table_v2(df, time_window_length=1, x_var="seconds", t0=None, behavior_col="behavior"):
+def bin_behavior_table_v2(df, chunksize, framerate, time_window_length=1, x_var="seconds", t0=None, behavior_col="behavior"):
     """
     Bin a behavioral sequence in order to decrease its temporal resolution while increasing its accuracy
     The binning occurs by selecting the most common behavior of the bin to represent the bin
@@ -200,12 +209,12 @@ def palette_to_rgb_(palette, reverse=False, input_type="hex"):
     return palette_rgb_
 
 
-def draw_ethogram(df, time_window_length=1, x_var="seconds", message=logger.info, t0=None, palette=PALETTE):
+def draw_ethogram(df, *args, time_window_length=1, x_var="seconds", message=logger.info, t0=None, palette=PALETTE):
 
     df=df.copy()
     id = df["id"].iloc[0]
     behavior_col="prediction2"
-    df, x_var, bin_columns=bin_behavior_table_v2(df, time_window_length=time_window_length, x_var=x_var, t0=t0,behavior_col=behavior_col)
+    df, x_var, bin_columns=bin_behavior_table_v2(df, *args, time_window_length=time_window_length, x_var=x_var, t0=t0,behavior_col=behavior_col)
     palette_rgb_=palette_to_rgb_(palette)
     # Get unique behaviors
     found_behaviors = list(set(list(palette.keys()) + df[behavior_col].unique().tolist()))

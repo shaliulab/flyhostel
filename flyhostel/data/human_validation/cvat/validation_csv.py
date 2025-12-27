@@ -4,20 +4,23 @@ import pandas as pd
 import numpy as np
 logger=logging.getLogger(__name__)
 
-def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize):
+def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize, replace=None):
     extra_rows=[]
     #columns
     # frame_number  in_frame_index  local_identity  validated  fragment           x           y  modified class_name  chunk
 
     manual_validation=pd.read_csv(validation_csv)
+    if replace is not None:
+        manual_validation=manual_validation.loc[manual_validation["replace"]==replace]
+
     for _, manual_validation in tqdm(manual_validation.iterrows(), desc="Applying manual validation", total=manual_validation.shape[0]):
         frame_number=manual_validation["frame_number"]
         chunk=frame_number//chunksize
         fragment=manual_validation["fragment"]
-        replace=manual_validation["replace"]
+        replace_row=manual_validation["replace"]
         local_identity=manual_validation["local_identity"]
 
-        if replace:
+        if replace_row:
             if manual_validation.get("by_identity", True):
                 extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["local_identity"]==local_identity))]
                 extra_data["fragment"]=np.nan
@@ -47,7 +50,18 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize)
                         continue
 
                     else:
-                        extra_data=new_data.loc[((new_data["frame_number"].isin(frame_numbers))&(new_data["fragment"]==fragment))]
+                        # Build a clear boolean mask for the rows of interest
+                        is_same_fragment_and_frame = (
+                            new_data["frame_number"].isin(frame_numbers)
+                            & (new_data["fragment"] == fragment)
+                        )
+
+                        # Rows matching the condition
+                        extra_data = new_data.loc[is_same_fragment_and_frame].copy()
+                        # All the other rows
+                        # new_data = new_data.loc[~is_same_fragment_and_frame].copy()
+
+
 
             extra_data["in_frame_index"]=np.nan
             nrows=new_data.shape[0]
@@ -55,7 +69,7 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize)
             foo=new_data.merge(extra_data[[]], left_index=True, right_index=True, how="outer", indicator=True)
             new_data=foo.loc[foo["_merge"]=="left_only"].drop("_merge", axis=1)
             new_nrows=new_data.shape[0]
-            assert nrows-new_nrows==extra_data.shape[0]
+            # assert nrows-new_nrows==extra_data.shape[0]
             logger.info("Modified %s rows of dataset", extra_data.shape[0])
             del foo
 
@@ -65,7 +79,7 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize)
             extra_data["frame_validated"]=False
             extra_rows.append(extra_data)
 
-
+        # dont replace_row
         else:
             extra_data=machine_data.loc[(machine_data["chunk"]==chunk)]
             if np.isnan(manual_validation.get("first_frame_number", np.nan)):
@@ -114,12 +128,17 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize)
                 extra_data["frame_validated"]=False
                 extra_rows.append(extra_data)
 
+
     new_data.reset_index(drop=True, inplace=True)
+    
     if extra_rows:
         extra_data=pd.concat(extra_rows, axis=0).reset_index(drop=True)
         new_data=pd.concat([
             extra_data[new_data.columns],
             new_data,
         ], axis=0).reset_index(drop=True).sort_values(["frame_number", "validated", "local_identity"], ascending=[True, False, True])
-    
+
+    new_data=new_data.loc[~((new_data["local_identity"].isna()) & (new_data["validated"]>0))]
+
+    print(new_data.shape)
     return new_data

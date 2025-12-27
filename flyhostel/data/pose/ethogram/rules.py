@@ -1,8 +1,7 @@
 import logging
 
 import numpy as np
-from flyhostel.data.pose.constants import framerate as FRAMERATE
-from flyhostel.data.pose.constants import WAVELET_DOWNSAMPLE
+
 from flyhostel.data.pose.ethogram.utils import (
     annotate_bout_info,
     generate_windows,
@@ -78,26 +77,6 @@ def apply_food_distance_rule(df, idx, interval):
     return df
 
 
-def rescue_missed_inactive_pe(df, replace, idx):
-    window_size=int(0.5*(FRAMERATE/WAVELET_DOWNSAMPLE))
-    
-    x=np.concatenate([[0,]*(window_size//2), df["proboscis"].values])
-    
-    x_windowed=generate_windows(x, window_size)
-    diff=np.diff((1*(x_windowed>0)), axis=1)
-    contains_one_start=diff.sum(axis=1)<=1
-    
-    min_duration=((x_windowed>0).sum(axis=1)>7)
-    min_prob=(x_windowed.max(axis=1)>0.4)
-    boolean_arr=contains_one_start&min_duration&min_prob
-    pad_size=df.shape[0]-len(boolean_arr)
-    boolean_arr=np.concatenate([boolean_arr, [False,]*pad_size])
-    
-    rows=True==((df["prediction2"]=="inactive").values & boolean_arr)
-    
-    df.loc[rows, "prediction2"]=replace
-    df.loc[rows, "rule"]=idx
-    return df
     
 
 def apply_p2inactive(df, replace, idx):
@@ -114,7 +93,6 @@ def apply_sequence_rules(df, micromovement_behavior):
     df["rule"]=0
     df=apply_groom_limit(df, micromovement_behavior, 1)
     df=apply_bg_limit(df, micromovement_behavior, 1.5)
-    # df=rescue_missed_inactive_pe(df, "inactive+pe", 2)
     df=apply_inactive_pe_limit(df, "feed", 3)
     df=apply_inactive2feed(df, (-0.03, 0.05), "feed", 4)
     df=apply_food_distance_rule(df, 6, interval=(-0.03, 0.05))
@@ -122,16 +100,16 @@ def apply_sequence_rules(df, micromovement_behavior):
     return df
 
 
-def main(predictions, micromovement_behavior="inactive+micromovement"):
+def main(predictions, fps, micromovement_behavior="inactive+micromovement"):
     logger.debug("apply_inactive_pe_requirement")
     predictions=apply_proboscis_requirement(predictions, "inactive")
     logger.debug("annotate_bout_info")
-    predictions=predictions.groupby("id").apply(lambda df: annotate_bout_info(df, FRAMERATE//WAVELET_DOWNSAMPLE, prediction="prediction")).reset_index(drop=True)
+    predictions=predictions.groupby("id").apply(lambda df: annotate_bout_info(df, fps=fps, prediction="prediction")).reset_index(drop=True)
     predictions["prediction2"]=predictions["prediction"].copy()
     logger.debug("sequence rules")
     predictions=apply_sequence_rules(predictions, micromovement_behavior)
     logger.debug("annotate_bout_info")
-    predictions=predictions.groupby("id").apply(lambda df: annotate_bout_info(df, FRAMERATE//WAVELET_DOWNSAMPLE, prediction="prediction2")).reset_index(drop=True)
+    predictions=predictions.groupby("id").apply(lambda df: annotate_bout_info(df, fps=fps, prediction="prediction2")).reset_index(drop=True)
     logger.debug("apply_inactive_micromovement_limit")
     predictions=apply_inactive_pe_limit(predictions, "feed", 3)
     predictions=apply_inactive_micromovement_limit(predictions, micromovement_behavior, idx=1.6)

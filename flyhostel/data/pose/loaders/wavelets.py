@@ -6,14 +6,10 @@ import numpy as np
 
 import pandas as pd
 from tqdm.auto import tqdm
-
-from flyhostel.data.pose.constants import chunksize, framerate
-
+from flyhostel.utils import get_chunksize, get_framerate
 logger=logging.getLogger(__name__)
 
-class WaveletLoader():
-
-
+class WaveletLoader:
 
     def __init__(self, *args, **kwargs):
         self.datasetnames=[]
@@ -25,6 +21,7 @@ class WaveletLoader():
         self.deg=None
         self.dt=None
         self.wavelets=None
+        self.ids=[]
         super(WaveletLoader, self).__init__(*args, **kwargs)
 
     @abstractmethod
@@ -44,6 +41,13 @@ class WaveletLoader():
     def load_wavelets(self, matfile=None, frames=None):
         """
         Load pre-computed wavelet transform of pose
+
+        frames (list): List of frames whose wavelet is to be loaded.
+          Relative to the start of the wavelets dataset
+          i.e. not necessarily the same start as the recording because
+          1) start of wavelets may not be the same as the recording
+          2) not all original frames may have a wavelet transform
+
         """
         # wavelets=[]
         frequencies=None
@@ -54,12 +58,11 @@ class WaveletLoader():
             matfile=self.get_matfile()
 
         if not os.path.exists(matfile):
-            logger.error(f"{matfile} not found")
+            logger.error("%s not found", matfile)
             return None, (None, None)
 
         logger.debug("Loading %s", matfile)
         with h5py.File(matfile, "r") as data:
-        # data=hdf5storage.loadmat(matfile)
             freq_names=[f.decode() for f in data["freq_names"][:]]
 
             if frames is None:
@@ -102,6 +105,9 @@ class WaveletLoader():
             pose=self.pose_boxcar.copy()
         else:
             pose=pose.copy()
+
+        chunksize=get_chunksize(self.experiment)
+        framerate=get_framerate(self.experiment)
         
         if feature_types is None or "centroid_speed" in feature_types:
             dt=self.dt[["frame_number", "x", "y"]]

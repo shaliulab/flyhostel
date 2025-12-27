@@ -9,14 +9,16 @@ logging.getLogger("flyhostel.data.pose.movie.opencv").setLevel(logging.WARNING)
 logger=logging.getLogger(__name__)
 
 import pandas as pd
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.video_crosser import cross_with_video_data
 from flyhostel.data.pose.movie.movie import annotate_behavior_in_video
 from flyhostel.data.pose.ethogram.utils import most_common_behavior_vectorized
 from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
-from motionmapperpy import setRunParameters
-wavelet_downsample=setRunParameters().wavelet_downsample
+from flyhostel.utils import (
+    get_framerate,
+    get_chunksize,
+    get_wavelet_downsample
+)
+
 
 def get_parser():
     ap=argparse.ArgumentParser()
@@ -38,12 +40,17 @@ def get_parser():
 # dt=loader.load_analysis_data()
 # dt.to_feather(loader.datasetnames[0]+".feather")
 
-def make_illustrations(dt, behavior, animal, min_duration=None, n_seconds_before=1, n_seconds_after=1, framerate=FRAMERATE, n_videos=None):
+def make_illustrations(dt, behavior, animal, framerate, min_duration=None, n_seconds_before=1, n_seconds_after=1, n_videos=None):
     # predict every 1 second
     time_window_length=1
     logger.debug("Setting time resolution to %s second(s)", time_window_length)
     dt_no_noise=most_common_behavior_vectorized(dt.copy(), time_window_length, other_cols=["score", "chunk", "frame_idx"])
     dt_postprocessed=dt.drop("behavior", axis=1).merge(dt_no_noise[["id", "frame_number", "behavior"]], on=["frame_number","id"], how="left")
+
+
+    experiment=animal.split("__")[0]
+    chunksize=get_chunksize(experiment)
+    wavelet_downsample=get_wavelet_downsample(experiment)
     dt_postprocessed["behavior"]=dt_postprocessed["behavior"].ffill(limit=time_window_length * (framerate//wavelet_downsample))
     
     # annotate bout duration and id
@@ -74,7 +81,7 @@ def make_illustrations(dt, behavior, animal, min_duration=None, n_seconds_before
             
             bout=pd.DataFrame({
                 "frame_number": frame_numbers,
-                "frame_idx": frame_numbers%CHUNKSIZE,
+                "frame_idx": frame_numbers%chunksize,
                 "behavior": df["behavior"].loc[df["frame_number"].isin(frame_numbers)].values
             })
             
@@ -93,5 +100,9 @@ def annotate_by_behavior():
     animal=f"{args.experiment}__{str(args.identity).zfill(2)}"
     dt=pd.read_feather(f"{animal}.feather")
 
-    dt["frame_idx"]=dt["frame_number"]%CHUNKSIZE
-    make_illustrations(dt.copy(), args.behavior, animal, n_videos=args.n_videos)
+    chunksize=get_chunksize(args.experiment)
+    framerate=get_framerate(args.experiment)
+
+
+    dt["frame_idx"]=dt["frame_number"]%chunksize
+    make_illustrations(dt.copy(), args.behavior, animal, framerate=framerate, n_videos=args.n_videos)

@@ -8,18 +8,20 @@ import numpy as np
 import pandas as pd
 
 from flyhostel.data.pose.h5py import load_pose_data_compiled
-from flyhostel.utils import restore_cache, save_cache
+
+from flyhostel.utils import (
+    get_chunksize,
+    restore_cache,
+    save_cache,
+    get_square_width,
+)
+
 from flyhostel.data.pose.filters import filter_pose, arr2df
 from flyhostel.data.pose.gpu_filters import filter_pose_df
 from flyhostel.data.pose.constants import get_bodyparts
-from flyhostel.data.pose.constants import framerate as FRAMERATE
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import (
     MIN_TIME,
     MAX_TIME,
-    PARTITION_SIZE,
-    SQUARE_WIDTH,
-    SQUARE_HEIGHT
 )
 
 BODYPARTS=get_bodyparts()
@@ -103,6 +105,7 @@ def times_to_frame_slice(store_index, min_time=None, max_time=None):
 class PoseLoader:
 
     filters=None
+    chunksize=None
     dt=None
 
     def __init__(self, *args, **kwargs):
@@ -135,9 +138,7 @@ class PoseLoader:
         self.min_window_size=40
         self.meta_pose={}
         self.min_supporting_points=3
-
         super(PoseLoader, self).__init__(*args, **kwargs)
-    
 
     @abstractmethod
     def load_store_index(self, cache):
@@ -150,6 +151,9 @@ class PoseLoader:
         Eventually should be merged with load_pose_data, I just dont wanna change load_pose_data because
         it is used in the automatic pipelines
         """
+
+
+        raise NotImplementedError()
 
         identity=self.identity
         animals=[animal for animal in self.datasetnames if animal.endswith(str(identity).zfill(2))]
@@ -167,7 +171,7 @@ class PoseLoader:
         
         with h5py.File(files[0][0]) as file:
             first_chunk=int(os.path.basename(file["files"][0].decode()).split(".")[0])
-            first_frame_number=first_chunk*CHUNKSIZE
+            first_frame_number=first_chunk*self.chunksize
             x0=min_frame_number-first_frame_number
             x1=max_frame_number-first_frame_number
             bodyparts=[bp.decode() for bp in file["node_names"][:]]
@@ -239,7 +243,7 @@ class PoseLoader:
             if len(animals)==0 or len(ids)==0:
                 logger.error("animal with identity %s not available", identity)
             
-            out=load_pose_data_compiled(animals, ids, self.lq_thresh, stride=stride, files=files, store_index=self.store_index)
+            out=load_pose_data_compiled(animals, ids, self.lq_thresh, self.chunksize, stride=stride, files=files, store_index=self.store_index)
 
             if out is not None:
                 pose, _, index_pandas=out
@@ -357,10 +361,10 @@ class PoseLoader:
 
 
 
-    def boxcar_filter(self, pose, features, bodyparts, framerate=150):
+    def boxcar_filter(self, pose, features, bodyparts, framerate):
 
         filtered_pose_arr, _ = filter_pose(
-            "nanmean", pose, bodyparts,
+            "nanmean", pose, bodyparts, framerate,
             window_size=int(self.window_size_seconds*framerate),
             min_window_size=self.min_window_size,
             min_supporting_points=self.min_supporting_points,
@@ -387,7 +391,10 @@ class PoseLoader:
             pose[column]=distance[i,:]
         return pose
 
-    def compute_speed(self, pose, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, framerate=FRAMERATE, cache=None, useGPU=-1):
+    def compute_speed(self, pose, min_time=MIN_TIME, max_time=MAX_TIME, stride=1, framerate=None, cache=None, useGPU=-1):
+
+
+        raise NotImplementedError()
 
         window_size=int(self.window_size_seconds*framerate)
 
@@ -404,7 +411,7 @@ class PoseLoader:
             self.pose_speed_boxcar=filter_pose_df(
                 self.pose_speed, f=cp.mean, columns=bodyparts_speed,
                 window_size=window_size,
-                partition_size=PARTITION_SIZE,
+                partition_size=partition_size,
                 pad=True,
                 download=True,
                 n_jobs=1

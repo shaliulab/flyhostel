@@ -198,7 +198,7 @@ class MP4Reader:
 
     @property
     def framerate(self):
-        return int(self._experiment_metadata["framerate"])
+        return float(self._experiment_metadata["framerate"])
 
     @property
     def data_framerate(self):
@@ -209,8 +209,8 @@ class MP4Reader:
 
     @property
     def step(self):
-        # return 150
-        return max(int(self.framerate / self.data_framerate), 1)
+        return 1
+        # return max(int(self.framerate / self.data_framerate), 1)
 
 
     @classmethod

@@ -6,18 +6,21 @@ import math
 import numpy as np
 import cudf
 import pandas as pd
-from tqdm import tqdm
 import sqlite3
-from flyhostel.data.pose.constants import chunksize
-from flyhostel.utils.utils import get_basedir
+from flyhostel.utils.utils import (
+    get_chunksize,
+    get_dbfile,
+    get_basedir,
+    get_pixels_per_mm,
+    get_number_of_animals,
+)
 from flyhostel.data.human_validation.cvat.cvat_integration import get_annotations, cross_machine_human
 from flyhostel.data.human_validation.cvat.utils import load_machine_data, get_dbfile, assign_in_frame_indices
 from flyhostel.data.human_validation.cvat.fragments import make_identity_singletons, make_identity_tracks
 from flyhostel.data.human_validation.cvat.identity import annotate_identity
 from flyhostel.data.human_validation.cvat.sqlite3 import write_validated_identity, write_validated_roi0, write_validated_concatenation
-from flyhostel.data.human_validation.cvat.report import make_report
+from flyhostel.data.human_validation.cvat.report import make_report, jump_report
 from flyhostel.data.human_validation.cvat.validation_csv import apply_validation_csv_file
-from flyhostel.utils import get_number_of_animals
 logger=logging.getLogger(__name__)
 
 
@@ -72,6 +75,8 @@ def integrate_human_annotations(
 
     basedir=get_basedir(experiment)
     number_of_animals=get_number_of_animals(experiment)
+    
+    chunksize=get_chunksize(experiment)
 
     annotations_df, contours=get_annotations(basedir, tasks, redownload=redownload, number_of_rows=number_of_rows, number_of_cols=number_of_cols)
     annotations_df["chunk"]=annotations_df["frame_number"]//chunksize
@@ -95,8 +100,8 @@ def integrate_human_annotations(
     identity_machine["validated"]=False
 
     logger.info("Integrating human annotations...")
-    identity_tracks=make_identity_tracks(identity_annotations, roi0_annotations)
-    identity_singletons=make_identity_singletons(identity_annotations, roi0_annotations)
+    identity_tracks=make_identity_tracks(identity_annotations, roi0_annotations, chunksize)
+    identity_singletons=make_identity_singletons(identity_annotations, roi0_annotations, chunksize)
     identity_singletons["validated"]=2
 
     # Generate machine data
@@ -111,11 +116,13 @@ def integrate_human_annotations(
     max_human_fn=annotations_df["frame_number"].max()
 
 
-    assert max_machine_fn >= max_human_fn, \
+    if max_machine_fn < max_human_fn:
+        logger.warning(
         f"""
         You have validations outside of the machine data range ({max_machine_fn} < {max_human_fn}).
         Did you pass an erroneous fn-interval?
         """
+    )
     
     machine_data["chunk"]=machine_data["frame_number"]//chunksize
     machine_data["validated"]=0
@@ -241,12 +248,17 @@ def integrate_human_annotations(
 
     logger.debug("Integrate manual annotations from validation.csv")
     validation_csv=f"{folder}/validation.csv"
-
-    new_data=updated_data.copy()
+    if os.path.exists(validation_csv):
+        new_data=apply_validation_csv_file(updated_data.copy(), machine_data, validation_csv, chunksize, replace=True)
+    else:
+        new_data=updated_data.copy()
 
     new_data.drop_duplicates(["frame_number", "local_identity"], inplace=True)
+    out_file=os.path.join(folder, f"{experiment}_without_validation_csv.feather")
+    new_data.reset_index(drop=True).to_feather(out_file)
+
     if os.path.exists(validation_csv):
-        new_data=apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize)
+        new_data=apply_validation_csv_file(new_data.copy(), machine_data, validation_csv, chunksize, replace=False)
 
     # TODO not neeeded in theory?
     new_data.drop_duplicates(["frame_number", "local_identity"], inplace=True)
@@ -277,12 +289,14 @@ def integrate_human_annotations(
     new_data["frame_idx"]=new_data["frame_number"]%chunksize
     new_data=assign_in_frame_indices(new_data, number_of_animals)
 
+    make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize)
+
     out_file=os.path.join(folder, f"{experiment}_without_identity.feather")
     try:
         logger.debug("Annotate identity")
         print(f"Saving data until annotate_identity to {out_file}")
         new_data.reset_index(drop=True).to_feather(out_file)
-        out=annotate_identity(cudf.DataFrame(new_data), number_of_animals)
+        out=annotate_identity(cudf.DataFrame(new_data), number_of_animals, chunksize)
     except Exception as error:
         print(error)
         print(traceback.print_exc())
@@ -294,7 +308,8 @@ def integrate_human_annotations(
     out.reset_index(drop=True).to_feather(out_file)
 
     # reports
-    make_report(out.to_pandas(), folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals)
+    pixels_per_mm=get_pixels_per_mm(experiment)
+    jump_report(out.to_pandas(), folder, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm)
     df_identity=out[["frame_number", "in_frame_index", "local_identity", "identity", "validated"]].reset_index(drop=True)
 
     groupby=df_identity.groupby("local_identity")

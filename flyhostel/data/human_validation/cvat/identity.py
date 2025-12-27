@@ -4,7 +4,6 @@ import logging
 import pandas as pd
 import cudf
 from idtrackerai_app.cli.utils.overlap import propagate_identities
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.utils import establish_dataframe_framework
 
 logger=logging.getLogger(__name__)
@@ -48,13 +47,13 @@ def match_animals_between_chunks_by_distance(before, after, local_identity_befor
 
 
 
-def make_identity_table(lid_table, chunks):
+def make_identity_table(lid_table, chunks, chunksize):
     identity_table=[]
     for chunk in chunks[:-1]:
         used_local_identity_after=set([])
 
         before = lid_table.loc[
-            (lid_table["chunk"]==chunk) & (lid_table["frame_idx"]==(CHUNKSIZE-1))
+            (lid_table["chunk"]==chunk) & (lid_table["frame_idx"]==(chunksize-1))
         ]
         after = lid_table.loc[
             (lid_table["chunk"]==chunk+1) & (lid_table["frame_idx"]==0)
@@ -80,7 +79,7 @@ def make_identity_table(lid_table, chunks):
     identity_table["is_inferred"]=False
     return identity_table
             
-def annotate_identity(data, number_of_animals):
+def annotate_identity(data, number_of_animals, chunksize):
     """
     Generate the identity track for each animal in a dataset
 
@@ -102,18 +101,18 @@ def annotate_identity(data, number_of_animals):
     lid_table=xf.concat([
         first_frame, last_frame
     ], axis=0).sort_values(["frame_number", "local_identity"])
-    lid_table["frame_idx"]=lid_table["frame_number"]%CHUNKSIZE
+    lid_table["frame_idx"]=lid_table["frame_number"]%chunksize
     
-    broken_tracks=lid_table.loc[~lid_table["frame_idx"].isin([0, CHUNKSIZE-1])].to_pandas()
+    broken_tracks=lid_table.loc[~lid_table["frame_idx"].isin([0, chunksize-1])].to_pandas()
     # this can happen if a fly changes fragment
     # and regains the wrong local id in the process
     for _, track in broken_tracks.iterrows():
-        info=f'Frame number: {track["frame_number"]} Local identity: {track["local_identity"]}. Position: {track["position"]}'
+        info=f'Frame number: {int(track["frame_number"])} Local identity: {track["local_identity"]}. Position: {track["position"]}'
         logger.warning(f"Track broken {info}")
 
     chunks=sorted(lid_table["chunk"].to_pandas().unique())
 
-    identity_table=make_identity_table(lid_table, chunks)
+    identity_table=make_identity_table(lid_table, chunks, chunksize)
     identity_table.to_csv("identity_table.csv")
     
     logger.debug("Propagate identities")

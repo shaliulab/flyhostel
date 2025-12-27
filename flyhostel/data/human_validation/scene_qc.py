@@ -23,8 +23,12 @@ import cupy as cp
 from .qc import all_id_expected_qc
 from flyhostel.data.human_validation.utils import load_tracking_data
 from flyhostel.data.interactions.neighbors_gpu import compute_distance_between_all_ids, find_closest_pair
-from flyhostel.data.pose.constants import chunksize
-from flyhostel.utils import get_basedir, get_dbfile
+from flyhostel.utils import (
+    get_basedir,
+    get_dbfile,
+    get_chunksize,
+)
+
 pd.set_option("display.max_rows", 1000)
 logger=logging.getLogger(__name__)
 logging.getLogger("flyhostel.data.interactions.neighbors_gpu").setLevel(logging.WARNING)
@@ -35,7 +39,7 @@ def all_id_expected_qc_scene(scene, number_of_animals):
     return result
 
 
-def scene_qc(scene, number_of_animals):
+def scene_qc(scene, number_of_animals, chunksize):
     """
         Arguments:
             scene (pd.DataFrame): Dataset of animal positions (centroid_x and centroid_y) over time (frame_number) with identity annotation (id) and fragment annotation (fragment)
@@ -59,7 +63,7 @@ def scene_qc(scene, number_of_animals):
     all_valid_ids=all_id_expected_qc_scene(scene, number_of_animals)
     min_distance, _=min_distance_between_animals_qc(scene)
     try:
-        gap_n_frames, gap_distance, between_chunks, maintains_id, n_failed_fragments=fragment_gap_qc(scene)
+        gap_n_frames, gap_distance, between_chunks, maintains_id, n_failed_fragments=fragment_gap_qc(scene, chunksize=chunksize)
     except Exception as error:
         logger.error(error)
         import ipdb; ipdb.set_trace()
@@ -162,7 +166,7 @@ def max_velocity_qc_not_ideal(scene):
     return max_distance
 
 
-def fragment_gap_qc(scene):
+def fragment_gap_qc(scene, chunksize):
 
     chunks=scene["frame_number"]//chunksize
     number_of_missing_frames=-1
@@ -220,7 +224,7 @@ def fragment_gap_qc(scene):
         gap_distance=math.inf
         return number_of_missing_frames, gap_distance, between_chunks,maintains_id, len(failed_fragments)
 
-def run_qc_of_scene(scene, scene_start, manifest, number_of_animals):
+def run_qc_of_scene(scene, scene_start, manifest, number_of_animals, chunksize):
     output_yaml = os.path.join(os.path.dirname(manifest), os.path.splitext(os.path.basename(manifest))[0] + "_qc.yaml")
     logging.getLogger("flyhostel.data.interactions.neighbors_gpu").setLevel(logging.WARNING)
     if os.path.exists(output_yaml):
@@ -228,7 +232,7 @@ def run_qc_of_scene(scene, scene_start, manifest, number_of_animals):
             result=yaml.load(handle, yaml.SafeLoader)
             
     else:
-        result=scene_qc(scene, number_of_animals)
+        result=scene_qc(scene, number_of_animals, chunksize=chunksize)
         result["scene_start"]=scene_start
         with open(output_yaml, "w") as handle:
             yaml.dump(result, handle, yaml.SafeDumper)
@@ -251,8 +255,11 @@ def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
     # tracking_data=pd.read_feather(output_path_feather_df)
 
 
+    dbfile = get_dbfile(get_basedir(experiment))
+    chunksize = get_chunksize(experiment)
+
     tracking_data=load_tracking_data(
-        dbfile=get_dbfile(get_basedir(experiment)),
+        dbfile=dbfile,
         folder=folder,
         experiment=experiment,
         min_frame_number=None, max_frame_number=None,
@@ -283,7 +290,7 @@ def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
             ["local_identity", "frame_number", "x","y", "in_frame_index", "fragment"]
         ]
         scene.columns=["id", "frame_number", "centroid_x", "centroid_y", "in_frame_index", "fragment"]
-        kwargs.append({"scene": scene, "scene_start": scene_start, "manifest": manifest, "number_of_animals": number_of_animals})
+        kwargs.append({"scene": scene, "scene_start": scene_start, "manifest": manifest, "number_of_animals": number_of_animals, "chunksize": chunksize})
         manifests_todo.append(manifest)
 
     if len(manifests_todo) > 0:

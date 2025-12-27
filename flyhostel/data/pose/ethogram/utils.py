@@ -2,7 +2,6 @@ import logging
 import yaml
 import numpy as np
 from numpy.lib.stride_tricks import as_strided
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 logger=logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ def count_bout_position(df, variable, counter):
 
     return df
 
-def annotate_bout_duration(dataset, fps=FRAMERATE, on=["bout_count"]):
+def annotate_bout_duration(dataset, fps, on=["bout_count"]):
     duration_table=dataset.loc[dataset["bout_out"]==1, ["bout_in"] + on]
     duration_table["duration"]=duration_table["bout_in"]/fps
     dataset=dataset.drop("duration", axis=1, errors="ignore").merge(duration_table.drop("bout_in", axis=1), on=on)

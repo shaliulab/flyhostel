@@ -23,14 +23,15 @@ from flyhostel.utils import (
     get_spaced_colors_util,
     get_basedir,
     get_number_of_animals,
+    get_chunksize,
+    get_framerate,
+    get_experiment_identifier,
 )
 from flyhostel.data.video.utils import (
     add_info_box_gpt
 )
 
 from flyhostel.data.sleep import sleep_annotation_rf, SLEEP_STATES
-from flyhostel.data.pose.constants import chunksize
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.video.utils import draw_sleep_state
@@ -136,7 +137,7 @@ def draw_trace(video_data, img, fn, identities, step, n_steps, roi_width=None, p
     return img
 
 
-def draw_frame(df, t_index, basedir, fns, identities, **kwargs):
+def draw_frame(df, t_index, basedir, fns, identities, chunksize, **kwargs):
     """
     df: Contains columns x, y (position in arena referred to the top left corner and normalized to the roi width) frame_number
     t_index: Contains columns frame_number, t (ZT time in seconds)
@@ -282,7 +283,6 @@ def make_timelapse_from_data(
     max_chunk=float("inf"),
     n_jobs=20,
     partition_size=5,
-    framerate=150,
     postprocessing=None
 ):
     """
@@ -318,6 +318,12 @@ def make_timelapse_from_data(
                 "r", encoding="utf-8"
             ) as handle:
                 roi_width=yaml.load(handle, yaml.SafeLoader)["__store"]["imgshape"][1]
+
+
+    experiment=get_experiment_identifier(basedir)
+    chunksize=get_chunksize(experiment)
+    framerate=get_framerate(experiment)
+    
 
 
     fig, ax=setup_background()
@@ -357,6 +363,7 @@ def make_timelapse_from_data(
            step=framerate*seconds_between,
            n_steps=n_steps,
            roi_width=roi_width,
+           chunksize=chunksize,
            postprocessing=postprocessing,
         )
         for fns in tqdm(fns_partition)
@@ -435,6 +442,12 @@ def main(experiment, back_in_time_min=15, n_jobs=20, cache=False, min_time=MIN_T
     df["zt"]=(df["t"]//3600).astype(int)
     df["zt"]=df["zt"].astype(str).str.zfill(2) + ":" + ((df["t"]%3600)/60).astype(int).astype(str).str.zfill(2)
 
+
+    framerates=list(set([loader.framerate for loader in loaders]))
+    assert len(framerates)==1
+    framerate=framerates[0]
+
+
     make_timelapse_from_data(
         df,
         dest_video,
@@ -446,6 +459,6 @@ def main(experiment, back_in_time_min=15, n_jobs=20, cache=False, min_time=MIN_T
         max_chunk=float("inf"),
         n_jobs=n_jobs,
         partition_size=5,
-        framerate=FRAMERATE,
+        framerate=framerate,
         postprocessing=postprocessing,
     )

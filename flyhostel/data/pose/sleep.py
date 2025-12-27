@@ -16,7 +16,6 @@ import pandas as pd
 import numpy as np
 
 
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import inactive_states
 from flyhostel.data.pose.ethogram.utils import (
     annotate_bout_duration,
@@ -26,13 +25,10 @@ from flyhostel.data.pose.ethogram.utils import postprocessing
 from flyhostel.data.pose.ethogram.plot import bin_behavior_table_v2
 try:
     from deepethogram.postprocessing import find_bout_indices
-    from motionmapperpy import setRunParameters
     from zeitgeber.rle import encode, decode
-    wavelet_downsample=setRunParameters().wavelet_downsample
 
 except ModuleNotFoundError:
     find_bout_indices=None
-    wavelet_downsample=None
     encode=None
     decode=None
 
@@ -119,7 +115,7 @@ class SleepAnnotator(ABC):
         return sleep_annotation_inactive(*args, **kwargs)
         
 
-def find_brief_awakenings(dt, min_significant_bout=60, max_gap=5, time_window_length=1):
+def find_brief_awakenings(dt, chunksize, min_significant_bout=60, max_gap=5, time_window_length=1):
 
     max_gap_length=max_gap//time_window_length
 
@@ -128,8 +124,8 @@ def find_brief_awakenings(dt, min_significant_bout=60, max_gap=5, time_window_le
     dt=pd.DataFrame(dt[["id", "t", "behavior", "frame_number"]])
 
     dt=most_common_behavior_vectorized(dt.copy(), time_window_length)
-    dt["frame_idx"]=dt["frame_number"]%CHUNKSIZE
-    dt["chunk"]=dt["frame_number"]//CHUNKSIZE
+    dt["frame_idx"]=dt["frame_number"]%chunksize
+    dt["chunk"]=dt["frame_number"]//chunksize
     dt.loc[dt["behavior"].isin(inactive_states), "behavior"]="all_inactive"
 
 

@@ -9,7 +9,7 @@ import hashlib
 
 from imgstore.interface import VideoCapture
 from idtrackerai_validator_server.backend import draw_frame, annotate_frame
-from flyhostel.data.pose.constants import chunksize
+
 logger=logging.getLogger(__name__)
 
 def get_checksum(path):
@@ -83,7 +83,7 @@ class ImageWriter:
                 file.write(json_str + '\n')
 
 
-def generate_validation_video(store_path, row, df, number_of_animals, framerate=150, output_folder=".", format=".mp4", field="identity"):
+def generate_validation_video(store_path, row, df, number_of_animals, chunksize, framerate, output_folder=".", format=".mp4", field="identity"):
     vw=None
     cap=None
     output_video=None

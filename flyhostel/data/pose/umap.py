@@ -13,7 +13,6 @@ from umap import UMAP
 
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, remove_bout_ends_from_dataset
 from flyhostel.data.pose.main import FlyHostelLoader
-from motionmapperpy import setRunParameters
 
 
 raise NotImplementedError()
@@ -22,9 +21,6 @@ LTA_DATA=os.environ["LTA_DATA"]
 logger=logging.getLogger(__name__)
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-STRIDE=setRunParameters().wavelet_downsample
-
-
 
 
 NUMBER_OF_SAMPLES={"walk": 30_000, "inactive": 10_000, "groom": 30_000}
@@ -87,7 +83,7 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
 
 
         loader.load_and_process_data(
-            stride=STRIDE,
+            stride=loader.wavelet_downsample,
             cache="/flyhostel_data/cache",
             filters=None,
             useGPU=0

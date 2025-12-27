@@ -25,7 +25,8 @@ def read_animal_position(sqlite3_file, identity, chunks):
     return data
 
 
-def read_animal_speed(*args, first_chunk=50, chunksize=45000, **kwargs):
+def read_animal_speed(*args, first_chunk=50, **kwargs):
+    raise NotImplementedError()
     
     data = read_animal_position(*args, **kwargs)
         

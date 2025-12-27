@@ -143,6 +143,21 @@ def group_psi(df, lag, nan=0):
     return coefficient_of_variation, n_points
 
 
+def group_psi_unnorm(df, lag, nan=0):
+    col1, col2=df.columns[:2]
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    series=[series1, series2]
+  
+    for id in df.columns[2:]:
+        _, series_n, n_points=preprocess(df, col1, id, lag)
+        series.append(series_n)
+   
+    mean_across_animals=np.stack(series).mean(axis=0)
+    mean_across_animals=mean_across_animals[~np.isnan(mean_across_animals)]
+    coeff=np.std(mean_across_animals)
+    return coeff, n_points
+
+
 def cross_correlationv2(df, col1, col2, lag=0, nan=0):
     """
     Compute cross-correlation between two columns of a DataFrame with a given lag.

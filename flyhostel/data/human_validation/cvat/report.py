@@ -5,10 +5,14 @@ logger=logging.getLogger(__name__)
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from flyhostel.data.pose.constants import chunksize
-from flyhostel.utils import get_number_of_animals, get_basedir
+from flyhostel.utils import (
+    get_pixels_per_mm,
+    get_number_of_animals,
+    get_basedir,
+    get_chunksize
+)
 
-def qc1(roi0, ident):
+def qc1(roi0, ident, chunksize):
     """
     Check all fragments have blobs that are always or never crossing
     """
@@ -47,9 +51,9 @@ def qc2(lid_fragment_index):
 
     return impure_fragments
 
-def make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals):
+def make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize):
 
-    fragment_crossing_fraction=qc1(roi0_annotations, identity_annotations)
+    fragment_crossing_fraction=qc1(roi0_annotations, identity_annotations, chunksize)
     fragment_crossing_fraction.to_csv(
         os.path.join(folder, "fragment_crossing_fraction.csv")
     )
@@ -95,14 +99,16 @@ def make_report(folder, identity_tracks, roi0_annotations, identity_annotations,
     )
 
 
-def jump_report(out, folder, number_of_animals):
+def jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm):
     
-    MAX_DIST_IN_ONE_FRAME=20
+    MAX_DIST_IN_ONE_FRAME_MM=1
+    MAX_DIST_IN_ONE_FRAME=pixels_per_mm*MAX_DIST_IN_ONE_FRAME_MM
 
     dist_df=[]
     for identity in range(1, number_of_animals+1):
         out_fly=out.loc[out["identity"]==identity]
         
+        # x and y are in pixels
         distance=np.sqrt((np.diff(out_fly[["x","y"]], axis=0)**2).sum(axis=1))
         df=pd.DataFrame({
             "distance": distance,
@@ -174,4 +180,6 @@ def jump_report_from_outputs(experiment, folder):
     roi_0_val=pd.read_feather(f"{basedir}/flyhostel/validation/ROI_0_VAL.feather")
     identity_val=pd.read_feather(f"{basedir}/flyhostel/validation/IDENTITY_VAL.feather")
     out=roi_0_val.merge(identity_val.drop(["validated"], axis=1, errors="ignore"), on=["frame_number", "in_frame_index"], how="left")
-    jump_report(out, folder, number_of_animals=number_of_animals)
+    chunksize=get_chunksize(experiment)
+    pixels_per_mm=get_pixels_per_mm(experiment)
+    jump_report(out, folder, number_of_animals=number_of_animals, chunksize=chunksize, pixels_per_mm=pixels_per_mm)

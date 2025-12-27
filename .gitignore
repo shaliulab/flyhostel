@@ -8,3 +8,4 @@ flyhostel/tests/static_data/flyhostel.db
 scripts/.nextflow/
 scripts/work/
 scripts/
+flyhostel/tests_old/

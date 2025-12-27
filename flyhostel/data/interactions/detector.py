@@ -10,8 +10,7 @@ import cudf
 from flyhostel.data.interactions.neighbors_gpu import find_neighbors as find_neighbors_gpu
 from flyhostel.data.interactions.neighbors_gpu import compute_pairwise_distances_using_bodyparts_gpu
 from flyhostel.data.bodyparts import make_absolute_coordinates
-from flyhostel.data.pose.constants import DIST_MAX_MM, ROI_WIDTH_MM, MIN_INTERACTION_DURATION, SQUARE_WIDTH, SQUARE_HEIGHT, MIN_TIME_BETWEEN_INTERACTIONS
-from flyhostel.data.pose.constants import framerate as FRAMERATE
+from flyhostel.data.pose.constants import DIST_MAX_MM, ROI_WIDTH_MM
 from flyhostel.utils import load_roi_width
 from flyhostel.utils.filesystem import FilesystemInterface
 
@@ -39,7 +38,6 @@ class InteractionDetector(FilesystemInterface):
             **kwargs
         ):
         
-        self.framerate=None
         self.dbfile = self.load_dbfile()
         self.roi_width = load_roi_width(self.dbfile)
         self.roi_height=self.roi_width
@@ -54,13 +52,12 @@ class InteractionDetector(FilesystemInterface):
         return compute_pairwise_distances_using_bodyparts_gpu(*args, **kwargs)
 
 
-    def find_neighbors(self, dt, dist_max_mm=None, framerate=15):
+    def find_neighbors(self, dt, dist_max_mm=None, step=10):
 
         if dist_max_mm is None:
             dist_max_mm=self.dist_max_mm
 
         self.dist_max_mm=dist_max_mm
-        step=FRAMERATE//framerate
         with codetiming.Timer():
             logger.debug("Computing distance between animals")
             # even though the pose is not needed to find the nns

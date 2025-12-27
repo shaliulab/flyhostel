@@ -9,8 +9,8 @@ def draw_pose_on_axis(pose_data, fns, h5inds, params, pad=80):
     Arguments
     
     """
-    chunksize=45000
 
+    raise NotImplementedError()
     skeleton = params["skeleton"]
     labels=params["labels"]
     body_parts_chosen=params["body_parts_chosen"]
@@ -19,7 +19,6 @@ def draw_pose_on_axis(pose_data, fns, h5inds, params, pad=80):
     ax = fig.add_subplot(111)
     
     colors=["black", "red", "blue"]
-
 
     frame_number=fns["raw"]
     chunk = frame_number // chunksize

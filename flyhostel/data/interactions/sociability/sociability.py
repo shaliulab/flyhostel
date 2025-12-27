@@ -24,7 +24,6 @@ from flyhostel.data.interactions.classifier.inter_orientation import (
 )
 from flyhostel.data.pose.loaders.interactions import CONTACT_THRESHOLD
 from flyhostel.data.pose.main import FlyHostelLoader
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 logger=logging.getLogger(__name__)
 
 
@@ -53,8 +52,8 @@ def write_umap_tools(window_f):
 
 def interpolate_bp(imaginary_series):
     # Separate the real and imaginary parts and interpolate each one
-    real_interp = imaginary_series.apply(np.real).interpolate()
-    imag_interp = imaginary_series.apply(np.imag).interpolate()
+    real_interp = imaginary_series.apply(np.real).interpolate().interpolate(method="bfill")
+    imag_interp = imaginary_series.apply(np.imag).interpolate().interpolate(method="bfill")
 
     # Recombine into a complex series
     s_interp = real_interp + 1j * imag_interp
@@ -258,6 +257,9 @@ def get_features_all(loaders, window_s, min_time=None, max_time=None, timepoints
                 assert loader1.pose_complex is not None
                 assert loader2.pose_complex is not None
 
+                assert loader1.chunksize==loader2.chunksize
+                chunksize=loader1.chunksize
+
                 closest_distance_pair=closest_distance.loc[
                     closest_distance["nn"]==loader2.ids[0]
                 ].sort_values("frame_number")
@@ -282,7 +284,7 @@ def get_features_all(loaders, window_s, min_time=None, max_time=None, timepoints
                     logger.warning(
                         "%s interactions have no pose data, in chunks: %s",
                         closest_distance_pair_without_pose.shape[0],
-                        sorted(list(set((closest_distance_pair_without_pose["frame_number"]//CHUNKSIZE).tolist())))
+                        sorted(list(set((closest_distance_pair_without_pose["frame_number"]//chunksize).tolist())))
                     )
 
 
@@ -485,7 +487,12 @@ def load_data_all(experiment, identities, min_time=None, max_time=None, max_work
         for bp in GET_FEATURES_BODYPARTS:
             logger.info("%s - Interpolating %s", loader, bp)
             loader.pose_complex[bp]=interpolate_bp(loader.pose_complex[bp])
-            assert loader.pose_complex[bp].isna().sum()==0
+            missing_pose=loader.pose_complex[bp].isna().any()
+            if missing_pose:
+                missing_pose_n=loader.pose_complex[bp].isna().sum()
+                raise Exception(f"Missing {bp} in {missing_pose_n} frames")
+
+
 
     return loaders
 

@@ -14,30 +14,41 @@ import pandas as pd
 import numpy as np
 
 from flyhostel.data.pose.pose import FilterPose
-from flyhostel.utils import load_roi_width, load_metadata_prop, restore_cache, save_cache
+from flyhostel.utils import (
+    load_roi_width,
+    restore_cache,
+    save_cache
+)
 from flyhostel.data.pose.movie_old import make_pose_movie
 from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from imgstore.interface import VideoCapture
 from flyhostel.data.pose.loaders.wavelets import WaveletLoader
 from flyhostel.data.pose.loaders.behavior import BehaviorLoader
 from flyhostel.data.pose.loaders.landmarks import LandmarksLoader
+from flyhostel.data.pose.loaders.movement import MovementLoader
+from flyhostel.data.pose.loaders.rejections import RejectionsLoader
 from flyhostel.data.pose.loaders.pose import PoseLoader
 from flyhostel.data.pose.loaders.sleep import SleepLoader
 from flyhostel.data.pose.loaders.interactions import InteractionsLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.constants import ROI_WIDTH_MM
 from flyhostel.data.pose.sleep import SleepAnnotator
+from flyhostel.data.pose.loaders.concatenation import ConcatenationLoader
+
 from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
 from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
-from flyhostel.utils import get_pose_file, get_number_of_animals, get_basedir
+from flyhostel.utils import (
+    get_chunksize,
+    get_framerate,
+    get_pose_file,
+    get_number_of_animals,
+    get_pixels_per_mm,
+    get_wavelet_downsample,
+    get_basedir,
+    get_square_width,
+)
 
-try:
-    from motionmapperpy import setRunParameters
-    wavelet_downsample=setRunParameters().wavelet_downsample
-except ModuleNotFoundError:
-    wavelet_downsample=None
 pd.set_option("display.max_columns", 100)
 
 def dunder_to_slash(experiment):
@@ -61,7 +72,9 @@ def make_int_or_str(values):
     return out
 
 
-class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, InteractionsLoader, PoseLoader, SleepLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader):
+class FlyHostelLoader(
+    CrossVideo, FilesystemInterface, ConcatenationLoader, SleepAnnotator, InteractionsLoader, PoseLoader,
+    SleepLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader, MovementLoader, RejectionsLoader):
     """
     Analyse microbehavior produced in the flyhostel
 
@@ -114,7 +127,13 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         # because the arena is circular
         self.roi_height = self.roi_width
 
-        self.framerate= int(float(load_metadata_prop(dbfile=self.dbfile, prop="framerate")))
+        self.framerate= get_framerate(self.experiment)
+        self.chunksize=get_chunksize(self.experiment)
+        self.pixels_per_mm=get_pixels_per_mm(experiment)
+        self.wavelet_downsample=get_wavelet_downsample(experiment)
+        self.square_width=get_square_width(experiment)
+
+
         self.roi_width_mm=roi_width_mm
         self.px_per_mm=self.roi_width/roi_width_mm
 
@@ -152,6 +171,8 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
                 self.roi_0_table="ROI_0_VAL"
         else:
             self.roi_0_table=roi_0_table
+
+
 
 
     def __repr__(self):
@@ -229,6 +250,23 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         return dt
 
 
+    def annotate_frame_number_in_dataset(self, df):
+        assert self.dt is not None
+        t_index=self.dt[["t", "frame_number"]].copy()
+        t_index["frame_number"]=np.array(t_index["frame_number"].values, np.int64)
+        t_index["t_round"]=1*(t_index["t"]//1)
+        t_index=t_index[["frame_number", "t_round"]].groupby("t_round").first().reset_index().rename({"t_round": "t"}, axis=1)
+        df=df.merge(t_index, on="t", how="left")
+        return df
+
+    def annotate_t_in_dataset(self, df):
+        assert self.dt is not None
+        t_index=self.dt[["t", "frame_number"]].copy()
+        t_index["frame_number"]=np.array(t_index["frame_number"].values, np.int64)
+        df=df.merge(t_index, on="frame_number", how="left")
+        return df
+
+
     def get_simple_metadata(self):
         number_of_animals=int(os.path.basename(self.experiment).split("_")[1].replace("X", ""))
         flyhostel_number=int(os.path.basename(self.experiment).split("_")[0].replace("FlyHostel", ""))
@@ -261,7 +299,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         data=self.dt.copy()
         meta=data.meta.copy()
         centroid_columns=data.columns.tolist()
-        data=data.loc[data["frame_number"] % wavelet_downsample == 0]
+        data=data.loc[data["frame_number"] % self.wavelet_downsample == 0]
         behavior_columns=["behavior",  "score", "bout_in", "bout_out", "bout_count", "duration"]
 
         if self.behavior is None:
@@ -292,15 +330,15 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         return self.analysis_data
 
 
-    def process_data(self, stride, *args, min_time=MIN_TIME, max_time=MAX_TIME, useGPU=-1, framerate=FRAMERATE, cache=None, speed=False, sleep=False, **kwargs):
-        self.filter_and_interpolate_pose(*args, min_time=min_time, max_time=max_time, stride=stride, useGPU=useGPU, framerate=framerate, cache=cache, **kwargs)
+    def process_data(self, stride, *args, min_time=MIN_TIME, max_time=MAX_TIME, useGPU=-1, cache=None, speed=False, sleep=False, **kwargs):
+        self.filter_and_interpolate_pose(*args, min_time=min_time, max_time=max_time, stride=stride, useGPU=useGPU, cache=cache, **kwargs)
 
         if speed:
             logger.debug("Computing speed features on dataset of shape %s", self.pose_boxcar.shape)
             self.compute_speed(
                 self.pose_boxcar, min_time=min_time, max_time=max_time,
                 stride=stride,
-                framerate=framerate, cache=cache, useGPU=useGPU
+                framerate=self.framerate, cache=cache, useGPU=useGPU
             )
 
         if sleep:
@@ -529,8 +567,9 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
 
 
     def draw_videos(self, index):
+
         for i, row in index.iterrows():
-            draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos")
+            draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos", chunksize=self.chunksize, fps=fps)
 
     def get_pose_file_h5py(self, pose_name="filter_rle-jump"):
         pose_file=get_pose_file(self.experiment, self.identity, pose_name=pose_name)

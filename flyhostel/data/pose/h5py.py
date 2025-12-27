@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 
 logger = logging.getLogger(__name__)
 time_counter=logging.getLogger("time_counter")
@@ -45,7 +44,7 @@ def simplify_columns(index, pose, id):
     return pose
 
 
-def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_time=None, max_time=None, store_index=None):
+def load_pose_data_compiled(datasetnames, ids, lq_thresh, chunksize, files, stride=1, min_time=None, max_time=None, store_index=None):
     """
     Load dataset TODO
     """
@@ -54,7 +53,6 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
     pose_list=[]
     h5s_pandas=[]
     index_pandas=[]
-    chunksize=CHUNKSIZE
 
     for animal_id, datasetname in enumerate(datasetnames):
         this_animal_files=files[animal_id]

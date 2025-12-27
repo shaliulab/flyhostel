@@ -12,15 +12,18 @@ import numpy as np
 import pandas as pd
 from imgstore.interface import VideoCapture
 from flyhostel.data.human_validation.cvat.utils import assign_in_frame_indices
-from idtrackerai_validator_server.backend import load_idtrackerai_config, process_frame
-from flyhostel.data.pose.constants import chunksize
+from idtrackerai_validator_server.backend import (
+    load_idtrackerai_config,
+    process_frame,
+)
 from flyhostel.data.human_validation.cvat.contour_utils import (
     rle_to_blob, polygon_to_blob, get_contour_list_from_yolo_centroids, select_by_contour
 )
 from flyhostel.data.human_validation.cvat.utils import (
     load_original_resolution, annotate_crossings, get_dbfile
 )
-from flyhostel.utils.utils import get_chunksize
+from flyhostel.utils.utils import get_chunksize, get_number_of_animals, get_experiment_identifier
+
 logger=logging.getLogger(__name__)
 from flyhostel.data.human_validation.cvat.constants import cvat_username, cvat_host, cvat_password
 
@@ -198,7 +201,11 @@ def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
             (annotations_df, contours), (annotations_df2, contours2)
         )
 
-    annotations_df=assign_in_frame_indices(annotations_df)
+    
+    experiment=get_experiment_identifier(basedir)
+    number_of_animals=get_number_of_animals(experiment)
+
+    annotations_df=assign_in_frame_indices(annotations_df, number_of_animals)
     annotations_df["fragment"]=np.nan
 
     return annotations_df, contours
@@ -367,7 +374,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     """
     config=load_idtrackerai_config(basedir)
     dbfile=get_dbfile(basedir)
-    chunksize=get_chunksize(dbfile)
+    chunksize=get_chunksize(dbfile=dbfile)
 
     cap=None
     score_dist=[]
@@ -418,10 +425,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                 if selection_method=="contour":
                     match_idx, n=select_by_contour(contour, contours_list, debug=False)
                     if match_idx is None:
-                        logger.warning("Could not select by contour in frame %s", frame_number)
-
-                    # elif frame_number==13532157:
-                    #     print(annotation.iloc[annot_idx_2], df.iloc[match_idx])
+                        logger.debug("Could not select by contour in frame %s", frame_number)
 
                 # annotation overlaps
                 if match_idx is not None:
@@ -435,7 +439,10 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                         in_frame_index+=1
                     used_indices.append(in_frame_index)
                     if DEBUG and ~np.isnan(local_identity):
-                        print(frame_number, in_frame_index, local_identity)
+                        logger.debug(
+                            "Fly blob added in frame %s with in_frame_index %s and local_identity %s",
+                            frame_number, in_frame_index, local_identity
+                        )
 
                 if np.isnan(local_identity):
                     (roi0_row, ident_row), fragments_must_break, annotations_to_copy, annotations_to_spatial_copy, crossings=process_text_annotations(

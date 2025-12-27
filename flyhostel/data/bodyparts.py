@@ -7,7 +7,6 @@ import itertools
 import numpy as np
 import pandas as pd
 import joblib
-from flyhostel.data.pose.constants import SQUARE_WIDTH, SQUARE_HEIGHT
 ANCHOR_BP="thorax"
 
 
@@ -15,7 +14,7 @@ def parse_identity(id):
     return int(id.split("|")[1])
 
 
-def make_absolute_coordinates(dt, bodyparts, roi_width, roi_height, square_width=SQUARE_WIDTH, square_height=SQUARE_HEIGHT, anchor_bp=ANCHOR_BP):
+def make_absolute_coordinates(dt, bodyparts, roi_width, roi_height, square_width, square_height, anchor_bp=ANCHOR_BP):
     """
     Convert to absolute coordinates
     

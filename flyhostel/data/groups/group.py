@@ -10,10 +10,13 @@ import pandas as pd
 import cudf
 
 from flyhostel.data.interactions.detector import InteractionDetector
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.synchrony.main import compute_synchrony, DEFAULT_LAGS
 from flyhostel.data.hostpy import load_hostel
-from flyhostel.utils.utils import get_dbfile
+from flyhostel.utils.utils import (
+    get_dbfile,
+    get_framerate,
+    get_chunksize,
+)
 
 logger=logging.getLogger(__name__)
 time_counter=logging.getLogger("time_counter")
@@ -42,7 +45,7 @@ class FlyHostelGroup(InteractionDetector):
 
         path="cache.pkl"
         cached_data=None
-        
+
         for i, fly in enumerate(flies.values()):
             if protocol=="full":
                 if fly.pose is None:
@@ -75,27 +78,42 @@ class FlyHostelGroup(InteractionDetector):
                 pass
             else:
                 raise ValueError("Please set protocol to one of centroids/full/None")
-            
+
         if cached_data is None and DEBUG:
-            cached_data=[(fly.dt, fly.meta_info) for fly in flies.values()]
+            cached_data=[(fly.dt, fly.meta_info) for fly in self.flies.values()]
             with open(path, "wb") as handle:
                 pickle.dump(cached_data, handle)
 
-        self.basedir=flies[list(flies.keys())[0]].basedir
+        self.basedir=self.flies[list(self.flies.keys())[0]].basedir
 
-        if len(set([fly.basedir for fly in flies.values()])) == 1:
-            self.experiment=flies[list(flies.keys())[0]].experiment
+        if self.group_is_real:
+            self.experiment=self.flies[list(self.flies.keys())[0]].experiment
             self.number_of_animals=int(self.experiment.split("_")[1].replace("X", ""))
-
-            if len(flies)!=self.number_of_animals:
+            self.framerate=get_framerate(self.experiment)
+            self.chunksize=get_chunksize(self.experiment)
+            if not self.group_is_complete:
                 logger.warning("You have loaded flies from the same experiment, but at least one is missing")
 
         else:
             logger.warning("Virtual group of flies detected")
             self.experiment=None
             self.number_of_animals=None
+            self.framerate=None
+            self.chunksize=None
+            
             
         super(FlyHostelGroup, self).__init__(*args, **kwargs)
+
+
+    @property
+    def group_is_real(self):
+        return len(set([fly.basedir for fly in self.flies.values()])) == 1
+    
+    @property
+    def group_is_complete(self):
+        return len(self.flies)==self.number_of_animals
+
+
 
     @property
     def animals(self):
@@ -109,7 +127,7 @@ class FlyHostelGroup(InteractionDetector):
         return len(self.flies)
 
     def compute_synchrony(self, time_window_length=1, min_time_immobile=300, source="inactive", lags=DEFAULT_LAGS):
-                
+
         lags_seconds=np.array(lags)
         lags=(lags_seconds//time_window_length).tolist()
 
@@ -149,12 +167,11 @@ class FlyHostelGroup(InteractionDetector):
             [cached_flies[fly] for fly in cached_flies if cached_flies[fly] is not None],
             axis=0
         )
-        
+
         metadata=self.get_simple_metadata(flies)
         data=load_hostel(metadata, n_jobs=n_jobs, value="dataframe")
         data=pd.concat([cached_data, data], axis=0)
         return data
-
 
     @classmethod
     def from_metadata(cls, metadata):
@@ -177,8 +194,8 @@ class FlyHostelGroup(InteractionDetector):
         return pose_df
 
 
-    def load_centroid_data(self, framerate=30, useGPU=True):
-        skip=FRAMERATE//framerate
+    def load_centroid_data(self, fps=30, useGPU=True):
+        skip=max(1, self.framerate//fps)
         if useGPU:
             xf=cudf
         else:
@@ -192,9 +209,9 @@ class FlyHostelGroup(InteractionDetector):
         dt=xf.concat(dfs, axis=0)
         return dt
 
-    def load_pose_data(self, pose_name="filter_rle-jump", min_time=None, max_time=None, framerate=30, useGPU=True, skip=None):
+    def load_pose_data(self, pose_name="filter_rle-jump", min_time=None, max_time=None, fps=30, useGPU=True, skip=None):
         if skip is None:
-            skip=FRAMERATE//framerate
+            skip=max(1, self.framerate//fps)
 
         if useGPU:
             xf=cudf
@@ -234,9 +251,9 @@ class FlyHostelGroup(InteractionDetector):
         return pose
 
 
-    def load_behavior_data(self, framerate=30, useGPU=True, skip=None):
+    def load_behavior_data(self, fps=30, useGPU=True, skip=None):
         if skip is None:
-            skip=FRAMERATE//framerate
+            skip=max(1, self.framerate//fps)
 
         if useGPU:
             xf=cudf
@@ -259,9 +276,9 @@ class FlyHostelGroup(InteractionDetector):
         return behavior
 
 
-    def load_deg_data(self, framerate=30, verbose=False, key="deg", skip=None, **kwargs):
+    def load_deg_data(self, fps=30, verbose=False, key="deg", skip=None, **kwargs):
         if skip is None:
-            skip=FRAMERATE//framerate
+            skip=max(1, self.framerate//fps)
         xf=pd
         
         dfs=[]

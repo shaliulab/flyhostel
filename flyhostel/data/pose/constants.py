@@ -2,20 +2,12 @@ import itertools
 import os
 import logging
 
+from flyhostel.utils import get_framerate
 logger=logging.getLogger(__name__)
 
-try:
-    from motionmapperpy import setRunParameters
-    WAVELET_DOWNSAMPLE=setRunParameters().wavelet_downsample
-    MOTIONMAPPER_PARAMS=setRunParameters()
-except ModuleNotFoundError:
-    logger.warning("motionmapper not available")
-    WAVELET_DOWNSAMPLE=None
-    MOTIONMAPPER_PARAMS=None
 
-
-chunksize=45000
-framerate=150        # framerate of input videos
+chunksize=None
+framerate=None
 centroid_framerate=2
 # "/Users/FlySleepLab Dropbox/Antonio/FSLLab/Projects/FlyHostel4/notebooks/datasets/"
 
@@ -45,8 +37,8 @@ def get_bodyparts(with_joints=WITH_JOINTS):
 bodyparts=get_bodyparts()
 
 
-legs = [bp for bp in bodyparts if "l" in bp.lower()]
-wings = [bp for bp in bodyparts if "w" in bp.lower()]
+legs = [bp for bp in bodyparts if "L" in bp]
+wings = [bp for bp in bodyparts if "W" in bp]
 core = ["thorax", "abdomen", "head", "proboscis"]
 
 
@@ -97,12 +89,15 @@ MAX_TIME=None
 
 MAX_JUMP_MM=1
 JUMP_WINDOW_SIZE_SECONDS=0.5
-PARTITION_SIZE=framerate*3600
-PX_PER_CM=175
+
+PX_PER_CM=None
 APPLY_MEDIAN_FILTER=False
 ROI_WIDTH_MM=60
-SQUARE_HEIGHT=100
-SQUARE_WIDTH=100
+
+SQUARE_HEIGHT=None
+SQUARE_WIDTH=None
+
+
 DIST_MAX_MM=2.5
 MIN_INTERACTION_DURATION=.3 # seconds
 MIN_TIME_BETWEEN_INTERACTIONS=0.5 # seconds. Interactions closer than this in time become one
@@ -111,7 +106,7 @@ MIN_TIME_BETWEEN_INTERACTIONS=0.5 # seconds. Interactions closer than this in ti
 inactive_states=["inactive", "inactive+pe", "inactive+micromovement", "inactive+twitch", "background"]
 DEFAULT_FILTERS=["rle", "jump"]
 
-DEG_DATA=os.path.join(os.environ["DEEPETHOGRAM_PROJECT_PATH"], "DATA")
+DEG_DATA=None
 
 BEHAVIOR_IDX_MAP={
     "walk": (1,),

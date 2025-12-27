@@ -7,10 +7,18 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 
-from flyhostel.utils import get_basedir, get_local_identities, get_dbfile, get_single_animal_video, get_identities, annotate_local_identity, build_interaction_video_key
+from flyhostel.utils import (
+    get_chunksize,
+    get_framerate,
+    get_basedir,
+    get_local_identities,
+    get_dbfile,
+    get_single_animal_video,
+    get_identities,
+    annotate_local_identity,
+    build_interaction_video_key
+)
 from flyhostel.data.pose.main import FlyHostelLoader
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.interactions.sociability.image import ImageWriter
 from .identify_partner import draw_partner_fly_translucent
 
@@ -160,6 +168,8 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
         3) key (str): If output_video is not provided, alternatively the interaction can be provided and the video will be called key.mp4
         4) frame_idx (int): frame in the input video which the information in the row corresponds to
         5) frame_number (int): frame number relative to the beginning of the recording (from chunk 0)
+
+    There needs to be one row per frame to be written in any video
     """
     video_writer=None
     last_video=None
@@ -167,6 +177,8 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
     last_frame_idx=None
     last_frame_number=None
     cap=None
+
+    framerate=get_framerate(experiment)
 
     for _, row in tqdm(index.iterrows()):
 
@@ -178,12 +190,6 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
                 root,
                 key, f"{key}.mp4"
             )
-
-        # if cache and os.path.exists(video_name):
-        #     if last_output_video is None or last_output_video!=video_name:
-        #         print(f"Skipping because video exists: {video_name}.")
-        #         last_output_video=video_name
-        #     continue
 
         os.makedirs(os.path.dirname(video_name), exist_ok=True)
 
@@ -228,7 +234,7 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
             video_writer=videoWriterClass(
                 video_name,
                 cv2.VideoWriter_fourcc(*"MP4V"),
-                FRAMERATE,
+                framerate,
                 frame.shape[:2][::-1],
                 isColor=False,
                 **video_writer_kwargs
@@ -261,9 +267,6 @@ def extend_database(database):
     )
     
     index=index.merge(database[["first_frame", "last_frame_number"]].reset_index(), on=["index"])
-    
-    index["chunk"]=index["frame_number"]//CHUNKSIZE
-    index["frame_idx"]=index["frame_number"]%CHUNKSIZE
 
     return index
 
@@ -277,13 +280,14 @@ def test(index):
 def annotate_interaction_database(experiment, database):
 
 
-    dbfile=get_dbfile(get_basedir(experiment))
+    basedir=get_basedir(experiment)
     # from one row per interaction to one row per frame in each interaction
     index=extend_database(database)  
+    chunksize=get_chunksize(experiment)
+    index["chunk"]=index["frame_number"]//chunksize
+    index["frame_idx"]=index["frame_number"]%chunksize
 
     n_rows=index.shape[0]
-
-
     # add local_identity
     index=annotate_local_identity(index, experiment)
 
@@ -295,7 +299,7 @@ def annotate_interaction_database(experiment, database):
     # add path to input video
     chunk_identity_local_identity_index=index.groupby(["chunk", "identity", "local_identity"]).first().reset_index()
     chunk_identity_local_identity_index["video"]=[
-        get_single_animal_video(dbfile, row["frame_number"], chunk_identity_local_identity_index.loc[[i]], row["identity"], CHUNKSIZE)
+        get_single_animal_video(basedir, row["frame_number"], chunk_identity_local_identity_index.loc[[i]], row["identity"], chunksize)
         for i, row in chunk_identity_local_identity_index[["frame_number", "identity"]].iterrows()
     ]
     index=index.merge(chunk_identity_local_identity_index[["chunk", "identity", "local_identity", "video"]], on=["chunk", "identity", "local_identity"], how="left")
@@ -342,7 +346,6 @@ def annotate_interaction_database(experiment, database):
     index.sort_values(["key", "id", "nn", "frame_number"], inplace=True)
     index.reset_index(drop=True, inplace=True)
     test(index)
-
     return index
 
 
@@ -428,7 +431,8 @@ def load_data(experiment, min_time_immobile=300, **kwargs):
 
     basedir=get_basedir(experiment)
     dbfile=get_dbfile(basedir)
-
+    chunksize=get_chunksize(experiment)
+    
     # rejections=pd.read_csv(f"{basedir}/interactions/{experiment}_rejections.csv")
     try:
         database=pd.read_feather(f"{basedir}/interactions/{experiment}_database.feather")
@@ -451,7 +455,7 @@ def load_data(experiment, min_time_immobile=300, **kwargs):
             interaction_index["frame_number_next"]=np.concatenate([interaction_index["frame_number"].iloc[1:], [np.nan]])
         
             loader.interaction=loader.interaction.merge(interaction_index[["interaction", "t_next", "frame_number_next"]], on="interaction")
-            loader.interaction["chunk"]=loader.interaction["frame_number"]//CHUNKSIZE
+            loader.interaction["chunk"]=loader.interaction["frame_number"]//chunksize
             
             local_identity_index=get_local_identities(dbfile, loader.interaction["frame_number"])[["identity", "chunk", "local_identity"]]
             loader.interaction=loader.interaction.drop(["local_identity"], errors="ignore", axis=1).merge(local_identity_index, on=["chunk", "identity"], how="left")
