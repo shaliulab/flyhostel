@@ -65,7 +65,11 @@ def all_id_expected_qc(window, number_of_animals, idx=identity_idx):
     from the number of animals
     So if there are three animals, the local identities available shoould be 1 2 and 3
     """
-    labels = labels=[i for i in range(1, number_of_animals+1)]
+    if number_of_animals > 1:
+        identities=range(1, number_of_animals+1)
+    else:
+        identities=[0]
+    labels = labels=[i for i in identities]
     return (sorted(window[:, idx])==labels)
 
 
