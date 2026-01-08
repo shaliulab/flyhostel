@@ -335,6 +335,19 @@ def integrate_human_annotations(
     df_roi0["chunk"]=df_roi0["frame_number"]//chunksize
     df_roi0["frame_idx"]=df_roi0["frame_number"]%chunksize
 
+    counts=df_roi0.groupby(["frame_number", "in_frame_index"]).size().reset_index(name="count")
+    mistakes=counts.loc[counts["count"]>1]
+    mistakes=mistakes.groupby("frame_number").first().reset_index()
+
+    if mistakes.shape[0]==0:
+        pass
+    else:
+        mistakes.to_csv(os.path.join(folder, "in_frame_index_mistakes.csv"))
+        raise ValueError(f"""
+                         Mistakes:
+                         {mistakes}
+                         """)
+
     df_concatenation=df_identity[["frame_number", "local_identity", "identity"]]
     df_concatenation["chunk"]=df_concatenation["frame_number"]//chunksize
     df_concatenation=df_concatenation.groupby(["chunk", "identity", "local_identity"]).first().reset_index()[["chunk", "identity", "local_identity"]]
