@@ -205,7 +205,7 @@ def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
     experiment=get_experiment_identifier(basedir)
     number_of_animals=get_number_of_animals(experiment)
 
-    annotations_df=assign_in_frame_indices(annotations_df, number_of_animals)
+    annotations_df=assign_in_frame_indices(annotations_df, number_of_animals, experiment=experiment)
     annotations_df["fragment"]=np.nan
 
     return annotations_df, contours

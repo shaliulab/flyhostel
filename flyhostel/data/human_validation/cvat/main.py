@@ -282,12 +282,12 @@ def integrate_human_annotations(
 
     logger.debug("Assign in frame index")
     test_duplicated_blobs(new_data, chunksize)
-    new_data=assign_in_frame_indices(new_data, number_of_animals)
+    new_data=assign_in_frame_indices(new_data, number_of_animals, experiment=experiment)
 
     logger.debug("Assing in_frame_index")
     new_data.sort_values("frame_number", inplace=True)
     new_data["frame_idx"]=new_data["frame_number"]%chunksize
-    new_data=assign_in_frame_indices(new_data, number_of_animals)
+    new_data=assign_in_frame_indices(new_data, number_of_animals, experiment=experiment)
 
     make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize)
 

@@ -9,10 +9,15 @@ from flyhostel.utils.utils import get_dbfile
 logger=logging.getLogger(__name__)
 
 
-def assign_in_frame_indices(data, number_of_animals):
+def assign_in_frame_indices(data, number_of_animals, experiment=None):
     """
     Populate in_frame_index column so that no nan values are left
     """
+    if experiment is None:
+        chunksize=None
+    else:
+        chunksize=get_chunksize(experiment)
+
     data.reset_index(drop=True, inplace=True)
     if "in_frame_index" not in data.columns:
         data["in_frame_index"]=np.nan
