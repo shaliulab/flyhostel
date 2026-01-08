@@ -123,7 +123,7 @@ def annotate_for_validation(
     
     margin_size=1
     qc_fail["last_frame_number"]=qc_fail["frame_number"]+qc_fail["length"]+margin_size
-    qc_fail["frame_number"]-=margin_size    
+    qc_fail["frame_number"]-=margin_size
     qc_fail.to_csv(output_path_csv)
 
     kwargs=[]
@@ -175,5 +175,3 @@ def bin_windows(df, time_window_length=1):
     )
     df_bin.sort_values(["chunk", "frame_number", "local_identity"], inplace=True)
     return df_bin
-
-

@@ -222,12 +222,6 @@ def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, chu
         )
     logger.debug("Running QC using %s jobs in %s batches of size %s. Saving log to %s", n_jobs, len(batches), BATCH_SIZE, logfile)
     # debug
-    # window_before=df.loc[df["frame_number"]==570160][["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].values
-    # behavior_window=df.loc[df["frame_number"]==570161][["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].values
-    # window_after=df.loc[df["frame_number"]==570162][["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].values
-    # kwargs={"i": -1, "number_of_animals": 2, "logfile": "foo.txt", "window_before": window_before, "behavior_window": behavior_window, "window_after": window_after}
-    # all_qc(**kwargs)
-
 
     qc=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
@@ -238,15 +232,6 @@ def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, chu
         for j in range(len(batches))
     )
     qc=pd.concat(qc, axis=0)
-
-    # fns=[13123686, 13123687, 13123688]
-
-    # my_windows=df.loc[df["frame_number"].isin(fns)][["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].groupby([
-    #     "chunk", "frame_number"
-    # ]).__iter__()
-    # my_windows=[e.values.astype(np.int32) for _, e in my_windows]
-    # import ipdb; ipdb.set_trace()
-    # all_qc(i=9999999, number_of_animals=4, window_before=my_windows[0], behavior_window=my_windows[1], window_after=my_windows[2], logfile=logfile)
 
 
     extra_check=np.bitwise_and(
