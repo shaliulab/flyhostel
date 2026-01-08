@@ -292,9 +292,6 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
         how="left"
     )
 
-
-    
-
     for loader in loaders:
         loader.dt["animal"]=loader.datasetnames[0]
     
@@ -321,7 +318,11 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
     rejection_database["inactive_after"]=np.nan
     rejection_database["bout_out_inactive_after"]=np.nan
     
-    durations=rejection_database.query("touch_mask==True").groupby(groupby).agg({"touch_mask": np.sum}).reset_index().rename({"touch_mask": "interaction_duration"}, axis=1)
+    durations=rejection_database.query("touch_mask==True")\
+        .groupby(groupby)\
+        .agg({"touch_mask": np.sum})\
+        .reset_index()\
+        .rename({"touch_mask": "interaction_duration"}, axis=1)
 
     rejection_database=rejection_database.merge(
         durations,
