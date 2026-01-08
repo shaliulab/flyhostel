@@ -4,12 +4,11 @@ import sqlite3
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
-from flyhostel.utils.utils import get_dbfile
+from flyhostel.utils.utils import get_dbfile, get_chunksize
 
 logger=logging.getLogger(__name__)
 
-
-def assign_in_frame_indices(data, number_of_animals, experiment=None):
+def assign_in_frame_indices_old(data, number_of_animals, experiment=None):
     """
     Populate in_frame_index column so that no nan values are left
     """
@@ -55,10 +54,58 @@ def assign_in_frame_indices(data, number_of_animals, experiment=None):
     data.reset_index(drop=True, inplace=True)
     return data
 
+def assign_in_frame_indices(data, number_of_animals, experiment=None):
+    """
+    Populate in_frame_index column so that no nan values are left
+    """
+    if experiment is None:
+        chunksize=None
+    else:
+        chunksize=get_chunksize(experiment)
+
+    data_orig = data.copy()
+
+    data.reset_index(drop=True, inplace=True)
+    if "in_frame_index" not in data.columns:
+        data["in_frame_index"]=np.nan
+
+    fn_missing_index=data.loc[data["in_frame_index"].isna(), "frame_number"].drop_duplicates().values.tolist()
+    counts=data.value_counts(["frame_number", "in_frame_index"])
+    fn_duplicated_index=counts[counts>1].index.get_level_values("frame_number").values.tolist()
+    fn_index=list(set(fn_missing_index + fn_duplicated_index))
+
+    rows_to_annotate=data.loc[(data["frame_number"].isin(fn_index))]
+    data_ok=data.drop(index=rows_to_annotate.index)
+
+    new_rows=[]
+    for frame_number in tqdm(fn_index, desc="Assign in frame index"):
+        one_frame_data=rows_to_annotate.loc[rows_to_annotate["frame_number"]==frame_number]
+        one_frame_data["in_frame_index"]=np.arange(one_frame_data.shape[0])
+        new_rows.append(one_frame_data)
+
+    data=pd.concat([data_ok] + new_rows, axis=0)
+
+    sorting_columns=["frame_number"]
+    if "local_identity" in data.columns:
+        sorting_columns+=["local_identity"]
+    data.sort_values(sorting_columns, inplace=True)
+    data.reset_index(drop=True, inplace=True)
+
+    counts=data.groupby(["frame_number", "in_frame_index"]).size().reset_index(name="count")
+    mistakes=counts.loc[counts["count"]>1].groupby("frame_number").first().reset_index()
+    if mistakes.shape[0]>0:
+        assert chunksize is not None
+        mistakes["chunk"]=mistakes["frame_number"]//chunksize
+        print(mistakes)
+        raise ValueError(f"""
+        Mistakes: {mistakes}
+        """)
+
+    return data
+
 def load_original_resolution(basedir):
 
     dbfile=get_dbfile(basedir)
-    # store_path=os.path.join(basedir, "metadata.yaml")
     with sqlite3.connect(dbfile) as conn:
         original_resolution=pd.read_sql_query(sql="SELECT value FROM METADATA WHERE field IN ('frame_width', 'frame_height');", con=conn).values.flatten().tolist()
         original_resolution=[int(e) for e in original_resolution]
