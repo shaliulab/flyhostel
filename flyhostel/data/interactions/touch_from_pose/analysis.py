@@ -1,6 +1,5 @@
 import os
 import glob
-import numpy as np
 import pandas as pd
 pd.set_option("display.max_colwidth", 80)
 PROJECT_PATH="/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/"
@@ -12,13 +11,8 @@ from flyhostel.utils import (
 from flyhostel.data.interactions.touch_from_pose.loaders import (
     load_sleep_data,
 )
-
-
 from flyhostel.data.pose.constants import legs
 legs=[leg for leg in legs if "J" not in leg]
-import numpy as np
-from tqdm.auto import tqdm
-legs
 
 def has_labels(key):
     return len(glob.glob(f"{PROJECT_PATH}/DATA/{key}/{key}_labels.csv"))==1

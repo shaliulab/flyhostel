@@ -29,8 +29,7 @@ from flyhostel.data.interactions.touch_from_pose.rejection_utils import (
 )
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
 from .constants import LONG_IMMOBILE_SECONDS
-from flyhostel.data.pose.loaders.interactions import PROXIMITY_THRESHOLD, CONTACT_THRESHOLD
-
+from flyhostel.data.pose.loaders.interactions import CONTACT_THRESHOLD
 from flyhostel.utils import (
     annotate_local_identity,
     build_interaction_video_key,
@@ -40,16 +39,31 @@ from flyhostel.utils import (
     get_single_animal_video,
 )
 os.environ["DEEPETHOGRAM_PROJECT_PATH"]="/flyhostel_data/fiftyone/FlyBehaviors/DEG/FlyHostel_deepethogram_47fps/"
-LEG_MOVEMENT_THRESHOLD=40 # pixels
-
+TOUCH_MASK_DURATION=10
 
 def make_index_for_videos(experiment, interactions, centroids):
+    """
+    
+    interactions (DataFrame): Has columns
+      interaction_duration
+      animal
+      chunk
+      frame_number
+      id
+      nn
+    centroids (DataFrame): Has columns
+      id
+      frame_number
+      center_x
+      center_y
+    """
     
     chunksize=get_chunksize(experiment)
     basedir=get_basedir(experiment)
     fps=get_framerate(experiment)
     
-    interactions["nframes"]=np.ceil((interactions["interaction_duration"]*fps))
+    interactions["framerate"]=fps
+    interactions["nframes"]=np.ceil((interactions["interaction_duration"]*interactions["framerate"]))
     interactions["nframes"]=interactions["nframes"].astype(int)
     interactions["identity"]=interactions["animal"].str.slice(start=-2).astype(int)
     interactions=annotate_local_identity(interactions, experiment)
@@ -59,14 +73,17 @@ def make_index_for_videos(experiment, interactions, centroids):
     index=pd.DataFrame.from_records(
         list(itertools.chain(*[
             zip(
+                [row["first_frame"],]*row["nframes"],
+                [row["last_frame_number"],]*row["nframes"],
+                [row["framerate"],]*row["nframes"],
                 [row["identity"],]*row["nframes"],
                 [row["key"],]*row["nframes"],
-                np.arange(row["frame_number"], row["frame_number"]+row["nframes"]),
                 [row["id"],]*row["nframes"],
                 [row["nn"],]*row["nframes"],
+                np.arange(row["frame_number"], row["frame_number"]+row["nframes"]),
             ) for i, row in interactions.iterrows()
         ])),
-        columns=["identity", "key", "frame_number", "id", "nn"]
+        columns=["first_frame", "last_frame", "framerate","identity", "key", "id", "nn", "frame_number"]
     )
     index["chunk"]=(index["frame_number"]//chunksize).astype(np.int64)
     index["frame_idx"]=index["frame_number"]%chunksize
@@ -76,18 +93,20 @@ def make_index_for_videos(experiment, interactions, centroids):
     dbfile=get_dbfile(basedir)
     index_by_chunk["frame_number"]=chunksize*index_by_chunk["chunk"]
     table = get_local_identities(dbfile, frame_numbers=index_by_chunk["frame_number"]).reset_index(drop=True)
+    
     index_by_chunk["video"]=[
-        get_single_animal_video(basedir, row["frame_number"], table.loc[[i]], row["identity"], chunksize)
+        get_single_animal_video(basedir, row["frame_number"], table, row["identity"], chunksize)
         for i, row in tqdm(index_by_chunk[["frame_number", "identity"]].iterrows(), total=index_by_chunk.shape[0])
     ]
-    index=index.merge(index_by_chunk[["chunk", "local_identity", "video"]], on=["chunk", "local_identity"])
-    index=index.merge(centroids, on=["id", "frame_number"])
+    
+    index=index.merge(index_by_chunk[["chunk", "local_identity", "video"]], on=["chunk", "local_identity"], how="left")
+    index=index.merge(centroids, on=["id", "frame_number"], how="left")
 
     index=index.merge(index[["id", "frame_number", "center_x", "center_y"]].rename({
         "id": "nn",
         "center_x": "center_x_nn",
         "center_y": "center_y_nn",
-    }, axis=1), on=["nn", "frame_number"])
+    }, axis=1), on=["nn", "frame_number"], how="left")
     return index
                         
 
@@ -141,7 +160,7 @@ def select_positives(df, database, groupby=["id", "nn", "interaction"], min_rati
     return df
 
 
-def detect_putative_rejections(experiment, number_of_animals, touch_mask_duration=10):
+def detect_putative_rejections(experiment, number_of_animals, touch_mask_duration=TOUCH_MASK_DURATION):
 
     fps=get_framerate(experiment)
     chunksize=get_chunksize(experiment)
@@ -164,7 +183,7 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
     touch_database["frame_number"]=np.array(touch_database["frame_number"].values, np.int64)
 
     touch_database["t_round"]=(1*(touch_database["t"]//1)).astype(int)
-    touch_database.rename({"app_dist_best": "distance"},axis=1, inplace=True)
+    touch_database.rename({"app_dist_best": "distance"}, axis=1, inplace=True)
     touch_database["distance"]/=pixels_per_mm
 
 
@@ -176,7 +195,7 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
         sleep_df[[
             "id", "animal", "frame_number",
             "asleep", "inactive",
-            "bout_in", "bout_out", # asleep
+            "bout_in", "bout_out",
         ]]\
             .rename({
                 "bout_in": "bout_in_asleep",
@@ -239,6 +258,7 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
     records=[]
     for individual_i in range(number_of_animals):
         individual=dist_per_sec.individuals[individual_i].values.item()
+        # distance between any two bodyparts of the pair of flies needs to be < CONTACT_THRESHOLD mm
         mask=dist_per_sec.sel(individuals=individual)["distance"] < CONTACT_THRESHOLD
         hits=np.where(mask)[0]
         for frame_i in tqdm(hits):
