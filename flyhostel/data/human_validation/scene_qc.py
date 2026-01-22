@@ -199,8 +199,17 @@ def fragment_gap_qc(scene, chunksize):
     
     failed_fragments=sorted([fragments[i] for i in range(len(fragments)) if not fragment_qc[i][0]])
     if len(failed_fragments)==2:
-        last_observed=scene.loc[scene["fragment"]==failed_fragments[0]].iloc[-1]
-        first_observed=scene.loc[scene["fragment"]==failed_fragments[1]].iloc[0]
+        first_fragment, last_fragment = failed_fragments
+        if np.isnan(first_fragment):
+            last_observed=scene.loc[scene["fragment"].isna()].iloc[-1]
+        else:
+            last_observed=scene.loc[scene["fragment"]==first_fragment].iloc[-1]
+
+        if np.isnan(last_fragment):
+            first_observed=scene.loc[scene["fragment"].isna()].iloc[0]
+        else:
+            first_observed=scene.loc[scene["fragment"]==last_fragment].iloc[0]
+
         number_of_missing_frames=int(first_observed["frame_number"]-last_observed["frame_number"])
         gap_distance=(((last_observed[["centroid_x", "centroid_y"]].values-first_observed[["centroid_x", "centroid_y"]].values)**2).sum()**0.5).item()
         maintains_id=int(last_observed["id"]==first_observed["id"])
