@@ -71,6 +71,17 @@ class RejectionsLoader:
         self.interactions_index=self.interactions_index.query("id in @self.ids")
 
     def load_touch_database(self):
+        """
+        Load touch and distance timeseries of the fly
+
+        Returns a timeseries with data for the self fly only, one second per data point
+        describing whether it is touching the nn fly or not, and at what distance they are
+            Contains columns:
+                frame_number t touch_raw touch id nn metric_cross app_dist_best last_isolated
+
+        :param self: Description
+        """
+
         self.touch=pd.read_feather(f"{self.basedir}/interactions/{self.experiment}_touch_database.feather")
         self.touch=self.touch.query("id in @self.ids")
         
@@ -94,7 +105,8 @@ class RejectionsLoader:
             fps=self.framerate
         )
 
-        df["touch"]=np.bitwise_or(df["touch_focal"], df["touch_side"])
+        # df["touch"]=np.bitwise_or(df["touch_focal"], df["touch_side"])
+        df["touch"]=df["touch_side"]
         df["responder"]=np.bitwise_or(np.bitwise_and(df["touch_focal"], ~df["rejection_touch"]), df["reaction"])
         df["touch_and_rejection"]=np.bitwise_and(df["rejection"], df["touch"])
         df_summ=df.groupby("data_entry").agg({
@@ -153,95 +165,12 @@ class RejectionsLoader:
 
         df["approximation"]=approximation_hysteresis(
             df["distance"], df["touch"],
-            min_th=min_threshold, max_th=max_threshold, eps=eps
+            min_th=min_threshold, max_th=max_threshold,
+            eps=eps
         )
         df=annotate_bout_duration(annotate_bouts(df, "approximation"), self.framerate)
         approximations_file=f"{self.basedir}/interactions/{self.experiment}_approximations.feather"
         df.to_feather(approximations_file)
-       
+
         df=df.groupby("bout_count").apply(self.annotate_approximation)
         self.approximations=df
-        
-
-    # def infer_approximations(self, threshold):
-    #     """
-
-    #     Arguments
-    #         threshold (int): Less than this distance in mm between the centroids
-    #         makes the flies too close to one another
-    #     """
-    #     self.load_rejections_database()
-    #     approximations=self.rejections.groupby("t").first().reset_index()
-    #     approximations["distance_t"]=approximations["distance"].values
-
-    #     approximations["distance_tm1"] = np.concatenate([
-    #         [np.nan],
-    #         approximations["distance"].iloc[:-1].values,
-    #     ])
-    #     approximations["distance_tp1"] = np.concatenate([
-    #         approximations["distance"].iloc[1:].values,
-    #         [np.nan],
-    #     ])
-
-    #     approximations["prior_t"]=np.concatenate([
-    #         [np.nan],
-    #         approximations["t"].iloc[:-1].values,
-
-    #     ])
-
-    #     approximations["next_t"]=np.concatenate([
-    #         approximations["t"].iloc[1:].values,
-    #         [np.nan]
-    #     ])
-
-    #     approximations["prior_valid"]=(approximations["t"]-approximations["prior_t"])==1
-    #     approximations["next_valid"]=(approximations["next_t"]-approximations["t"])==1
-    #     approximations.loc[~approximations["next_valid"], "distance_tp1"]=10
-    #     approximations.loc[~approximations["prior_valid"], "distance_tm1"]=10
-
-    #     approximations["approximation"]=approximations["distance_t"]>=threshold
-    #     approximations["bout"]=np.bitwise_and(~approximations["approximation"], approximations["t"].diff()>1)
-
-    #     approximations["bout"]=approximations["bout"].cumsum()
-    #     approximations=annotate_bouts(approximations, "bout")
-        
-    #     approximations=approximations.query("approximation==True")
-    #     approximations=annotate_bouts(approximations, "bout").drop("bout", axis=1)
-    #     approximations_before_contact=approximations.query("bout_out==1").query(f"distance_tp1<{threshold}")
-    #     approximations_after_contact=approximations.query("bout_in==1").query(f"distance_tm1<{threshold}")
-    #     approximations.loc[approximations["bout_count"].isin(approximations_before_contact["bout_count"].values), "approximation"]=False
-    #     approximations.loc[approximations["bout_count"].isin(approximations_after_contact["bout_count"].values), "approximation"]=False
-    #     approximations.rename({"bout_count": "bout"}, axis=1, inplace=True)
-    #     stats=approximations.groupby("bout").agg({"distance": [np.min, np.argmin, len]})\
-    #         .reset_index()
-    #     stats.columns=["bout", "min_distance", "min_distance_i", "size"]
-    #     assert (stats["size"]>stats["min_distance_i"]).all()
-
-    #     approximations=approximations.merge(
-    #         stats,
-    #         on=["bout"]
-    #     )
-    #     self.approximations=approximations
-        
-    # def infer_approximations(self, threshold):
-
-    #     approximations=self.rejections.groupby("t").first().reset_index()
-    #     approximations["close"]=approximations["distance"]<threshold
-
-
-    #     cols1=["min_distance", "min_distance_arg", "max_touch"]
-    #     cols2=["fn_closest_approach"]
-    #     approximations.drop(cols1+cols2, axis=1, errors="ignore", inplace=True)
-    #     approximations["bout"]=approximations["close"].astype(int).diff()==1
-    #     approximations["bout"]=approximations["bout"].cumsum()
-
-    #     stats=approximations.groupby("bout").agg({"distance": [np.min, np.argmin], "touch": np.max})\
-    #         .rename({"touch": "max_touch", "distance": "min_distance"}, axis=1)\
-    #         .reset_index()
-    #     stats.columns=["bout"] + cols1
-
-    #     approximations=approximations.merge(
-    #         stats,
-    #         on=["bout"]
-    #     )
-    #     self.approximations=approximations
