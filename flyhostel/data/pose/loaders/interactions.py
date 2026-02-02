@@ -101,6 +101,11 @@ class InteractionsLoader:
         self.all_interactions=None
         super(InteractionsLoader, self).__init__(*args, **kwargs)
 
+    def get_interactions_data_dir(self):
+        if self.framerate == 150:
+            return "/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA_150fps"
+        else:
+            return "/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA"
     
     def load_interaction_database(self):
         

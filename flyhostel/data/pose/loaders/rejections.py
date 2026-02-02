@@ -1,7 +1,6 @@
 import glob
 import pandas as pd
 import numpy as np
-from flyhostel.data.interactions.constants import DATA_DIR
 from flyhostel.data.interactions.utils import read_label_file_rejections
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
 
@@ -88,10 +87,18 @@ class RejectionsLoader:
     def load_rejections_database(self):
         self.rejections=pd.read_feather(f"{self.basedir}/interactions/{self.experiment}_rejection_database.feather")
         self.rejections=self.rejections.query("id in @self.ids")
+        
 
+    def get_interactions_data_dir(self):
+        if self.framerate == 150:
+            return "/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA_150fps"
+        else:
+            return "/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA"
+    
     def load_rejections_gt(self):
 
-        label_files=glob.glob(f"{DATA_DIR}/{self.experiment}*/*csv")
+        data_dir=self.get_interactions_data_dir()
+        label_files=glob.glob(f"{data_dir}/{self.experiment}*/*csv")
         df=[]
         for path in label_files:
             labels=read_label_file_rejections(path, chunksize=self.chunksize)
@@ -101,7 +108,10 @@ class RejectionsLoader:
         df["animal"]=df["data_entry"].str.slice(0, 33) + "__" + df["id"].str.slice(start=-2)
 
         df=annotate_bout_duration(
-            annotate_bouts(df, variable="rejection")[["id", "animal", "reaction", "rejection", "rejection_touch", "touch_focal", "touch_side", "data_entry", "chunk", "frame_idx", "frame_number", "bout_in", "bout_out", "bout_count"]],
+            annotate_bouts(df, variable="rejection")[[
+                "id", "animal", "reaction", "rejection", "rejection_touch", "touch_focal", "touch_side",
+                "data_entry", "chunk", "frame_idx", "frame_number", "bout_in", "bout_out", "bout_count"
+            ]],
             fps=self.framerate
         )
 
@@ -154,7 +164,7 @@ class RejectionsLoader:
         """
         self.load_touch_database()
     
-        self.touch["distance"]=(self.touch["app_dist_best"]/self.pixels_per_mm)
+        self.touch["distance"]=(self.touch["distance"]/self.pixels_per_mm)
         df=self.touch.reset_index()
 
         # eps = max(0.2 * min_threshold, 0.5 * df["distance"].diff().abs().median())
