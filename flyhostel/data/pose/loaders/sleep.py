@@ -47,7 +47,9 @@ class SleepLoader:
             bin_size=bin_size,
         )
         if isinstance(dataset, str):
+        
             feather_file=dataset
+            raise FileNotFoundError(feather_file)
             dataset=self.compute_sleep_from_behavior(
                 min_time_immobile=min_time_immobile,
                 bin_size=bin_size,
@@ -63,6 +65,8 @@ class SleepLoader:
                 .rename({"t_round": "t"}, axis=1, errors="ignore")
 
         assert "t" in dataset.columns
+        assert "frame_number" in dataset.columns
+        
 
         if min_time is not None:
             dataset=dataset.loc[dataset["t"]>=min_time]
@@ -78,7 +82,7 @@ class SleepLoader:
             logger.warning("%s rows droped due to missing frame_number annotation", fn_isna.sum())
         self.sleep=self.sleep.loc[~fn_isna]
 
-        self.sleep["frame_number"]=self.sleep["frame_number"].astype(int)        
+        self.sleep["frame_number"]=self.sleep["frame_number"].astype(int)
         return None
 
     def annotate_frame_number_in_dataset(self, df):
