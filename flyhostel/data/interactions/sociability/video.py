@@ -100,14 +100,14 @@ def process__make_sure_gray(frame, row):
 
 
 def process__draw_square_around_partner(frame, row):
-    frame=draw_partner_fly_translucent(frame, row, square_size=100, thickness=1, alpha=0.5, blend_to=0)
-    return frame
+    frame, drawn=draw_partner_fly_translucent(frame, row, square_size=100, thickness=1, alpha=0.5, blend_to=0)
+    return frame, drawn
 
 
 def process__all(frame, row):
     frame=process__make_sure_gray(frame, row)
-    frame=process__draw_square_around_partner(frame, row)
-    return frame
+    frame, drawn=process__draw_square_around_partner(frame, row)
+    return frame, drawn
 
 
 
@@ -180,6 +180,8 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
 
     framerate=get_framerate(experiment)
 
+    drawn_status=[]
+
     for _, row in tqdm(index.iterrows()):
 
         if "output_video" in row:
@@ -194,11 +196,13 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
         os.makedirs(os.path.dirname(video_name), exist_ok=True)
 
         if cap is None:
+            has_drawn=0
             cap=cv2.VideoCapture(row["video"])
 
         elif last_video!=row["video"]:
             cap.release()
             cap=cv2.VideoCapture(row["video"])
+            has_drawn=0
         last_video=row["video"]
 
         if last_frame_idx is not None and last_frame_idx+1==row["frame_idx"]:
@@ -206,9 +210,11 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
         else:
             cap.set(1, row["frame_idx"])
             ret, frame=cap.read()
-
+    
         if process_frame is not None:
-            frame=process_frame(frame, row, **kwargs)
+            frame, drawn=process_frame(frame, row, **kwargs)
+            if drawn:
+                has_drawn+=1
         
         last_frame_idx=row["frame_idx"]
         frame_number=row["frame_number"]
@@ -217,6 +223,7 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
         if last_frame_number is None or last_frame_number+1==frame_number:
             pass
         else:
+            drawn_status.append((key, has_drawn))
             video_writer.release()
             video_writer=None
         last_frame_number=row["frame_number"]
@@ -244,7 +251,11 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
     if cap is not None:
         cap.release()
     if video_writer is not None:
+        drawn_status.append((key, has_drawn))
         video_writer.release()
+
+    drawn_status=pd.DataFrame.from_records(drawn_status, columns=["video", "has_drawn"])
+    return drawn_status
 
 
 def extend_database(database):
