@@ -448,6 +448,10 @@ def detect_touch_pairs(
         won_by_proximity[valid_idx] = (app_metric_pairs[valid_idx, best_kb[valid_idx], best_ka[valid_idx]] > 
                                        base_metric[valid_idx, best_kb[valid_idx], best_ka[valid_idx]])
 
+    
+    distance = np.nanmin(d_appapp, axis=(1,2))  # min over (KB, KA)
+
+
     df = pd.DataFrame({
         "frame_number": ds["frame_number"].data if "frame_number" in ds.coords else np.arange(T),
         "t": ds["time"].data,
@@ -463,6 +467,7 @@ def detect_touch_pairs(
         "thoraxA_ok": valid_thorA, "thoraxB_ok": valid_thorB,
         "any_appA_ok": valid_appA_any, "any_appB_ok": valid_appB_any,
         "app_dist_best": app_dist_best,
+        "distance": distance,
         "won_by_proximity": won_by_proximity,
         
     })
