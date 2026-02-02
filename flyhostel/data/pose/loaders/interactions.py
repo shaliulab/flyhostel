@@ -95,6 +95,7 @@ class InteractionsLoader:
     chunksize=None
     ids=[]
     dt=None
+    framerate=None
 
     def __init__(self, *args, **kwargs):
         self.interaction=None
@@ -114,8 +115,10 @@ class InteractionsLoader:
         Populates interaction_database with a DataFrame with columns
         ___
         """
-
-        feather_file=os.path.join(self.basedir, "interactions", self.experiment + "_database.feather")
+        interactions_folder = os.path.join(self.basedir, "interactions")
+        assert os.path.exists(interactions_folder)
+        feather_file=os.path.join(interactions_folder, self.experiment + "_database.feather")
+        assert os.path.exists(feather_file)
         interaction_database=pd.read_feather(feather_file)
         interaction_database=interaction_database.loc[interaction_database["id"]==self.ids[0]]
         interaction_database["identity"]=interaction_database["id"].str.slice(start=-2).astype(int)
@@ -124,7 +127,7 @@ class InteractionsLoader:
         interaction_database=annotate_local_identity(interaction_database, self.experiment)
         interaction_database["key"]=[build_interaction_video_key(self.experiment, row) for _, row in interaction_database.iterrows()]
 
-        self.interaction_database=interaction_database       
+        self.interaction_database=interaction_database
 
 
     def load_interaction_data(
