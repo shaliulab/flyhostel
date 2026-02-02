@@ -26,6 +26,7 @@ def detect_touch(experiment, number_of_animals, model):
         "id",
         "nn",
         "metric_cross",
+        "distance",
         "app_dist_best",
         "last_isolated",
     ]

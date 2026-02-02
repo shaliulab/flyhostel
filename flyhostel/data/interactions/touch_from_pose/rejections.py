@@ -172,8 +172,9 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
 
         loader.dt["t_round"]=1*(loader.dt["t"]//1).astype(int)
         dt_1s=loader.dt.groupby("t_round").first().reset_index()
-        dt_1s["distance"]=np.sqrt((dt_1s[["center_x", "center_y"]].diff()**2).sum(axis=1))
-        dt_1s["distance"]/=loader.pixels_per_mm # mm
+        dt_1s["distance_traveled_mm"]=np.sqrt((dt_1s[["center_x", "center_y"]].diff()**2).sum(axis=1))
+        # distance between centroids of the same fly over time
+        dt_1s["distance_traveled_mm"]/=loader.pixels_per_mm # mm
         centroids_1s.append(dt_1s)
         loaders.append(loader)
     pixels_per_mm=loaders[0].pixels_per_mm
@@ -183,7 +184,11 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
     touch_database["frame_number"]=np.array(touch_database["frame_number"].values, np.int64)
 
     touch_database["t_round"]=(1*(touch_database["t"]//1)).astype(int)
-    touch_database.rename({"app_dist_best": "distance"}, axis=1, inplace=True)
+    touch_database\
+        .drop("distance", axis=1, errors="ignore")\
+        .rename({"app_dist_best": "distance"}, axis=1, inplace=True)
+    
+    # distance between limbs of two flies in the same frame
     touch_database["distance"]/=pixels_per_mm
 
 
@@ -417,7 +422,7 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
         t_start=row["t"]
         t_end=row["t"]+row["interaction_duration"]
         id=row["id"]
-        index["distance_traveled_mm"].loc[i]=centroids_1s.query("t >= @t_start & t < @t_end & id == @id")["distance"].sum().item()
+        index["distance_traveled_mm"].loc[i]=centroids_1s.query("t >= @t_start & t < @t_end & id == @id")["distance_traveled_mm"].sum().item()
 
     assert not index["distance_traveled_mm"].isna().any()
 
