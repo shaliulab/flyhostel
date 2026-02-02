@@ -41,7 +41,7 @@ def infer(features, **trainable_params):
 
         df_machine_["last_isolated"]=df_machine_["frame_number"].copy()
         touch_frames=df_machine_["touch"]
-        df_machine_.loc[touch_frames, "last_isolated"]=df_machine_.loc[touch_frames, "frame_number"]-df_machine_.loc[touch_frames, "bout_in"]       
+        df_machine_.loc[touch_frames, "last_isolated"]=df_machine_.loc[touch_frames, "frame_number"]-df_machine_.loc[touch_frames, "bout_in"]
         df_machine_reversible=df_machine_.copy()
         df_machine_reversible["id"]=ids[1]
         df_machine_reversible["nn"]=ids[0]
