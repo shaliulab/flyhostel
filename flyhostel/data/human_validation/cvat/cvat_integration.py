@@ -41,7 +41,13 @@ def download_task_annotations(task_number, redownload=False):
         if os.path.exists(zip_file):
             shutil.rmtree(unzipped_folder)
 
-        cmd=f"/home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli --auth {cvat_username}:{cvat_password} --server-host 'http://{cvat_host}' --server-port 8080 dump --format 'COCO 1.0' {task_number} {task_number}_annotations.zip"
+        cmd=f"""
+        /home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli
+        --auth {cvat_username}:{cvat_password}
+        --server-host 'http://{cvat_host}'
+        --server-port 8080
+        dump --format 'COCO 1.0' {task_number} {task_number}_annotations.zip
+        """
         cmd_list=shlex.split(cmd)
 
         p=subprocess.Popen(
