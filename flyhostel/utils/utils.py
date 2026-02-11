@@ -527,14 +527,258 @@ def build_interaction_video_key(experiment, row, interaction_name="rejections"):
         "_" + str(row["identity"]).zfill(2)
 
 
-def get_deg_data_folder(experiment):
-    framerate=get_framerate(experiment)
-    ROOT="/flyhostel_data/fiftyone/FlyBehaviors/DEG"
-    if int(framerate)==47:
-        return f"{ROOT}/FlyHostel_deepethogram_47fps/DATA"
-    else:
-        return f"{ROOT}/FlyHostel_deepethogram/DATA"
-
-
 def animal_to_id(individual):
     return individual[:26] + "|" + individual.split("__")[1]
+
+import os
+import subprocess
+import tempfile
+from collections import defaultdict
+from pathlib import Path
+from typing import Iterable, Union
+
+import os
+import shlex
+import subprocess
+import tempfile
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable, Union, Optional
+
+
+@dataclass
+class RsyncFailure(RuntimeError):
+    returncode: int
+    cmd: list[str]
+    stdout: str
+    stderr: str
+    log_path: Optional[str]
+    root: str
+    dest: str
+    n_files: int
+    sample_files: list[str]
+
+    def __str__(self) -> str:
+        cmd_str = " ".join(shlex.quote(x) for x in self.cmd)
+        parts = [
+            f"rsync failed with exit code {self.returncode}",
+            f"Root: {self.root}",
+            f"Dest: {self.dest}",
+            f"Files listed: {self.n_files}",
+            f"Command:\n  {cmd_str}",
+        ]
+        if self.log_path:
+            parts.append(f"Rsync log file: {self.log_path}")
+
+        if self.sample_files:
+            parts.append("Sample files (from --files-from):\n  " + "\n  ".join(self.sample_files))
+
+        if self.stderr.strip():
+            parts.append("---- rsync stderr ----\n" + self.stderr.rstrip())
+        if self.stdout.strip():
+            parts.append("---- rsync stdout ----\n" + self.stdout.rstrip())
+
+        return "\n".join(parts)
+
+
+def rsync_files_from(
+    files: Iterable[Union[str, os.PathLike]],
+    path: Union[str, os.PathLike],
+    *,
+    dry_run: bool = False,
+    progress: bool = False,
+    very_verbose: bool = True,
+    keep_log_on_success: bool = False,
+) -> None:
+    """
+    Copy files to a local destination directory using rsync, preserving only the
+    subpath after the `/./` marker.
+
+    Example:
+        "foo/bar/./baz/file1"  ->  "<path>/baz/file1"
+
+    Supports mixed roots: different prefixes before `/./` are grouped and synced
+    in separate rsync calls.
+
+    On rsync failure, raises RsyncFailure containing the full command, exit code,
+    stdout/stderr, and the path to an rsync log file.
+    """
+    dest = Path(path).expanduser()
+    dest.mkdir(parents=True, exist_ok=True)
+
+    marker = "/./"
+    groups: dict[str, list[str]] = defaultdict(list)
+
+    # Parse + group by root
+    for f in files:
+        s = os.fspath(f)
+        if marker not in s:
+            raise ValueError(f"Missing '{marker}' marker in path: {s!r}")
+
+        root, rel = s.split(marker, 1)
+        if not root:
+            raise ValueError(f"Empty root (before '{marker}') in: {s!r}")
+        if not rel:
+            raise ValueError(f"Empty relative part (after '{marker}') in: {s!r}")
+
+        rel = rel.lstrip("/")
+        groups[root].append(f"./{rel}")
+
+    # Run rsync per root
+    for root, rel_paths in groups.items():
+        root_path = Path(root).expanduser()
+        if not root_path.is_dir():
+            raise FileNotFoundError(f"Rsync root does not exist or is not a directory: {root_path}")
+
+        payload = ("\0".join(rel_paths) + "\0").encode("utf-8")
+
+        # Keep rsync log even if rsync fails, so you can inspect it.
+        # Use delete=False and clean up manually on success if desired.
+        with tempfile.NamedTemporaryFile(prefix="rsync_files_", suffix=".lst", delete=True) as tf, \
+             tempfile.NamedTemporaryFile(prefix="rsync_", suffix=".log", delete=False) as logf:
+
+            tf.write(payload)
+            tf.flush()
+            log_path = logf.name
+
+            cmd = [
+                "rsync",
+                "-aR",                # archive + relative paths (honors ./ cut point)
+                "--whole-file",       # faster for local copies (no delta algorithm)
+                "--from0",
+                f"--files-from={tf.name}",
+                "--human-readable",
+                "--stats",
+                f"--log-file={log_path}",
+                "--log-file-format=%t [%p] %o %f (%l bytes) %i %B",
+            ]
+
+            # Make rsync produce more diagnostics
+            if very_verbose:
+                cmd += ["-vv"]        # way more detail than -v
+                # useful categories; add/remove as desired
+                cmd += ["--info=flist2,name2,stats2,progress2"]
+            elif progress:
+                cmd += ["--info=progress2"]
+
+            if dry_run:
+                cmd += ["-n", "--itemize-changes"]
+
+            cmd += [str(root_path) + "/", str(dest) + "/"]
+
+            # Capture stdout/stderr so we can show them on failure.
+            # Note: rsync uses stderr for progress/info; capturing is fine.
+            proc = subprocess.run(
+                cmd,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            if proc.returncode != 0:
+                # show a small sample of file list (helps find a culprit path)
+                sample = []
+                if rel_paths:
+                    # head/tail-ish sample without dumping thousands of entries
+                    if len(rel_paths) <= 10:
+                        sample = rel_paths
+                    else:
+                        sample = rel_paths[:5] + ["..."] + rel_paths[-5:]
+
+                raise RsyncFailure(
+                    returncode=proc.returncode,
+                    cmd=cmd,
+                    stdout=proc.stdout or "",
+                    stderr=proc.stderr or "",
+                    log_path=log_path,
+                    root=str(root_path),
+                    dest=str(dest),
+                    n_files=len(rel_paths),
+                    sample_files=sample,
+                )
+
+            # Clean up log if successful (optional)
+            if not keep_log_on_success:
+                try:
+                    os.unlink(log_path)
+                except OSError:
+                    pass
+
+
+
+def rsync_files_from_less_verbose(
+    files: Iterable[Union[str, os.PathLike]],
+    path: Union[str, os.PathLike],
+    *,
+    dry_run: bool = False,
+    progress: bool = False,
+) -> None:
+    """
+    Copy files to a local destination directory using rsync, preserving only the
+    subpath after the `/./` marker.
+
+    Example:
+        "foo/bar/./baz/file1"  ->  "<path>/baz/file1"
+
+    Supports mixed roots: different prefixes before `/./` are grouped and synced
+    in separate rsync calls.
+    """
+    dest = Path(path).expanduser()
+    dest.mkdir(parents=True, exist_ok=True)
+
+    marker = "/./"
+    groups: dict[str, list[str]] = defaultdict(list)
+
+    # Parse + group by root
+    for f in files:
+        s = os.fspath(f)
+        if marker not in s:
+            raise ValueError(f"Missing '{marker}' marker in path: {s!r}")
+
+        root, rel = s.split(marker, 1)
+        if not root:
+            raise ValueError(f"Empty root (before '{marker}') in: {s!r}")
+        if not rel:
+            raise ValueError(f"Empty relative part (after '{marker}') in: {s!r}")
+
+        # Ensure rsync sees a relative path beginning with "./"
+        rel = rel.lstrip("/")
+        groups[root].append(f"./{rel}")
+
+    # Run rsync per root
+    for root, rel_paths in groups.items():
+        root_path = Path(root).expanduser()
+        if not root_path.is_dir():
+            raise FileNotFoundError(f"Rsync root does not exist or is not a directory: {root_path}")
+
+        # NUL-delimited file list for --from0
+        payload = ("\0".join(rel_paths) + "\0").encode("utf-8")
+
+        with tempfile.NamedTemporaryFile(prefix="rsync_files_", suffix=".lst", delete=True) as tf:
+            tf.write(payload)
+            tf.flush()
+
+            cmd = [
+                "rsync",
+                "-aR",                  # archive + relative paths (honors ./ cut point)
+                "--whole-file",          # faster for local copies (no delta algorithm)
+                "--from0",
+                f"--files-from={tf.name}",
+            ]
+
+            if progress:
+                cmd += ["--info=progress2"]
+            if dry_run:
+                cmd += ["-n", "--itemize-changes"]
+
+            # Trailing slashes matter:
+            # source is "contents of root", destination is a directory
+            cmd += [str(root_path) + "/", str(dest) + "/"]
+
+            subprocess.run(cmd, check=True)
+
+
+def dunder_to_slash(experiment):
+    tokens = experiment.split("_")
+    return tokens[0] + "/" + tokens[1] + "/" + "_".join(tokens[2:4])

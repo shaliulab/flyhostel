@@ -47,6 +47,7 @@ from flyhostel.utils import (
     get_wavelet_downsample,
     get_basedir,
     get_square_width,
+    rsync_files_from,
 )
 
 pd.set_option("display.max_columns", 100)
@@ -72,8 +73,54 @@ def make_int_or_str(values):
     return out
 
 
+class FlyHostelBackup:   
+    
+    DEFAULT_CHUNKS=list(range(0, 400))
+
+    def __init__(self, *args, **kwargs):
+        self.chunksize=None
+        self.basedir=None
+        self.dbfile=None
+        super(FlyHostelBackup, self).__init__(*args, **kwargs)
+
+    
+    def backup(self, new_basedir, chunks=None, dry_run=False):
+
+        # pose files in flyhostel/single_animal
+        pose_files=[]
+        if chunks is None:
+            pose_chunks=self.DEFAULT_CHUNKS
+        else:
+            pose_chunks=chunks
+        
+        frame_numbers=[chunk*self.chunksize for chunk in pose_chunks]
+
+        table = get_local_identities(self.dbfile, frame_numbers=frame_numbers).reset_index(drop=True)
+        for chunk in pose_chunks:
+            hit=table.query("chunk == @chunk and identity == @self.identity")["local_identity"]
+            if hit.shape[0]==1:
+                local_identity=hit.item()
+
+                mp4_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
+                slp_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4.predictions.slp")
+                h5_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4.predictions.h5")
+                for file in [mp4_file, slp_file, h5_file]:
+                    if os.path.exists(file):
+                        pose_files.append(file)
+
+        # motiomnampper.feather file
+        behavior_files=glob.glob(os.path.join(self.basedir, ".", "motionmapper", str(self.identity).zfill(2), f"{self.datasetnames[0]}*"))
+        # Backup these things separately
+        # interactions_entries=glob.glob(os.path.join(self.get_interactions_data_dir(), f"{self.experiment}*"))
+        # deg_entries=glob.glob(os.path.join(self.get_deg_data_dir(), f"{self.experiment}*"))
+        # all_entries=interactions_entries+deg_entries
+
+        files_to_backup = pose_files + behavior_files
+        rsync_files_from(files_to_backup, new_basedir, dry_run=dry_run)
+
+
 class FlyHostelLoader(
-    CrossVideo, FilesystemInterface, ConcatenationLoader, SleepAnnotator, InteractionsLoader, PoseLoader,
+    FlyHostelBackup, CrossVideo, FilesystemInterface, ConcatenationLoader, SleepAnnotator, InteractionsLoader, PoseLoader,
     SleepLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader, MovementLoader, RejectionsLoader):
     """
     Analyse microbehavior produced in the flyhostel
