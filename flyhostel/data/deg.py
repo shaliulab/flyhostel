@@ -285,7 +285,7 @@ class DEGLoader:
             self.annotate_rejections_(self.deg)
             self.deg.sort_values("frame_number", inplace=True)
             self.deg=annotate_bouts(self.deg, variable="behavior")
-            self.deg=annotate_bout_duration(self.deg, fps=150)
+            self.deg=annotate_bout_duration(self.deg, fps=self.framerate)
             self.deg["score"]=None
             
         if cache and self.deg is not None:
