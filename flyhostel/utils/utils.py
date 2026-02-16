@@ -546,41 +546,47 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Union, Optional
 
+import shlex
+from dataclasses import dataclass, field
+from typing import List, Optional
+
 
 @dataclass
 class RsyncFailure(RuntimeError):
     returncode: int
-    cmd: list[str]
-    stdout: str
-    stderr: str
-    log_path: Optional[str]
-    root: str
-    dest: str
-    n_files: int
-    sample_files: list[str]
+    cmd: List[str]
+    stdout: str = ""
+    stderr: str = ""
+    log_path: Optional[str] = None
+    root: str = ""
+    dest: str = ""
+    n_files: int = 0
+    sample_files: List[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         cmd_str = " ".join(shlex.quote(x) for x in self.cmd)
         parts = [
-            f"rsync failed with exit code {self.returncode}",
-            f"Root: {self.root}",
-            f"Dest: {self.dest}",
-            f"Files listed: {self.n_files}",
-            f"Command:\n  {cmd_str}",
+            "rsync failed with exit code {}".format(self.returncode),
+            "Root: {}".format(self.root),
+            "Dest: {}".format(self.dest),
+            "Files listed: {}".format(self.n_files),
+            "Command:\n  {}".format(cmd_str),
         ]
+
         if self.log_path:
-            parts.append(f"Rsync log file: {self.log_path}")
+            parts.append("Rsync log file: {}".format(self.log_path))
 
         if self.sample_files:
-            parts.append("Sample files (from --files-from):\n  " + "\n  ".join(self.sample_files))
+            parts.append(
+                "Sample files (from --files-from):\n  {}".format("\n  ".join(self.sample_files))
+            )
 
         if self.stderr.strip():
-            parts.append("---- rsync stderr ----\n" + self.stderr.rstrip())
+            parts.append("---- rsync stderr ----\n{}".format(self.stderr.rstrip()))
         if self.stdout.strip():
-            parts.append("---- rsync stdout ----\n" + self.stdout.rstrip())
+            parts.append("---- rsync stdout ----\n{}".format(self.stdout.rstrip()))
 
         return "\n".join(parts)
-
 
 def rsync_files_from(
     files: Iterable[Union[str, os.PathLike]],
