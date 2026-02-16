@@ -227,6 +227,10 @@ def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, su
     bool_table=(wide_table==1).astype(int)
     diff_table=bool_table.diff(axis=0).iloc[1:]
 
+    number_of_animals=df["number_of_animals"].drop_duplicates().tolist()
+    assert len(number_of_animals)==1, f"Different group sizes detected: {number_of_animals}"
+    number_of_animals=number_of_animals[0]
+
     tables={
         "mean": wide_table,
         "P_doze": (diff_table==+1).astype(int),
@@ -261,28 +265,29 @@ def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, su
                 records.append((
                     id1, id2, lag, val, FUN_name, N, experiment, comparison
                 ))
-      
-        for experiment, ids_per_groups in real_groups_iter(ids):
-            for FUN, FUN_name in group_FUNs.items():
-                val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
-                ids_str=";".join(ids_per_groups)
-                records_group.append((
-                    ids_str, None, lag, val, FUN_name, N, experiment, "real"
-                ))
 
-        virtual_combos=list(virtual_combinations_iter(ids))
-        sample_size=min(1000, len(virtual_combos))
-        virtual_combos=random.sample(virtual_combos, sample_size)
-        counter=0
-        for experiment, ids_per_groups in virtual_combos:
-            for FUN, FUN_name in group_FUNs.items():
-                val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
-                ids_str=";".join(ids_per_groups)
-                records_group.append((
-                    ids_str, None, lag, val, FUN_name, N, f"{experiment}_{counter}", "virtual"
-                ))
-        
-            counter+=1
+        if number_of_animals>1:
+            for experiment, ids_per_groups in real_groups_iter(ids):
+                for FUN, FUN_name in group_FUNs.items():
+                    val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
+                    ids_str=";".join(ids_per_groups)
+                    records_group.append((
+                        ids_str, None, lag, val, FUN_name, N, experiment, "real"
+                    ))
+    
+            virtual_combos=list(virtual_combinations_iter(ids))
+            sample_size=min(1000, len(virtual_combos))
+            virtual_combos=random.sample(virtual_combos, sample_size)
+            counter=0
+            for experiment, ids_per_groups in virtual_combos:
+                for FUN, FUN_name in group_FUNs.items():
+                    val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
+                    ids_str=";".join(ids_per_groups)
+                    records_group.append((
+                        ids_str, None, lag, val, FUN_name, N, f"{experiment}_{counter}", "virtual"
+                    ))
+            
+                counter+=1
 
     df=pd.DataFrame.from_records(
         records,
