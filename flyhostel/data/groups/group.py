@@ -1,3 +1,5 @@
+import shutil
+import glob
 import os.path
 import pickle
 import time
@@ -16,6 +18,14 @@ from flyhostel.utils.utils import (
     get_dbfile,
     get_framerate,
     get_chunksize,
+    rsync_files_from,
+    dunder_to_slash,
+)
+
+from flyhostel.data.human_validation.cvat.cvat_integration import (
+    get_tasks_for_project,
+    get_project_id_from_name,
+    download_task_annotations_to_zip
 )
 
 logger=logging.getLogger(__name__)
@@ -64,7 +74,7 @@ class FlyHostelGroup(InteractionDetector):
                 logger.debug("Loading %s centroids", fly)
                 if DEBUG and os.path.exists(path):
                     with open("cache.pkl", "rb") as handle:
-                        cached_data=pickle.load(handle)                   
+                        cached_data=pickle.load(handle)
                     fly.dt, fly.meta_info=cached_data[i]
                 else:
                     fly.load_centroid_data(
@@ -304,3 +314,78 @@ class FlyHostelGroup(InteractionDetector):
         with sqlite3.connect(dbfile) as conn:
             concatenation=pd.read_sql(con=conn, sql="SELECT * FROM CONCATENATION_VAL;")
         return concatenation
+    
+
+    def backup(self, path, chunks=None, dry_run=False, debug=False):
+
+        assert self.group_is_real and self.group_is_complete
+        subpath=dunder_to_slash(self.experiment)
+        new_basedir=os.path.join(path, subpath)
+
+        os.makedirs(new_basedir, exist_ok=True)
+        dbfile=os.path.join(self.basedir, ".", self.experiment + ".db")
+        mp4_files=sorted(glob.glob(os.path.join(self.basedir, ".", "*mp4")))
+        npz_files=sorted(glob.glob(os.path.join(self.basedir, ".", "*npz")))
+        png_files=sorted(glob.glob(os.path.join(self.basedir, ".", "*png")))
+        metadata_file=os.path.join(self.basedir, ".", "metadata.yaml")
+        landmarks_file=os.path.join(self.basedir, ".", "landmarks.toml")
+        index_file=os.path.join(self.basedir, ".","index.db")
+        camera_file=glob.glob(os.path.join(self.basedir, ".", "*pfs"))[0]
+
+        date_time = "_".join(self.experiment.split("_")[2:4])
+        config_files=[
+            os.path.join(self.basedir, ".", f"{date_time}.conf"),
+            os.path.join(self.basedir, ".", f"{date_time}.toml")
+        ]
+
+        data_files=[]
+        for file in mp4_files + npz_files + png_files:
+            if chunks is None:
+                data_files.append(file)
+            else:
+                chunk=int(os.path.basename(file).split(".")[0])
+                if chunk in chunks:
+                    data_files.append(file)
+
+
+        validation_folder=os.path.join(self.basedir, ".", "flyhostel", "validation")
+        if debug:
+            files=[metadata_file]
+        else:            
+            validation_files=[]
+            if self.number_of_animals > 1:
+                validation_files=self.download_annotations_from_cvat(validation_folder)
+
+            # handmade
+            validation_csv=os.path.join(validation_folder, "validation.csv")
+            if os.path.exists(validation_csv):
+                validation_files.append(validation_csv)
+
+            files=[
+                dbfile, *data_files, metadata_file, landmarks_file,
+                index_file, camera_file, *config_files, *validation_files,
+            ]
+        
+            # single file for all flies in the group
+            # interactions-from-centroids
+            interactions_file=os.path.join(
+                self.basedir, "interactions", self.experiment + "_database.feather"
+            )
+        
+            if os.path.exists(interactions_file):
+                files.append(interactions_file)
+
+        rsync_files_from(files, new_basedir, dry_run=dry_run)
+
+        if not debug:
+            for fly in self.flies.values():
+                fly.backup(new_basedir, chunks=chunks, dry_run=dry_run)
+
+
+    def download_annotations_from_cvat(self, path):
+        tasks=sorted(get_tasks_for_project(get_project_id_from_name(self.experiment, errors="raise")))
+        zip_files=[]
+
+        for task in tqdm(tasks, desc="Downloading CVAT annotations to .zip"):
+            zip_files.append(download_task_annotations_to_zip(task, path = path, redownload=True))
+        return zip_files
