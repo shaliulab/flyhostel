@@ -31,6 +31,10 @@ from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
 logger = logging.getLogger(__name__)
 
 
+def sort_ids(ids):
+    return sorted(ids, key=lambda x: (x.split("_")[1], x.split("_")[0], x.split("_")[2]))
+
+
 def get_spaced_colors_util(n, norm=False, black=True, cmap="jet"):
     RGB_tuples = cm.get_cmap(cmap)
     if norm:

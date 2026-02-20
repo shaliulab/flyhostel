@@ -266,7 +266,7 @@ def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, su
                     id1, id2, lag, val, FUN_name, N, experiment, comparison
                 ))
 
-        if number_of_animals>1:
+        if number_of_animals>1 and len(group_FUNs)>0:
             for experiment, ids_per_groups in real_groups_iter(ids):
                 for FUN, FUN_name in group_FUNs.items():
                     val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
