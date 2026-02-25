@@ -321,6 +321,7 @@ class FlyHostelGroup(InteractionDetector):
         assert self.group_is_real and self.group_is_complete
         subpath=dunder_to_slash(self.experiment)
         new_basedir=os.path.join(path, subpath)
+        status=None
 
         os.makedirs(new_basedir, exist_ok=True)
         dbfile=os.path.join(self.basedir, ".", self.experiment + ".db")
@@ -347,7 +348,6 @@ class FlyHostelGroup(InteractionDetector):
                 if chunk in chunks:
                     data_files.append(file)
 
-
         validation_folder=os.path.join(self.basedir, ".", "flyhostel", "validation")
         if debug:
             files=[metadata_file]
@@ -355,7 +355,6 @@ class FlyHostelGroup(InteractionDetector):
             validation_files=[]
             if self.number_of_animals > 1:
                 try:
-                    status=None
                     validation_files=self.download_annotations_from_cvat(validation_folder)
                 except Exception as error:
                     logger.error(error)
