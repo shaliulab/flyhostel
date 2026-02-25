@@ -355,6 +355,7 @@ class FlyHostelGroup(InteractionDetector):
             validation_files=[]
             if self.number_of_animals > 1:
                 try:
+                    status=None
                     validation_files=self.download_annotations_from_cvat(validation_folder)
                 except Exception as error:
                     logger.error(error)
