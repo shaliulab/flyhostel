@@ -1,4 +1,5 @@
 import json
+import requests
 import os.path
 import math
 import logging
@@ -28,13 +29,13 @@ logger=logging.getLogger(__name__)
 from flyhostel.data.human_validation.cvat.constants import cvat_username, cvat_host, cvat_password
 
 DEBUG=True
-def download_task_annotations(task_number, redownload=False):
+def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
 
     unzipped_folder=f"task_{task_number}"
 
     if not os.path.exists(unzipped_folder) or redownload:
-        zip_file=f"{task_number}_annotations.zip"
-
+        zip_file=os.path.join(path, f"{task_number}_annotations.zip")
+    
         if os.path.exists(zip_file):
             os.remove(zip_file)
 
@@ -46,7 +47,7 @@ def download_task_annotations(task_number, redownload=False):
         --auth {cvat_username}:{cvat_password}
         --server-host 'http://{cvat_host}'
         --server-port 8080
-        dump --format 'COCO 1.0' {task_number} {task_number}_annotations.zip
+        dump --format 'COCO 1.0' {task_number} {zip_file}
         """
         cmd_list=shlex.split(cmd)
 
@@ -56,10 +57,16 @@ def download_task_annotations(task_number, redownload=False):
         p.communicate()
 
         assert os.path.exists(zip_file), f"{zip_file} was not downloaded"
+        return zip_file
 
 
-        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-            zip_ref.extractall(unzipped_folder)
+def download_task_annotations(task_number, *args, **kwargs):
+    unzipped_folder=f"task_{task_number}"
+
+    zip_file=download_task_annotations_to_zip(task_number, *args, **kwargs)
+
+    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+        zip_ref.extractall(unzipped_folder)
 
     with open(f"{unzipped_folder}/annotations/instances_default.json", "r") as handle:
         cvat_annotations=json.load(handle)
@@ -553,3 +560,82 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     roi0_corrected["annotation_id"]=[f"{row['frame_number']}_{row['in_frame_index']}" for _, row in roi0_corrected.iterrows()]
     
     return identity_corrected, roi0_corrected, score_dist
+
+PROJECTS_JSON="/flyhostel_data/videos/index_cvat_projects.json"
+CVAT_BASE = "http://" + os.environ["CVAT_HOST"] + ":8080"
+
+
+def cvat_auth(session):
+
+    login_url = f"{CVAT_BASE}/api/auth/login"
+    r = session.post(login_url, json={
+        "username": os.environ["CVAT_USERNAME"],
+        "password": os.environ["CVAT_PASSWORD"]
+    })
+    r.raise_for_status()
+    return r
+
+
+def update_project_list():
+    url="http://localhost:8080/api/projects?page_size=9999&scheme=json"
+    print(f"Fetching {url}")
+
+    with requests.Session() as s:
+        # 1) Log in (endpoint and payload depend on your API)
+        r = cvat_auth(s)
+    
+        # 2) Now cookies are stored in `s`, and will be sent automatically
+        r = s.get(url)
+        r.raise_for_status()
+        out = r.json()
+
+        with open(PROJECTS_JSON, 'w') as handle:
+            json.dump(out, handle)
+
+    return out
+
+def get_project_id_from_name(experiment, errors="raise"):
+
+    update_project_list()
+
+    with open(PROJECTS_JSON, "r") as handle:
+        index_cvat_projects=json.load(handle)
+    
+    assert index_cvat_projects["next"] is None
+    assert index_cvat_projects["previous"] is None
+    project_id=None
+    hit=False
+    for project in index_cvat_projects["results"]:
+        if project["name"]==experiment:
+            if hit == True:
+                if errors=="raise":
+                    raise Exception(f"More than 1 project with the same name (experiment)")
+                elif errors=="ignore":
+                    logger.warning("More than 1 project with the same name %s", experiment)
+            
+            project_id=project["id"]
+            hit=True
+    
+    if project_id is None:
+        if errors=="raise":
+            raise Exception(f"0 projects with name {experiment}")
+        elif errors=="ignore":
+            logger.warning("0 projects with name %s", experiment)
+
+    return project_id
+
+def get_tasks_for_project(project_id):
+
+    with requests.Session() as s:
+        # 1) Log in (endpoint and payload depend on your API)
+        r = cvat_auth(s)
+    
+        # 2) Now cookies are stored in `s`, and will be sent automatically
+        url = f"{CVAT_BASE}/api/tasks"
+        r = s.get(url, params={"project_id": project_id})
+        r.raise_for_status()
+        out = r.json()
+        tasks=[]
+        for task in out["results"]:
+            tasks.append(int(task["id"]))
+        return tasks

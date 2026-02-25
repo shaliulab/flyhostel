@@ -14,7 +14,12 @@ from flyhostel.utils.utils import (
     get_pixels_per_mm,
     get_number_of_animals,
 )
-from flyhostel.data.human_validation.cvat.cvat_integration import get_annotations, cross_machine_human
+from flyhostel.data.human_validation.cvat.cvat_integration import (
+    get_tasks_for_project,
+    get_project_id_from_name,
+    get_annotations,
+    cross_machine_human
+)
 from flyhostel.data.human_validation.cvat.utils import load_machine_data, get_dbfile, assign_in_frame_indices
 from flyhostel.data.human_validation.cvat.fragments import make_identity_singletons, make_identity_tracks
 from flyhostel.data.human_validation.cvat.identity import annotate_identity
@@ -26,11 +31,13 @@ logger=logging.getLogger(__name__)
 
 REDOWNLOAD_FROM_CVAT=True
 def integrate_human_annotations(
-        experiment, folder, tasks,
+        experiment, folder,
         first_frame_number=0, last_frame_number=math.inf,
         redownload=REDOWNLOAD_FROM_CVAT,
         number_of_rows=1,
         number_of_cols=1,
+        tasks=None,
+        frames_from_annotation=False,
     ):
     """
     Add human validated identity tracks to a flyhostel dbfile
@@ -78,8 +85,18 @@ def integrate_human_annotations(
     
     chunksize=get_chunksize(experiment)
 
+    if tasks is not None:
+        logger.warning("Passing tasks is deprecated. Querying database instead", tasks)
+
+    tasks=get_tasks_for_project(get_project_id_from_name(experiment))
+
     annotations_df, contours=get_annotations(basedir, tasks, redownload=redownload, number_of_rows=number_of_rows, number_of_cols=number_of_cols)
     annotations_df["chunk"]=annotations_df["frame_number"]//chunksize
+    if frames_from_annotation:
+        first_frame_number=annotations_df["frame_number"].min()
+        last_frame_number=annotations_df["frame_number"].max()
+        print(f"Inferring first and last frame numbers: {first_frame_number} - {last_frame_number}")
+        
 
     # load original predictions (machine made)
     logger.info("Load predictions from frame number %s to %s", first_frame_number, last_frame_number)
