@@ -116,7 +116,7 @@ class FlyHostelBackup:
         # all_entries=interactions_entries+deg_entries
 
         files_to_backup = pose_files + behavior_files
-        rsync_files_from(files_to_backup, new_basedir, dry_run=dry_run)
+        return rsync_files_from(files_to_backup, new_basedir, dry_run=dry_run)
 
 
 class FlyHostelLoader(

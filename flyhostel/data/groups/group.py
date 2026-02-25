@@ -351,10 +351,15 @@ class FlyHostelGroup(InteractionDetector):
         validation_folder=os.path.join(self.basedir, ".", "flyhostel", "validation")
         if debug:
             files=[metadata_file]
-        else:            
+        else:
             validation_files=[]
             if self.number_of_animals > 1:
-                validation_files=self.download_annotations_from_cvat(validation_folder)
+                try:
+                    validation_files=self.download_annotations_from_cvat(validation_folder)
+                except Exception as error:
+                    logger.error(error)
+                    validation_files=[]
+                    status="NO_CVAT_VALIDATION_FOUND"
 
             # handmade
             validation_csv=os.path.join(validation_folder, "validation.csv")
@@ -369,7 +374,7 @@ class FlyHostelGroup(InteractionDetector):
             # single file for all flies in the group
             # interactions-from-centroids
             interactions_file=os.path.join(
-                self.basedir, "interactions", self.experiment + "_database.feather"
+                self.basedir, ".", "interactions", self.experiment + "_database.feather"
             )
         
             if os.path.exists(interactions_file):
@@ -380,6 +385,8 @@ class FlyHostelGroup(InteractionDetector):
         if not debug:
             for fly in self.flies.values():
                 fly.backup(new_basedir, chunks=chunks, dry_run=dry_run)
+        
+        return status
 
 
     def download_annotations_from_cvat(self, path):
