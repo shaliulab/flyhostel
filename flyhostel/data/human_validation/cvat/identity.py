@@ -1,6 +1,7 @@
 import math
 import logging
 
+import numpy as np
 import pandas as pd
 import cudf
 from idtrackerai_app.cli.utils.overlap import propagate_identities
@@ -47,7 +48,7 @@ def match_animals_between_chunks_by_distance(before, after, local_identity_befor
 
 
 
-def make_identity_table(lid_table, chunks, chunksize):
+def make_identity_table(lid_table, chunks, chunksize, debug=False):
     identity_table=[]
     for chunk in chunks[:-1]:
         used_local_identity_after=set([])
@@ -70,6 +71,8 @@ def make_identity_table(lid_table, chunks, chunksize):
                     logger.warning("%s already used in chunk %s", local_identity, chunk)
                     log.write(f"{local_identity} already used in chunk {chunk}\n")
                     print(before, after)
+                    if debug:
+                        import ipdb; ipdb.set_trace()
                 else:
                     used_local_identity_after.add(local_identity)
                 
@@ -79,7 +82,7 @@ def make_identity_table(lid_table, chunks, chunksize):
     identity_table["is_inferred"]=False
     return identity_table
             
-def annotate_identity(data, number_of_animals, chunksize):
+def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated_table=None):
     """
     Generate the identity track for each animal in a dataset
 
@@ -112,7 +115,21 @@ def annotate_identity(data, number_of_animals, chunksize):
 
     chunks=sorted(lid_table["chunk"].to_pandas().unique())
 
-    identity_table=make_identity_table(lid_table, chunks, chunksize)
+    identity_table=make_identity_table(lid_table, chunks, chunksize, debug=debug)
+    
+    annotated_table["distance"]=np.nan
+    annotated_table["is_inferred"]=False
+    annotated_table["priority"]=1
+    identity_table["priority"]=2
+
+    identity_table=pd.concat([
+        identity_table,
+        annotated_table
+    ], axis=0)\
+        .sort_values(["priority", "chunk", "local_identity"], ascending=True)\
+        .drop_duplicates(["chunk", "local_identity"])\
+        
+   
     identity_table.to_csv("identity_table.csv")
     
     logger.debug("Propagate identities")

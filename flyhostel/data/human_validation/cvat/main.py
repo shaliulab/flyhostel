@@ -309,11 +309,19 @@ def integrate_human_annotations(
     make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize)
 
     out_file=os.path.join(folder, f"{experiment}_without_identity.feather")
+
+    # required when a fly does not overlap between 2 chunks due to a lag to high between chunks
+    annotated_table_file=os.path.join(folder, "validation_lags.csv")
+    if os.path.exists(annotated_table_file):
+        annotated_table=pd.read_csv(annotated_table_file)
+    else:
+        annotated_table=None
+
     try:
         logger.debug("Annotate identity")
         print(f"Saving data until annotate_identity to {out_file}")
         new_data.reset_index(drop=True).to_feather(out_file)
-        out=annotate_identity(cudf.DataFrame(new_data), number_of_animals, chunksize)
+        out=annotate_identity(cudf.DataFrame(new_data), number_of_animals, chunksize, annotated_table=annotated_table)
     except Exception as error:
         print(error)
         print(traceback.print_exc())
