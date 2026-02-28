@@ -32,9 +32,9 @@ DEBUG=True
 def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
 
     unzipped_folder=f"task_{task_number}"
+    zip_file=os.path.join(path, f"{task_number}_annotations.zip")
 
     if not os.path.exists(unzipped_folder) or redownload:
-        zip_file=os.path.join(path, f"{task_number}_annotations.zip")
     
         if os.path.exists(zip_file):
             os.remove(zip_file)
@@ -57,16 +57,23 @@ def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
         p.communicate()
 
         assert os.path.exists(zip_file), f"{zip_file} was not downloaded"
-        return zip_file
+
+    return zip_file
 
 
 def download_task_annotations(task_number, *args, **kwargs):
     unzipped_folder=f"task_{task_number}"
 
     zip_file=download_task_annotations_to_zip(task_number, *args, **kwargs)
+    assert os.path.exists(zip_file), f"{zip_file} not found"
 
-    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-        zip_ref.extractall(unzipped_folder)
+    try:
+        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+            zip_ref.extractall(unzipped_folder)
+    except Exception as error:
+        logger.error(error)
+        logger.error("Cannot unzip %s", zip_file)
+        import ipdb; ipdb.set_trace()
 
     with open(f"{unzipped_folder}/annotations/instances_default.json", "r") as handle:
         cvat_annotations=json.load(handle)
@@ -173,8 +180,14 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
         contours.append(contour)
         i+=1
 
-    annotations_df=pd.DataFrame.from_records(parsed_annot, columns=["idx", "frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel", "frame_idx_in_block"])
-
+    annotations_df=pd.DataFrame.from_records(
+        parsed_annot,
+        columns=["idx", "frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel", "frame_idx_in_block"],
+    )
+    annotations_df["frame_number"]=annotations_df["frame_number"].astype(int)
+    annotations_df["local_identity"]=annotations_df["local_identity"].astype(int)
+    annotations_df["x"]=annotations_df["x"].astype(float)
+    annotations_df["y"]=annotations_df["y"].astype(float)
     return annotations_df, contours
 
 
