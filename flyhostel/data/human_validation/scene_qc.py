@@ -286,13 +286,14 @@ def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
     kwargs=[]
     manifests_todo=[]
     for manifest in tqdm(manifests):
-        output_yaml = os.path.join(os.path.dirname(manifest), os.path.splitext(os.path.basename(manifest))[0] + "_qc.yaml")
+        key=os.path.join(os.path.dirname(manifest), os.path.splitext(os.path.basename(manifest))[0])
+        output_yaml = key + "_qc.yaml"
         if os.path.exists(output_yaml):
             continue
         
-        scene_start=int(os.path.splitext(manifest)[0].split("_")[-1])
-        chunk=scene_start//chunksize
-        scene_length=len(os.listdir(f"{folder}/movies/{experiment}_{str(chunk).zfill(6)}_{str(scene_start).zfill(10)}"))
+        row=pd.read_csv(key + ".csv")
+        scene_start=int(row["frame_number"])
+        scene_length=int(row["nframes"])
 
         scene=tracking_data.loc[
             (tracking_data["frame_number"] >= scene_start) & (tracking_data["frame_number"] < scene_start+scene_length),

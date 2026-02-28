@@ -95,7 +95,8 @@ def load_qc(folder, chunksize):
     qc=[]
 
     for path in yaml_files:
-        scene=int(os.path.splitext(os.path.basename(path))[0].rstrip("_qc").split("_")[-1])
+        csv_file=path.replace("_qc.yaml", ".csv")                
+        scene=int(pd.read_csv(csv_file)["frame_number"])
         qc.append(load_yaml_qc(path, scene))
     qc=pd.concat(qc, axis=0)
     qc["chunk"]=qc["scene"]//chunksize

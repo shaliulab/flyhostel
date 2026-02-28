@@ -33,7 +33,7 @@ def main():
     df, df_bin, qc_fail=annotate_for_validation(
         args.experiment, args.folder,
         time_window_length=args.time_window_length,
-        format=".png",
+        format=".mp4",
         n_jobs=args.n_jobs,
         cache=args.cache,
         min_frame_number=args.min_frame_number,

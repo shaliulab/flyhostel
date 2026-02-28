@@ -24,9 +24,11 @@ logger=logging.getLogger(__name__)
 
 
 def annotate_for_validation(
-        experiment, output_folder,
+        experiment,
+        output_folder,
+        format,
         time_window_length=1,
-        format=".png", n_jobs=20,
+        n_jobs=20,
         min_frame_number=None,
         max_frame_number=None,
         cache=False,
