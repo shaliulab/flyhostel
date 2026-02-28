@@ -13,6 +13,7 @@ from flyhostel.utils.utils import (
     get_basedir,
     get_pixels_per_mm,
     get_number_of_animals,
+    get_zt_from_chunk,
 )
 from flyhostel.data.human_validation.cvat.cvat_integration import (
     get_tasks_for_project,
@@ -32,12 +33,14 @@ logger=logging.getLogger(__name__)
 REDOWNLOAD_FROM_CVAT=True
 def integrate_human_annotations(
         experiment, folder,
-        first_frame_number=0, last_frame_number=math.inf,
+        first_frame_number=0,
+        last_frame_number=math.inf,
         redownload=REDOWNLOAD_FROM_CVAT,
         number_of_rows=1,
         number_of_cols=1,
         tasks=None,
         frames_from_annotation=False,
+        reference_hour=13,
     ):
     """
     Add human validated identity tracks to a flyhostel dbfile
@@ -95,8 +98,16 @@ def integrate_human_annotations(
     if frames_from_annotation:
         first_frame_number=annotations_df["frame_number"].min()
         last_frame_number=annotations_df["frame_number"].max()
-        print(f"Inferring first and last frame numbers: {first_frame_number} - {last_frame_number}")
-        
+    
+    first_chunk = first_frame_number // chunksize
+    last_chunk = last_frame_number // chunksize
+
+
+    first_zt=get_zt_from_chunk(experiment, first_chunk, reference_hour=reference_hour*3600)
+    last_zt=get_zt_from_chunk(experiment, last_chunk, reference_hour=reference_hour*3600)
+
+
+    print(f"Inferring first and last frame numbers: {first_frame_number} ({first_chunk}) ZT = {first_zt} - {last_frame_number} ({last_chunk}) ZT = {last_zt}")
 
     # load original predictions (machine made)
     logger.info("Load predictions from frame number %s to %s", first_frame_number, last_frame_number)
