@@ -1,4 +1,5 @@
 import itertools
+import logging
 import os
 import numpy as np
 import cv2
@@ -38,6 +39,7 @@ from flyhostel.utils import (
     get_local_identities,
     get_single_animal_video,
 )
+logger=logging.getLogger(__name__)
 os.environ["DEEPETHOGRAM_PROJECT_PATH"]="/flyhostel_data/fiftyone/FlyBehaviors/DEG/FlyHostel_deepethogram_47fps/"
 TOUCH_MASK_DURATION=10
 
@@ -160,10 +162,59 @@ def select_positives(df, database, groupby=["id", "nn", "interaction"], min_rati
     return df
 
 
+def make_chunk_change_safe(t, row, rejection_database, direction, chunksize, framerate):
+    """
+    Required to be able to handle the big between chunk latency data glitch
+    Because there might be some seconds when nothing is observed
+    
+    """
+
+    proximal_row=rejection_database.loc[
+        rejection_database["t"]==t
+    ]
+    # if this is true, no data for that time!
+    if proximal_row.shape[0]==0:
+        current_chunk = row["frame_number"]//chunksize
+        if direction == "forward":
+            proximal_fn = rejection_database.loc[
+                    rejection_database["t"]>=t
+            ]["frame_number"].min()
+            proximal_chunk = proximal_fn // chunksize
+            if proximal_chunk == current_chunk:
+                return t
+            
+            t0=rejection_database.loc[rejection_database["chunk"]==current_chunk]["t"].max()
+            # future
+            t1=rejection_database.loc[rejection_database["chunk"]==proximal_chunk]["t"].max()
+            new_t=t + int(t1-t0)
+       
+
+        elif direction == "backward":
+            proximal_fn = rejection_database.loc[
+                    rejection_database["t"]<=t
+            ]["frame_number"].max()
+            proximal_chunk = proximal_fn // chunksize
+            if proximal_chunk == current_chunk:
+                return t
+            
+            t0=rejection_database.loc[rejection_database["chunk"]==current_chunk]["t"].max()
+
+            # past
+            t1=rejection_database.loc[rejection_database["chunk"]==proximal_chunk]["t"].max()
+            new_t=t - int(t0 - t1)
+        else:
+            raise ValueError(f"direction must be one of forward or backward. Passed {direction}")
+
+        logger.warning("Correcting %s to %s", t, new_t)
+        return new_t
+
+
 def detect_putative_rejections(experiment, number_of_animals, touch_mask_duration=TOUCH_MASK_DURATION):
 
     fps=get_framerate(experiment)
     chunksize=get_chunksize(experiment)
+    framerate=get_framerate(experiment)
+    
     loaders=[]
     centroids_1s=[]
     for identity in range(1, number_of_animals+1):
@@ -362,6 +413,10 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
     ):
         try:
             animal=row["animal"]
+            interaction_duration=row["interaction_duration"]
+
+            if np.isnan(interaction_duration):
+                continue
             
             min_t=sleep_df.query("(animal == @animal)")["t"].min()
             max_t=sleep_df.query("(animal == @animal)")["t"].max()
@@ -369,12 +424,16 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
             t=row["t"]
             tm1=t-1
             t_before=t-300
-            t_end=row["t"]+row["interaction_duration"]
+            t_end=row["t"]+interaction_duration
             t_endp1=t_end+1
             t_after=t_end+300
 
-            if t_before < min_t or t_after > max_t or np.isnan(row["interaction_duration"]):
+            tm1=make_chunk_change_safe(tm1, row, rejection_database, direction="backward", chunksize=chunksize, framerate=framerate)
+            t_endp1=make_chunk_change_safe(t_endp1, row, rejection_database, direction="forward", chunksize=chunksize, framerate=framerate)           
+
+            if t_before < min_t or t_after > max_t:
                 continue
+
             inactive_before=sleep_df.query("(animal == @animal) & (t >= @t_before) & (t < @t)")["inactive"].sum()
             inactive_after=sleep_df.query("(animal == @animal) & (t >= @t_end) & (t < @t_after)")["inactive"].sum()
             rejection_database["time_inactive_300s_before"].iloc[i]=inactive_before
