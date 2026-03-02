@@ -22,6 +22,8 @@ from zeitgeber.rle import encode
 
 logger=logging.getLogger(__name__)
 
+TESTING=False
+
 
 def annotate_for_validation(
         experiment,
@@ -141,6 +143,9 @@ def annotate_for_validation(
             kwargs.append({"row": row, "tracking_data": tracking_data})
 
     logger.debug("Will generate %s videos", len(kwargs))
+
+    if TESTING:
+        kwargs=kwargs[:3]
 
     movies_folder=os.path.join(output_folder, "movies")
     os.makedirs(movies_folder, exist_ok=True)
