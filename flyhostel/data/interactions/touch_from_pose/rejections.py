@@ -162,51 +162,60 @@ def select_positives(df, database, groupby=["id", "nn", "interaction"], min_rati
     return df
 
 
-def make_chunk_change_safe(t, row, rejection_database, direction, chunksize, framerate):
+def make_chunk_change_safe(t, row, df, direction, chunksize, framerate):
     """
     Required to be able to handle the big between chunk latency data glitch
     Because there might be some seconds when nothing is observed
     
     """
 
-    proximal_row=rejection_database.loc[
-        rejection_database["t"]==t
+    proximal_row=df.loc[
+        df["t"]==t
     ]
     # if this is true, no data for that time!
     if proximal_row.shape[0]==0:
         current_chunk = row["frame_number"]//chunksize
         if direction == "forward":
-            proximal_fn = rejection_database.loc[
-                    rejection_database["t"]>=t
+            proximal_fn = df.loc[
+                    df["t"]>=t
             ]["frame_number"].min()
             proximal_chunk = proximal_fn // chunksize
             if proximal_chunk == current_chunk:
                 return t
             
-            t0=rejection_database.loc[rejection_database["chunk"]==current_chunk]["t"].max()
+
+            # select the last t of the current chunk        
+            t0=df.loc[df["chunk"]==current_chunk]["t"].max()
             # future
-            t1=rejection_database.loc[rejection_database["chunk"]==proximal_chunk]["t"].max()
-            new_t=t + int(t1-t0)
-       
+            # select the first t of the proximal (next) chunk
+            t1=df.loc[df["chunk"]==proximal_chunk]["t"].min()
+            diff=int(t1-t0)
 
         elif direction == "backward":
-            proximal_fn = rejection_database.loc[
-                    rejection_database["t"]<=t
+            proximal_fn = df.loc[
+                    df["t"]<=t
             ]["frame_number"].max()
             proximal_chunk = proximal_fn // chunksize
             if proximal_chunk == current_chunk:
                 return t
-            
-            t0=rejection_database.loc[rejection_database["chunk"]==current_chunk]["t"].max()
+        
+            # select the first t of the current chunk
+            t0=df.loc[df["chunk"]==current_chunk]["t"].min()
 
             # past
-            t1=rejection_database.loc[rejection_database["chunk"]==proximal_chunk]["t"].max()
-            new_t=t - int(t0 - t1)
+            # select the last t of the proximal (past) chunk
+            t1=df.loc[df["chunk"]==proximal_chunk]["t"].max()
+            diff = -1 * int(t0 - t1)
+
         else:
             raise ValueError(f"direction must be one of forward or backward. Passed {direction}")
 
-        logger.warning("Correcting %s to %s", t, new_t)
+        new_t=t + diff
+
+        logger.warning("Correcting %s (chunk %s) to %s (chunk %s) (%s seconds)", t, current_chunk, new_t, proximal_chunk, diff)
         return new_t
+    else:
+        return t
 
 
 def detect_putative_rejections(experiment, number_of_animals, touch_mask_duration=TOUCH_MASK_DURATION):
@@ -260,6 +269,7 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
             .sort_values("frame_number"),
         on="frame_number", by="id", direction="backward", tolerance=np.int64(np.ceil(fps*1.1))
     )
+    sleep_df["chunk"]=sleep_df["frame_number"]//chunksize
 
 
     touch_database["inactive_"]=touch_database["inactive"].copy()
@@ -428,8 +438,8 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
             t_endp1=t_end+1
             t_after=t_end+300
 
-            tm1=make_chunk_change_safe(tm1, row, rejection_database, direction="backward", chunksize=chunksize, framerate=framerate)
-            t_endp1=make_chunk_change_safe(t_endp1, row, rejection_database, direction="forward", chunksize=chunksize, framerate=framerate)           
+            tm1=make_chunk_change_safe(tm1, row, sleep_df, direction="backward", chunksize=chunksize, framerate=framerate)
+            t_endp1=make_chunk_change_safe(t_endp1, row, sleep_df, direction="forward", chunksize=chunksize, framerate=framerate)
 
             if t_before < min_t or t_after > max_t:
                 continue
@@ -451,6 +461,7 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
             inactive, bout_out=inactive_df.query("(animal == @animal) & t == @t_endp1")[["inactive", "bout_out"]].iloc[0]
             rejection_database["inactive_after"].iloc[i]=inactive
             rejection_database["bout_out_inactive_after"].iloc[i]=bout_out
+
         except Exception as error:
             print(error)
             import ipdb; ipdb.set_trace()
