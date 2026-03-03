@@ -475,8 +475,7 @@ def detect_touch_pairs(
     return out, df
 
 def stack_individuals(
-    ds1: xr.Dataset,
-    ds2: xr.Dataset,
+    datasets: list,
     ind_names=None,
     join="outer",
 ) -> xr.Dataset:
@@ -488,22 +487,37 @@ def stack_individuals(
     'individuals' from alignment to avoid unintended expansion.
     """
     # 0) sanity checks
-    for i, ds in enumerate((ds1, ds2), start=1):
+    datasets_=[None, ] * len(datasets)
+    for i, ds in enumerate(datasets):
         if "individuals" not in ds.dims:
-            raise ValueError(f"ds{i} has no 'individuals' dim.")
+            raise ValueError(f"ds{i+1} has no 'individuals' dim.")
         if ds.sizes["individuals"] != 1:
-            raise ValueError(f"ds{i} must have size 1 along 'individuals'.")
+            raise ValueError(f"ds{i+1} must have size 1 along 'individuals'.")
+    
+        if ind_names is not None:
+            # 1) relabel the single label of each dataset to a unique name
+            ds = ds.assign_coords(individuals=[ind_names[i]])
 
-    if ind_names is not None:       
-        # 1) relabel the single label of each dataset to a unique name
-        ds1 = ds1.assign_coords(individuals=[ind_names[0]])
-        ds2 = ds2.assign_coords(individuals=[ind_names[1]])
+        datasets_[i]=ds
 
-    # 2) align everything EXCEPT the 'individuals' dim
-    ds1a, ds2a = xr.align(ds1, ds2, join=join, exclude=["individuals"])
+    datasets=datasets_
+    del datasets_
+
+    datasets_aligned=[None, ] * len(datasets)
+    
+    for i, ds in enumerate(datasets):
+        if i == 0:
+            continue
+    
+        # 2) align everything EXCEPT the 'individuals' dim
+        # NOTE this may not work if alignment needs to be done
+        # also between non contiguous individuals
+        ds1, ds2 = xr.align(datasets[i-1], datasets[i], join=join, exclude=["individuals"])
+        datasets_aligned[i-1]=ds1
+        datasets_aligned[i]=ds2
 
     # 3) concatenate along 'individuals' (now the labels are unique)
-    out = xr.concat([ds1a, ds2a], dim="individuals")
+    out = xr.concat(datasets_aligned, dim="individuals")
 
     # 4) keep attrs from the first input (optional)
     out.attrs.update(ds1.attrs)
