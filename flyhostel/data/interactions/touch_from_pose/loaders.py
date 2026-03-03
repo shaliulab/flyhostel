@@ -17,7 +17,6 @@ from flyhostel.utils import (
 )
 from flyhostel.data.pose.constants import legs as all_legs
 from flyhostel.data.interactions.utils import read_label_file_rejections
-from flyhostel.data.interactions.constants import DATA_DIR
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
 from .utils import (
     add_centroid_offset_single,
@@ -101,12 +100,13 @@ def load_experiment_features(experiment):
         "experiment", "basedir", "framerate", "chunksize", "square_width",
     ])
     # Give your flies readable IDs
-    ds = stack_individuals(*datasets, ind_names=animals, join="outer")
+    ds = stack_individuals(datasets, ind_names=animals, join="outer")
 
     return ds
 
 
 def load_labels(dataset):
+    raise NotImplementedError
 
     df=[]
     for experiment in dataset:
@@ -118,7 +118,7 @@ def load_labels(dataset):
         for animal in tqdm(animals):
             identity=animal.split("__")[1]
 
-            label_files=glob.glob(f"{DATA_DIR}/{experiment}_*{identity}/*csv")
+            label_files=glob.glob(f"{data_dir}/{experiment}_*{identity}/*csv")
             df_human=[]
             for path in label_files:
                 labels=read_label_file_rejections(path, chunksize=chunksize)
