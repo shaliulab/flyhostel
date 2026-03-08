@@ -556,6 +556,67 @@ def build_interaction_video_key(experiment, row, interaction_name="rejections"):
 def animal_to_id(individual):
     return individual[:26] + "|" + individual.split("__")[1]
 
+
+import io
+def make_int_or_str(values):
+    out=[]
+    for val in values:
+        try:
+            out.append(str(int(val)))
+        except ValueError:
+            out.append(val)
+    return out
+
+
+def load_metadata(dbfile, identity):
+    assert os.path.exists(dbfile), f"{dbfile} does not exist"
+    with sqlite3.connect(dbfile) as conn:
+        metadata_str=pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'ethoscope_metadata'", con=conn)["value"].values.tolist()[0]
+
+    metadata=pd.read_csv(io.StringIO(metadata_str)).iloc[:, 1:]
+
+    try:
+        metadata_single_animal=metadata.loc[metadata["identity"]==identity]
+        if metadata_single_animal.shape[0]==0:
+            raise KeyError
+    except KeyError:
+        metadata_single_animal=metadata.loc[metadata["region_id"]==identity]
+    
+    if metadata_single_animal.shape[0]!=1:
+        logger.error("%s rows for identity %s in %s", metadata_single_animal.shape[0], identity, dbfile)
+        raise Exception
+ 
+    assert "identity" in metadata_single_animal.columns, f"identity column not found in metadata"
+    metadata_single_animal["identity"]=make_int_or_str(metadata_single_animal["identity"])
+    metadata_single_animal["region_id"]=make_int_or_str(metadata_single_animal["region_id"])
+    metadata_single_animal["number_of_animals"]=make_int_or_str(metadata_single_animal["number_of_animals"])
+    return metadata_single_animal
+
+def load_meta_info(dbfile, identity, reference_hour=None):
+    """
+    Arguments:
+        reference_hour (int): If provided, time sinc light onset (ZT0) in seconds
+    Populate meta_info dictionary with keys:
+    
+    * t_after_ref: Number of seconds between start time and ZT0. Add it to an imgstore timestamp to get the ZT time
+    """
+
+    meta_info={}
+    assert os.path.exists(dbfile), f"{dbfile} does not exist"
+    
+    with sqlite3.connect(dbfile) as conn:
+        start_time=int(float(pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'date_time';", con=conn)["value"].values.item()))
+        start_time=start_time-start_time%3600
+        start_time=start_time%(24*3600)
+        
+    if reference_hour is None:
+        metadata_single_animal=load_metadata(dbfile, identity)
+        reference_hour=(metadata_single_animal["reference_hour"]*3600).item()
+
+    meta_info={"t_after_ref": start_time-reference_hour} # seconds
+    return meta_info
+
+    
 import os
 import subprocess
 import tempfile
