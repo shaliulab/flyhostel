@@ -77,8 +77,6 @@ def apply_food_distance_rule(df, idx, interval):
     return df
 
 
-    
-
 def apply_p2inactive(df, replace, idx):
     rows=np.bitwise_or(
         (df["prediction"].isin(["feed"])) & (df["proboscis"]<0.5),
