@@ -24,6 +24,12 @@ from flyhostel.data.human_validation.cvat.utils import (
     load_original_resolution, annotate_crossings, get_dbfile
 )
 from flyhostel.utils.utils import get_chunksize, get_number_of_animals, get_experiment_identifier
+from .api import (
+    get_tasks_for_project,
+    cvat_auth
+)
+
+PROJECTS_JSON="/flyhostel_data/videos/index_cvat_projects.json"
 
 logger=logging.getLogger(__name__)
 from flyhostel.data.human_validation.cvat.constants import cvat_username, cvat_host, cvat_password
@@ -84,7 +90,7 @@ def download_task_annotations(task_number, *args, **kwargs):
     return annotations, images, categories
 
 
-def load_task_annotations(annotations, images, categories, basedir, frame_width=1000, frame_height=1000, number_of_rows=1, number_of_cols=1):
+def load_task_annotations(annotations, images, categories, basedir, frame_width=1000, frame_height=1000, number_of_rows=1, number_of_cols=1, chunksize=None):
     """
     Returns:
 
@@ -98,6 +104,9 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
     """
     parsed_annot=[]
     contours=[]
+
+    assert chunksize is not None
+
     original_resolution=load_original_resolution(basedir)
 
 
@@ -184,8 +193,9 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
         parsed_annot,
         columns=["idx", "frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel", "frame_idx_in_block"],
     )
+    
     annotations_df["frame_number"]=annotations_df["frame_number"].astype(int)
-    annotations_df["local_identity"]=annotations_df["local_identity"].astype(int)
+    annotations_df["chunk"]=annotations_df["frame_number"]//chunksize
     annotations_df["x"]=annotations_df["x"].astype(float)
     annotations_df["y"]=annotations_df["y"].astype(float)
     return annotations_df, contours
@@ -207,14 +217,14 @@ def join_task_data(task1, task2):
     ], axis=0)
     return annotations_df, contours
 
-def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
+def get_annotations(experiment, basedir, tasks, n_jobs=2, **kwargs):
 
     n_jobs=min(len(tasks), n_jobs)
     out = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             get_annotation
         )(
-            basedir, task_number, **kwargs
+            experiment, basedir, task_number, **kwargs
         )
         for task_number in tasks
     )
@@ -237,8 +247,9 @@ def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
     return annotations_df, contours
 
 
-def get_annotation(basedir, task_number, number_of_cols=1, number_of_rows=1, **kwargs):
+def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of_rows=1, **kwargs):
     annotations, images, categories=download_task_annotations(task_number, **kwargs)
+    chunksize=get_chunksize(experiment)
     
     assert len(images["width"].unique())==1
     frame_width=images["width"].unique()[0]//number_of_cols
@@ -251,6 +262,7 @@ def get_annotation(basedir, task_number, number_of_cols=1, number_of_rows=1, **k
         basedir=basedir,
         frame_width=frame_width, frame_height=frame_height,
         number_of_rows=number_of_rows, number_of_cols=number_of_cols,
+        chunksize=chunksize
     )
     annotations_df["task"]=task_number
     return annotations_df, contours
@@ -574,20 +586,6 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     
     return identity_corrected, roi0_corrected, score_dist
 
-PROJECTS_JSON="/flyhostel_data/videos/index_cvat_projects.json"
-CVAT_BASE = "http://" + os.environ["CVAT_HOST"] + ":8080"
-
-
-def cvat_auth(session):
-
-    login_url = f"{CVAT_BASE}/api/auth/login"
-    r = session.post(login_url, json={
-        "username": os.environ["CVAT_USERNAME"],
-        "password": os.environ["CVAT_PASSWORD"]
-    })
-    r.raise_for_status()
-    return r
-
 
 def update_project_list():
     url="http://localhost:8080/api/projects?page_size=9999&scheme=json"
@@ -636,19 +634,3 @@ def get_project_id_from_name(experiment, errors="raise"):
             logger.warning("0 projects with name %s", experiment)
 
     return project_id
-
-def get_tasks_for_project(project_id):
-
-    with requests.Session() as s:
-        # 1) Log in (endpoint and payload depend on your API)
-        r = cvat_auth(s)
-    
-        # 2) Now cookies are stored in `s`, and will be sent automatically
-        url = f"{CVAT_BASE}/api/tasks"
-        r = s.get(url, params={"project_id": project_id})
-        r.raise_for_status()
-        out = r.json()
-        tasks=[]
-        for task in out["results"]:
-            tasks.append(int(task["id"]))
-        return tasks

@@ -29,12 +29,37 @@ from flyhostel.data.human_validation.cvat.report import make_report, jump_report
 from flyhostel.data.human_validation.cvat.validation_csv import apply_validation_csv_file
 logger=logging.getLogger(__name__)
 
+try:
+    cudf.DataFrame({"x": [1]})
+except:
+    raise ImportError(f"cudf is broken. Maybe a compatibility problem between this version of cudf {cudf.__version__} and the CUDA driver version")
 
 REDOWNLOAD_FROM_CVAT=True
+
+
+def select_frame_interval(data, frames_from_annotation, first_frame_number, last_frame_number):
+
+    if frames_from_annotation:
+        if first_frame_number is None or last_frame_number is None:
+            print("Inferring frame numbers")
+            first_frame_number=data["frame_number"].min()
+            last_frame_number=data["frame_number"].max()
+
+    elif not frames_from_annotation and (first_frame_number is None or last_frame_number is None):
+        raise ValueError("Either pass a --fn-interval or --frames-from-annotation")
+
+    if last_frame_number is not None and np.isinf(last_frame_number):
+        last_frame_number=data["frame_number"].max()
+
+    assert ~np.isnan(first_frame_number)
+    assert ~np.isnan(last_frame_number)
+    return first_frame_number, last_frame_number
+    
+
 def integrate_human_annotations(
         experiment, folder,
-        first_frame_number=0,
-        last_frame_number=math.inf,
+        first_frame_number=None,
+        last_frame_number=None,
         redownload=REDOWNLOAD_FROM_CVAT,
         number_of_rows=1,
         number_of_cols=1,
@@ -80,7 +105,7 @@ def integrate_human_annotations(
         * folder (str): Where to save output csv files
         * tasks (list): Task IDs corresponding to this experiment
         * first_frame_number (int): First frame number of the validation tables
-        * last_frame_numebr (int): Last frame number of the validation tables
+        * last_frame_number (int): Last frame number of the validation tables
     """
 
     basedir=get_basedir(experiment)
@@ -93,21 +118,22 @@ def integrate_human_annotations(
 
     tasks=get_tasks_for_project(get_project_id_from_name(experiment))
 
-    annotations_df, contours=get_annotations(basedir, tasks, redownload=redownload, number_of_rows=number_of_rows, number_of_cols=number_of_cols)
+    annotations_df, contours=get_annotations(experiment, basedir, tasks, redownload=redownload, number_of_rows=number_of_rows, number_of_cols=number_of_cols)
     annotations_df["chunk"]=annotations_df["frame_number"]//chunksize
-    if frames_from_annotation:
-        first_frame_number=annotations_df["frame_number"].min()
-        last_frame_number=annotations_df["frame_number"].max()
+
+
+    first_frame_number, last_frame_number=select_frame_interval(annotations_df, frames_from_annotation, first_frame_number, last_frame_number)
+
+    assert ~np.isnan(reference_hour)
+
     
     first_chunk = first_frame_number // chunksize
     last_chunk = last_frame_number // chunksize
 
-
     first_zt=get_zt_from_chunk(experiment, first_chunk, reference_hour=reference_hour*3600)
     last_zt=get_zt_from_chunk(experiment, last_chunk, reference_hour=reference_hour*3600)
 
-
-    print(f"Inferring first and last frame numbers: {first_frame_number} ({first_chunk}) ZT = {first_zt} - {last_frame_number} ({last_chunk}) ZT = {last_zt}")
+    print(f"Selected first and last frame numbers: {first_frame_number} ({first_chunk}) ZT = {first_zt} - {last_frame_number} ({last_chunk}) ZT = {last_zt}")
 
     # load original predictions (machine made)
     logger.info("Load predictions from frame number %s to %s", first_frame_number, last_frame_number)
@@ -325,12 +351,23 @@ def integrate_human_annotations(
     annotated_table_file=os.path.join(folder, "validation_lags.csv")
     if os.path.exists(annotated_table_file):
         annotated_table=pd.read_csv(annotated_table_file)
+        annotated_table=annotated_table.loc[
+            (annotated_table["chunk"]>=first_frame_number*chunksize) &
+            (annotated_table["chunk"]<=last_frame_number*chunksize)
+        ]
+        if annotated_table.shape[0]==0:
+            annotated_table=None
     else:
         annotated_table=None
 
+    new_data=new_data.loc[
+        (new_data["frame_number"]>=first_frame_number) &
+        (new_data["frame_number"]<=last_frame_number)
+    ]
+
     try:
         logger.debug("Annotate identity")
-        print(f"Saving data until annotate_identity to {out_file}")
+        logger.debug(f"Saving data until annotate_identity to {out_file}")
         new_data.reset_index(drop=True).to_feather(out_file)
         out=annotate_identity(cudf.DataFrame(new_data), number_of_animals, chunksize, annotated_table=annotated_table)
     except Exception as error:
@@ -345,7 +382,7 @@ def integrate_human_annotations(
 
     # reports
     pixels_per_mm=get_pixels_per_mm(experiment)
-    jump_report(out.to_pandas(), folder, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm)
+    jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm)
     df_identity=out[["frame_number", "in_frame_index", "local_identity", "identity", "validated"]].reset_index(drop=True)
 
     groupby=df_identity.groupby("local_identity")
@@ -384,7 +421,7 @@ def integrate_human_annotations(
                          {mistakes}
                          """)
 
-    df_concatenation=df_identity[["frame_number", "local_identity", "identity"]]
+    df_concatenation=df_identity[["frame_number", "local_identity", "identity"]].copy()
     df_concatenation["chunk"]=df_concatenation["frame_number"]//chunksize
     df_concatenation=df_concatenation.groupby(["chunk", "identity", "local_identity"]).first().reset_index()[["chunk", "identity", "local_identity"]]
 
@@ -402,10 +439,11 @@ def integrate_human_annotations(
     print(groupby.last())
 
 
-def save_human_annotations(experiment, folder, first_frame_number=0, last_frame_number=math.inf):
+def save_human_annotations(experiment, folder, first_frame_number=None, last_frame_number=None, frames_from_annotation=False):
 
     basedir=get_basedir(experiment)
     dbfile=get_dbfile(basedir)
+    
 
     dfs={}
     for name in ["IDENTITY_VAL", "ROI_0_VAL", "CONCATENATION_VAL"]:
@@ -415,6 +453,8 @@ def save_human_annotations(experiment, folder, first_frame_number=0, last_frame_
             )
         )
         if "frame_number" in dfs[name].columns:
+            first_frame_number, last_frame_number=select_frame_interval(dfs[name], frames_from_annotation, first_frame_number, last_frame_number)
+
             dfs[name]=dfs[name].loc[
                 (dfs[name]["frame_number"]>=first_frame_number) & (dfs[name]["frame_number"]<=last_frame_number)
             ]

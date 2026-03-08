@@ -9,7 +9,7 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize,
     #columns
     # frame_number  in_frame_index  local_identity  validated  fragment           x           y  modified class_name  chunk
 
-    manual_validation=pd.read_csv(validation_csv)
+    manual_validation=pd.read_csv(validation_csv, comment="#")
     if replace is not None:
         manual_validation=manual_validation.loc[manual_validation["replace"]==replace]
 
@@ -140,5 +140,4 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize,
 
     new_data=new_data.loc[~((new_data["local_identity"].isna()) & (new_data["validated"]>0))]
 
-    print(new_data.shape)
     return new_data

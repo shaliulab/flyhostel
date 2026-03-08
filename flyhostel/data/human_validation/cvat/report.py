@@ -142,10 +142,14 @@ def jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm):
     ], axis=0)\
         .drop_duplicates(["frame_number", "local_identity"])
 
-    dist_df["distance"]=dist_df["distance"].astype(int)
-    dist_df["x"]=dist_df["x"].astype(int)
-    dist_df["y"]=dist_df["y"].astype(int)
+    
+    na_dist=dist_df["distance"].isna()
+    if na_dist.any():
+        logger.warning(dist_df.loc[na_dist])
 
+    dist_df.loc[~dist_df["x"].isna(), "x"]=dist_df.loc[~dist_df["x"].isna(), "x"].astype(int)
+    dist_df.loc[~dist_df["y"].isna(), "y"]=dist_df.loc[~dist_df["y"].isna(), "y"].astype(int)
+    
     database=dist_df\
         .merge(index, on=["frame_number", "local_identity"], how="right")\
         .sort_values(["local_identity", "frame_number"])\

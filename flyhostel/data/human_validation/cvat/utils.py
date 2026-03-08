@@ -26,7 +26,7 @@ def assign_in_frame_indices_old(data, number_of_animals, experiment=None):
 
     new_rows=[]
     for frame_number in tqdm(fn_index, desc="Assign in frame index"):
-        one_frame_data=rows_to_annotate.loc[rows_to_annotate["frame_number"]==frame_number]
+        one_frame_data=rows_to_annotate.loc[rows_to_annotate["frame_number"]==frame_number].copy()
         try:
             last_in_frame_index=np.nanmax(one_frame_data["in_frame_index"])
         except AttributeError as error:
@@ -79,7 +79,7 @@ def assign_in_frame_indices(data, number_of_animals, experiment=None):
 
     new_rows=[]
     for frame_number in tqdm(fn_index, desc="Assign in frame index"):
-        one_frame_data=rows_to_annotate.loc[rows_to_annotate["frame_number"]==frame_number]
+        one_frame_data=rows_to_annotate.loc[rows_to_annotate["frame_number"]==frame_number].copy()
         one_frame_data["in_frame_index"]=np.arange(one_frame_data.shape[0])
         new_rows.append(one_frame_data)
 

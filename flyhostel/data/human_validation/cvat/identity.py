@@ -105,7 +105,7 @@ def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated
         first_frame, last_frame
     ], axis=0).sort_values(["frame_number", "local_identity"])
     lid_table["frame_idx"]=lid_table["frame_number"]%chunksize
-    
+
     broken_tracks=lid_table.loc[~lid_table["frame_idx"].isin([0, chunksize-1])].to_pandas()
     # this can happen if a fly changes fragment
     # and regains the wrong local id in the process
@@ -117,23 +117,26 @@ def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated
 
     identity_table=make_identity_table(lid_table, chunks, chunksize, debug=debug)
     
-    annotated_table["distance"]=np.nan
-    annotated_table["is_inferred"]=False
-    annotated_table["priority"]=1
-    identity_table["priority"]=2
+    if annotated_table is not None:
+        annotated_table["distance"]=np.nan
+        annotated_table["is_inferred"]=False
+        annotated_table["priority"]=1
+        identity_table["priority"]=2
 
-    identity_table=pd.concat([
-        identity_table,
-        annotated_table
-    ], axis=0)\
-        .sort_values(["priority", "chunk", "local_identity"], ascending=True)\
-        .drop_duplicates(["chunk", "local_identity"])\
-        
+        identity_table=pd.concat([
+            identity_table,
+            annotated_table
+        ], axis=0)\
+            .sort_values(["priority", "chunk", "local_identity"], ascending=True)\
+            .drop_duplicates(["chunk", "local_identity"])\
+            
    
     identity_table.to_csv("identity_table.csv")
     
     logger.debug("Propagate identities")
-    identity_table=propagate_identities(identity_table, chunks=chunks, ref_chunk=chunks[0], number_of_animals=number_of_animals, strict=True)
+    ref_chunk=chunks[0]
+    print(f"Reference chunk = {ref_chunk}")
+    identity_table=propagate_identities(identity_table, chunks=chunks, ref_chunk=ref_chunk, number_of_animals=number_of_animals, strict=True)
     logger.debug("Done")
 
     logger.debug("Merge identity annotation")
@@ -143,6 +146,6 @@ def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated
     ).sort_values([
         "frame_number", "identity"
     ])
-    logger.debug("Done")
-    data=xf.DataFrame(data)
+    
+    
     return data

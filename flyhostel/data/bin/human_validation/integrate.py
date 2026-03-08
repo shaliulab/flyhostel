@@ -11,13 +11,13 @@ def get_parser():
     ap=argparse.ArgumentParser(conflict_handler="resolve")
     ap.add_argument("--experiment", type=str, required=True)
     ap.add_argument("--folder", type=str, default=None)
-    ap.add_argument("--fn-interval", type=int, nargs=2, required=False, default=[0, math.inf])
+    ap.add_argument("--fn-interval", type=int, nargs=2, required=False, default=[None, None])
+    ap.add_argument("--frames-from-annotation", dest="frames_from_annotation", action="store_true", help="Infer frame window from annotations")
     return ap
 
 def main():
 
     ap=get_parser()
-    ap.add_argument("--frames-from-annotation", dest="frames_from_annotation", action="store_true", help="Infer frame window from annotations")
     ap.add_argument("--number-of-rows", type=int, default=1, help="If images in cvat are a grid, how many rows the grid has")
     ap.add_argument("--number-of-cols", type=int, default=1, help="If images in cvat are a grid, how many rows the grid has")
     ap.add_argument("--redownload", action="store_true", default=False, required=False)
@@ -55,5 +55,6 @@ def save():
         args.experiment, folder,
         first_frame_number=args.fn_interval[0],
         last_frame_number=args.fn_interval[1],
+        frames_from_annotation=args.frames_from_annotation,
     )
 

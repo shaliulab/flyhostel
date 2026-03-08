@@ -259,6 +259,10 @@ def run_qc_of_scene_batch(kwargs_all):
     return qc
 
 def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
+    """
+    Entrypoint of auto-annotate-qc
+    
+    """
 
     # output_path_feather_df=os.path.join(folder, experiment + f"_tracking_data.feather")
     # tracking_data=pd.read_feather(output_path_feather_df)

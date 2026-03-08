@@ -11,7 +11,7 @@ def write_validated_roi0(df, dbfile):
     df["area"]=0
     table_name='ROI_0_VAL'
 
-    logger.debug("Writing %s to %s", table_name, dbfile)
+    print(f"Writing {df.shape[0]} rows to table {table_name} in {dbfile}")
 
     df.to_sql(
         table_name, con=engine,
@@ -32,7 +32,8 @@ def write_validated_identity(df, dbfile):
 
     table_name='IDENTITY_VAL'
 
-    logger.debug("Writing %s to %s", table_name, dbfile)
+    print(f"Writing {df.shape[0]} rows to table {table_name} in {dbfile}")
+
     df.to_sql(
         table_name, con=engine,
         if_exists=IF_EXISTS,

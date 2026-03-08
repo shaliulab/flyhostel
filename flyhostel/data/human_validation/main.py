@@ -119,7 +119,7 @@ def annotate_for_validation(
     for qc_col in tests:
         qc_rle[qc_col]=qc[qc_col].iloc[qc_rle["index"]].values
         
-    qc_fail=qc_rle.loc[qc_rle["status"]=="F"]
+    qc_fail=qc_rle.loc[qc_rle["status"]=="F"].copy()
     
     if cache and not os.path.exists(output_path_feather_bin):
         df_bin.to_feather(output_path_feather_bin)
