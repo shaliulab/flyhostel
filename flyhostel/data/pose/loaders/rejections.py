@@ -88,13 +88,6 @@ class RejectionsLoader:
         self.rejections=pd.read_feather(f"{self.basedir}/interactions/{self.experiment}_rejection_database.feather")
         self.rejections=self.rejections.query("id in @self.ids")
         
-
-    def get_interactions_data_dir(self):
-        if self.framerate == 150:
-            return "/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA_150fps"
-        else:
-            return "/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA"
-    
     def load_rejections_gt(self):
 
         data_dir=self.get_interactions_data_dir()
