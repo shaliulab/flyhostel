@@ -293,7 +293,6 @@ def load_wavelets(loader, filters, frames, wavelet_file=None):
     if wavelet_file is None:
         wavelets_folder=os.path.join(loader.basedir, "motionmapper", str(loader.identity).zfill(2), f"wavelets_{filters}", "FlyHostel_long_timescale_analysis", "Wavelets")
         wavelet_file=os.path.join(wavelets_folder, loader.experiment + "__" + str(loader.identity).zfill(2) + "-pcaModes-wavelets.mat")
-
         wavelet_file=validate_file(wavelet_file)
     
     print(f"Loading wavelets from {wavelet_file}")
@@ -526,7 +525,7 @@ def process_animal(
             logger.error(error)
             return None
 
-def load_animals(animals, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, n_jobs=1, **kwargs):
+def load_animals(animals, cache=None, refresh_cache=True, filters=DEFAULT_FILTERS, n_jobs=1, errors="raise", **kwargs):
     loaders=[]
     for animal in animals:
         if "1X" in animal:
@@ -556,4 +555,7 @@ def load_animals(animals, cache=None, refresh_cache=True, filters=DEFAULT_FILTER
     data=[d for d in data if d is not None]
     if data:
         data=pd.concat(data, axis=0)
+
+    elif errors=="raise":
+        raise ValueError(f"No data for animals {animals}")
     return data
