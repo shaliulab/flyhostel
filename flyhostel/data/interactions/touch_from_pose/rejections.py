@@ -137,12 +137,16 @@ def expand_touch(df, expand):
 
 
 def annotate_based_on_fn_in_column(df, column, variable):
+
+    df2=df.sort_values(["frame_number", "last_isolated"])\
+      .drop_duplicates("frame_number")
+    
     
     # 1. Build a lookup Series: frame_number -> metric
-    metric_at_frame = df.set_index("frame_number")[variable]
+    metric_at_frame = df2.set_index("frame_number")[variable]
 
     # 2. Use last_event to look up the metric value at that frame
-    df[variable] = df[column].map(metric_at_frame)
+    df[variable] = df2[column].map(metric_at_frame)
     return df
 
 
