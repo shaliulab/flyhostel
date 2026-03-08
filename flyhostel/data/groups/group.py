@@ -362,9 +362,17 @@ class FlyHostelGroup(InteractionDetector):
                     status="NO_CVAT_VALIDATION_FOUND"
 
             # handmade
-            validation_csv=os.path.join(validation_folder, "validation.csv")
-            if os.path.exists(validation_csv):
-                validation_files.append(validation_csv)
+            validation_csvs=[
+                # specifies local_identity of each blob
+                os.path.join(validation_folder, "validation.csv"),
+                # if the identity breaks because an overlap between flies in different chunks
+                # is not possible because the chunk has a lag too high (some recording glitch)
+                # specifies which two local_identity in consecutive chunks are the same fly
+                os.path.join(validation_folder, "validation_lags.csv"),
+            ]
+            for file in validation_csvs:
+                if os.path.exists(file):
+                    validation_files.append(file)
 
             files=[
                 dbfile, *data_files, metadata_file, landmarks_file,
