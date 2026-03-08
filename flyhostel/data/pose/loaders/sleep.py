@@ -31,6 +31,7 @@ class SleepLoader:
             min_time=None, max_time=None,
             min_time_immobile=300,
             bin_size=300,
+            errors="raise"
         ):
 
         """
@@ -49,7 +50,15 @@ class SleepLoader:
         if isinstance(dataset, str):
         
             feather_file=dataset
-            raise FileNotFoundError(feather_file)
+            if errors=="raise":
+                raise FileNotFoundError(feather_file)
+            elif errors=="warning":
+                logger.warning("FileNotFound %s", feather_file)
+            
+            self.sleep=None
+               
+            return None
+            
             dataset=self.compute_sleep_from_behavior(
                 min_time_immobile=min_time_immobile,
                 bin_size=bin_size,
