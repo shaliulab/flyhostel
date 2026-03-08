@@ -11,7 +11,7 @@ from flyhostel.data.deg import parse_chunk, parse_experiment, parse_local_identi
 from flyhostel.utils import (
     get_chunksize,
 )
-from .constants import DATA_DIR, METADATA_PIPELINE_FILE
+from .constants import METADATA_PIPELINE_FILE
 
 def read_label_file_rejections(labels_file, chunksize):
     data_entry=os.path.basename(os.path.dirname(os.path.realpath(labels_file)))
@@ -39,10 +39,10 @@ def read_label_file_rejections(labels_file, chunksize):
     return labels
 
 
-def load_metadata(only_videos=True):
+def load_metadata(data_dir, only_videos=True):
     metadata_pipeline=pd.read_csv(METADATA_PIPELINE_FILE, header=None)
     
-    entries=[os.path.basename(os.path.dirname(f)) for f in glob.glob(f"{DATA_DIR}/*/*.mp4")]
+    entries=[os.path.basename(os.path.dirname(f)) for f in glob.glob(f"{data_dir}/*/*.mp4")]
     metadata=pd.DataFrame.from_records([("_".join(entry.split("_")[:4]), int(entry.split("_")[-1])) for entry in entries], columns=["experiment", "identity"])
     metadata.drop_duplicates(inplace=True)
     metadata_pipeline.columns=["basedir", "experiment", "number_of_animals", "complete", "select"]
@@ -87,7 +87,6 @@ def annotate_pre_post_of_nn(df):
             "pre_asleep_duration": "pre_asleep_duration_nn",
             "post_asleep": "post_asleep_nn",
             "post_asleep_duration": "post_asleep_duration_nn",
-            # "latency_next_event": "latency_next_event_nn",
             "pre_asleep_bout_in": "pre_asleep_bout_in_nn",
             "pre_asleep_bout_out": "pre_asleep_bout_out_nn", 
             "post_asleep_bout_in": "post_asleep_bout_in_nn",
