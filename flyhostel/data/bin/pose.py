@@ -7,7 +7,8 @@ import glob
 import sqlite3
 import os.path
 import joblib
-from flyhostel.data.pose.export import pipeline, load_concatenation_table, parse_number_of_animals
+from flyhostel.data.pose.export import pipeline, parse_number_of_animals
+from flyhostel.data.pose.loaders.concatenation import load_concatenation_table
 
 
 def main():
@@ -63,10 +64,12 @@ def main():
         cur=conn.cursor()
         number_of_animals=parse_number_of_animals(cur)
         if number_of_animals==1:
-            concatenation=load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION")
+            concatenation_table="CONCATENATION"
         else:
-            concatenation=load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VAL")
+            concatenation_table="CONCATENATION_VAL"
 
+        concatenation=load_concatenation_table(cur, basedir, concatenation_table=concatenation_table)
+        
 
     if args.identity is None:
         identities=range(1, number_of_animals+1)

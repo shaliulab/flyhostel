@@ -3,7 +3,8 @@ import os.path
 import sqlite3
 
 from flyhostel.data.pose.main import FlyHostelLoader
-from flyhostel.data.pose.export import load_concatenation_table, parse_number_of_animals
+from flyhostel.data.pose.loaders.concatenation import load_concatenation_table
+from flyhostel.utils import get_number_of_animals
 
 def get_parser():
 
@@ -23,16 +24,16 @@ def main():
     experiment=args.experiment
     flyhostel_db = args.flyhostel_db
     concatenation_table_name=args.concatenation_table_name
+    number_of_animals=get_number_of_animals(experiment)
 
     experiment2="_".join(basedir.split(os.path.sep)[-3:])
+    assert experiment == experiment2
 
-    with sqlite3.connect(f'file:{flyhostel_db}?mode=ro', uri=True) as conn:
-        cur=conn.cursor()
-        number_of_animals=parse_number_of_animals(cur)
+
     identities=[number_of_animals-1]
 
     loader=FlyHostelLoader(
-        experiment=experiment2,
+        experiment=experiment,
         identity=identities[0],
         chunks=range(0, 400),
         identity_table="IDENTITY",

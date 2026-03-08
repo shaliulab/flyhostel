@@ -9,8 +9,6 @@ import pandas as pd
 import h5py
 
 from flyhostel.utils import (
-    get_dbfile,
-    get_basedir,
     get_chunksize
 )
 
@@ -84,7 +82,10 @@ def impute_body_part(analysis_file, body_part, reference):
     return missing
 
 
-def load_file(file):
+def load_file(file, chunksize=None):
+
+    if chunksize is None:
+        print("chunksize is not passed. No checks for missing data will be made")
 
     if not os.path.exists(file):
         print(f"{file} does not exist")
@@ -101,7 +102,13 @@ def load_file(file):
         logging.warning("Cannot open file %s", file)
         raise error
 
-    
+    if chunksize is not None:
+        
+        if tracks.shape[3]!=chunksize:
+            import ipdb; ipdb.set_trace()
+
+        assert tracks.shape[3]==chunksize, f"{file} is missing pose estimates (found {tracks.shape[3]} instead of {chunksize})"
+
     return node_names, tracks, score, file
 
 def load_files(files, chunksize, n_jobs=1):
@@ -115,7 +122,7 @@ def load_files(files, chunksize, n_jobs=1):
         joblib.delayed(
             load_file
         )(
-           file
+           file, chunksize=chunksize
         )
         for file in files
     )
@@ -137,7 +144,6 @@ def load_files(files, chunksize, n_jobs=1):
                 template_score = score.copy()
                 template_score[:] = np.nan
 
-            assert dataset.shape[3]==chunksize, f"{file} is missing pose estimates (found {dataset.shape[3]} instead of {chunksize})"
         else:
             raise ValueError(f"{file} could not be loaded")
             
@@ -200,31 +206,6 @@ def parse_number_of_animals(cur):
     conf=json.loads(conf.strip())
     number_of_animals=int(conf["_number_of_animals"]["value"])
     return number_of_animals
-
-def infer_analysis_path(basedir, local_identity, chunk, number_of_animals):
-    if number_of_animals==1:
-        return os.path.join(basedir, "flyhostel", "single_animal", str(0).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
-    else:
-        return os.path.join(basedir, "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
-
-def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VAL"):
-    cur.execute("SELECT value FROM METADATA where field ='idtrackerai_conf';")
-    conf=cur.fetchone()[0]
-    number_of_animals=int(json.loads(conf)["_number_of_animals"]["value"])
-
-
-    cur.execute(f"PRAGMA table_info('{concatenation_table}');")
-    header=[row[1] for row in cur.fetchall()]
-
-    cur.execute(f"SELECT * FROM {concatenation_table};")
-    records=cur.fetchall()
-    concatenation=pd.DataFrame.from_records(records, columns=header)
-    concatenation["chunk"]=concatenation["chunk"].astype(int)
-    concatenation["dfile"] = [
-        infer_analysis_path(basedir, int(row["local_identity"]), str(int(row["chunk"])).zfill(6), number_of_animals=number_of_animals)
-        for i, row in concatenation.iterrows()
-    ]
-    return concatenation
 
 
 def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", strict=True):
