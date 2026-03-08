@@ -79,6 +79,28 @@ def get_number_of_animals(experiment):
     number_of_animals=int(tokens[1].rstrip("X"))
     return number_of_animals
 
+def get_zt_from_chunk(experiment, chunk, **kwargs):
+
+    chunksize=get_chunksize(experiment)
+    frame_number=chunk*chunksize
+    dbfile=get_dbfile(get_basedir(experiment))
+
+    with sqlite3.connect(dbfile) as connection:
+        t=pd.read_sql(
+            f"SELECT frame_time FROM STORE_INDEX WHERE frame_number = {frame_number}",
+            con = connection 
+        )["frame_time"].item()/1000 # s
+
+    if get_number_of_animals(experiment)==1:
+        identity=0
+    else:
+        identity=1 
+    
+    t_after_ref=load_meta_info(dbfile, identity, **kwargs)["t_after_ref"]
+
+    zt = round((t_after_ref + t) / 3600, 2)
+    return zt
+    
 def get_wavelet_downsample(experiment):
     DOWNSAMPLES={
         150: 5,
