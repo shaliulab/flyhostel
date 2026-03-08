@@ -3,7 +3,7 @@ import sqlite3
 import glob
 import os.path
 import logging
-
+from flyhostel.utils import get_dbfile
 logger=logging.getLogger(__name__)
 
 class FilesystemInterface(ABC):
@@ -14,9 +14,7 @@ class FilesystemInterface(ABC):
 
 
     def load_dbfile(self):
-        dbfiles=glob.glob(self.basedir + "/FlyHostel*.db")
-        assert len(dbfiles) == 1, f"{len(dbfiles)} dbfiles found in {self.basedir}: {' '.join(dbfiles)}"
-        dbfile=dbfiles[0]
+        dbfile=get_dbfile(self.basedir)
         self.assert_file_integrity(dbfile)
 
         return dbfile
