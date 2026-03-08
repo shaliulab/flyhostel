@@ -27,12 +27,16 @@ def get_machine_id():
 
 logger = logging.getLogger(__name__)
 
-def validate_video(path):
+def validate_video(path, chunksize):
 
     cap = cv2.VideoCapture(path)
     ret, frame = cap.read()
     if not ret:
         warnings.warn(f"Validation for {path} failed. ret not True")
+
+    nframes=cap.get(7)
+    assert nframes==chunksize
+
 
     if not isinstance(frame, np.ndarray):
         warnings.warn(f"Validation for {path} failed. output is not an array")
@@ -207,7 +211,7 @@ class SingleVideoMaker(MP4VideoMaker):
         filename=self._make_single_video(*args, **kwargs)
         if filename is not None:
             print(f"Validating {filename}")
-            validate_video(filename)
+            validate_video(filename, chunksize=self.chunksize)
 
 
     @staticmethod
