@@ -12,7 +12,6 @@ from flyhostel.utils import (
     get_basedir,
     get_local_identities_from_experiment,
     get_chunksize,
-    get_deg_data_folder,
 )
 from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
 
@@ -44,92 +43,6 @@ def parse_entry(data_entry, **kwargs):
         return False, None
 
     return True, tokens
-
-def load_deg_data_gt_single_animal(experiment=None, identity=None, verbose=True):
-    all_labels=[]
-
-    counter=0
-    ignored_suffixes=[".dvc", ".pkl", ".md"]
-    ignored_prefixes=["."]
-    deg_data_folder=get_deg_data_folder(experiment)
-    entries=os.listdir(deg_data_folder)
-    pb=tqdm(total=len(entries))
-
-    for data_entry in entries:
-
-        experiment_entry="_".join(data_entry.split("_")[:4])
-
-        if data_entry=="split.yaml":
-            pb.update(1)
-            continue
-
-        if any((data_entry.startswith(pattern) for pattern in ignored_prefixes)):
-            pb.update(1)
-            continue
-
-        if any((data_entry.endswith(pattern) for pattern in ignored_suffixes)):
-            pb.update(1)
-            continue
-
-        try:
-            dbfile=get_dbfile(get_basedir(experiment_entry))
-        except AssertionError:
-            logger.debug("dbfile missing for entry: %s", data_entry)
-            pb.update(1)
-            continue
-        except IndexError:
-            logger.error("Invalid entry: %s", data_entry)
-            pb.update(1)
-            continue
-    
-        chunksize=get_chunksize(experiment_entry)
-
-        chunk=parse_chunk(data_entry, chunksize=chunksize)
-        labels_file=f"{deg_data_folder}/{data_entry}/{str(chunk).zfill(6)}_labels.csv"
-
-        if not os.path.exists(labels_file):
-            if verbose:
-                logger.debug(f"{labels_file} not found")
-            pb.update(1)
-            continue
-
-        if identity is not None:
-            ret = filter_by_id(data_entry, experiment=experiment, identity=identity, chunksize=chunksize)
-        else:
-            ret=True
-        
-        local_identity=parse_local_identity(data_entry, chunksize=chunksize)
-        chunk=parse_chunk(data_entry, chunksize=chunksize)
-
-        if not ret:
-            pb.update(1)
-            continue
-
-        if not os.path.exists(labels_file):
-            if verbose:
-                logger.debug(f"{labels_file} not found")
-            pb.update(1)
-            continue
-
-        labels=read_label_file(data_entry, labels_file, verbose=verbose, chunk=chunk, local_identity=local_identity)
-        if labels is None:
-            logger.debug(f"{labels_file} cannot be read")
-            pb.update(1)
-            continue
-
-        labels["frame_number"]=labels["chunk"]*chunksize+labels["frame_idx"]
-        labels["entry"]=data_entry
-        all_labels.append(labels)
-        del labels
-        counter+=1
-        pb.update(1)
-    
-    if len(all_labels)>0:
-        all_labels=pd.concat(all_labels, axis=0)
-        return all_labels
-    else:
-        return None
-
 
 def parse_experiment(data_entry, **kwargs):
     ret, tokens = parse_entry(data_entry, **kwargs)
@@ -214,6 +127,8 @@ class DEGLoader:
 
     def __init__(self, *args, **kwargs):
         self.experiment=None
+        self.identity=None
+        self.framerate=None
         self.deg=None
         self.datasetnames=None
         self.store_index=None
@@ -225,6 +140,95 @@ class DEGLoader:
     def load_store_index(self, cache=None):
         raise NotImplementedError()
 
+    def get_deg_data_dir(self):
+        ROOT="/flyhostel_data/fiftyone/FlyBehaviors/DEG"
+        if self.framerate==150:
+            return f"{ROOT}/FlyHostel_deepethogram/DATA"
+        else:
+            return f"{ROOT}/FlyHostel_deepethogram_47fps/DATA"
+
+
+    def load_deg_data_gt_single_animal(self, verbose=True):
+        all_labels=[]
+
+        counter=0
+        ignored_suffixes=[".dvc", ".pkl", ".md"]
+        ignored_prefixes=["."]
+        deg_data_folder=self.get_deg_data_dir()
+        entries=os.listdir(deg_data_folder)
+        pb=tqdm(total=len(entries))
+
+        for data_entry in entries:
+
+            experiment_entry="_".join(data_entry.split("_")[:4])
+
+            if data_entry=="split.yaml":
+                pb.update(1)
+                continue
+
+            if any((data_entry.startswith(pattern) for pattern in ignored_prefixes)):
+                pb.update(1)
+                continue
+
+            if any((data_entry.endswith(pattern) for pattern in ignored_suffixes)):
+                pb.update(1)
+                continue
+
+            try:
+                dbfile=get_dbfile(get_basedir(experiment_entry))
+            except AssertionError:
+                logger.debug("dbfile missing for entry: %s", data_entry)
+                pb.update(1)
+                continue
+            except IndexError:
+                logger.error("Invalid entry: %s", data_entry)
+                pb.update(1)
+                continue
+        
+            chunksize=get_chunksize(experiment_entry)
+
+            chunk=parse_chunk(data_entry, chunksize=chunksize)
+            labels_file=f"{deg_data_folder}/{data_entry}/{str(chunk).zfill(6)}_labels.csv"
+
+            if not os.path.exists(labels_file):
+                if verbose:
+                    logger.debug(f"{labels_file} not found")
+                pb.update(1)
+                continue
+
+            ret = filter_by_id(data_entry, experiment=self.experiment, identity=self.identity, chunksize=chunksize)
+            local_identity=parse_local_identity(data_entry, chunksize=chunksize)
+            chunk=parse_chunk(data_entry, chunksize=chunksize)
+
+            if not ret:
+                pb.update(1)
+                continue
+
+            if not os.path.exists(labels_file):
+                if verbose:
+                    logger.debug(f"{labels_file} not found")
+                pb.update(1)
+                continue
+
+            labels=read_label_file(data_entry, labels_file, verbose=verbose, chunk=chunk, local_identity=local_identity)
+            if labels is None:
+                logger.debug(f"{labels_file} cannot be read")
+                pb.update(1)
+                continue
+
+            labels["frame_number"]=labels["chunk"]*chunksize+labels["frame_idx"]
+            labels["entry"]=data_entry
+            all_labels.append(labels)
+            del labels
+            counter+=1
+            pb.update(1)
+        
+        if len(all_labels)>0:
+            all_labels=pd.concat(all_labels, axis=0)
+            return all_labels
+        else:
+            return None
+        
 
     def filter_by_time(self, min_time, max_time, cache):
 
@@ -262,7 +266,7 @@ class DEGLoader:
                 return
 
         if ground_truth:
-            self.load_deg_data_gt(*args, experiment=self.experiment, **kwargs)
+            self.load_deg_data_gt(*args, **kwargs)
         else:
             self.load_deg_data_prediction(*args, **kwargs)
 
@@ -277,7 +281,7 @@ class DEGLoader:
         self.load_deg_data_long(*args, min_time=min_time, max_time=max_time, stride=stride, ground_truth=ground_truth,  cache=cache, **kwargs)
 
         if self.deg is not None:
-            self.deg_long=self.deg.copy() 
+            self.deg_long=self.deg.copy()
             before=time.time()            
             self.deg=self.annotate_two_or_more_behavs_at_same_time_(self.deg)
             after=time.time()
@@ -285,6 +289,7 @@ class DEGLoader:
             self.annotate_rejections_(self.deg)
             self.deg.sort_values("frame_number", inplace=True)
             self.deg=annotate_bouts(self.deg, variable="behavior")
+            print(f"framerate={self.framerate}")
             self.deg=annotate_bout_duration(self.deg, fps=self.framerate)
             self.deg["score"]=None
             
@@ -306,20 +311,19 @@ class DEGLoader:
         raise NotImplementedError()
 
 
-    def load_deg_data_gt(self, experiment, identity=None, verbose=True):
-        if identity is None:
-            identity=int(self.datasetnames[0].split("__")[1])
-        
-        labels=load_deg_data_gt_single_animal(experiment=experiment, identity=identity, verbose=verbose)
+    def load_deg_data_gt(self, verbose=True):
+
+      
+        labels=self.load_deg_data_gt_single_animal(verbose=verbose)
     
         if labels is None:
-            logger.info(f"No labels found for {self.experiment}__{str(identity).zfill(2)}")
+            logger.info(f"No labels found for {self.experiment}__{str(self.identity).zfill(2)}")
             return None
 
         else:
-            id = self.experiment[:26] + "|" + str(identity).zfill(2)
+            id = self.experiment[:26] + "|" + str(self.identity).zfill(2)
             logger.info(f"id {id}: Number of label.csv found {labels.shape[0]}")
-            animal = self.experiment + "__" + str(identity).zfill(2)
+            animal = self.experiment + "__" + str(self.identity).zfill(2)
             labels["id"]=id
             labels["animal"]=animal
 
@@ -331,9 +335,6 @@ class DEGLoader:
 
 def apply_semantic_rules(data_entry, labels):
     
-
-    # if data_entry=="FlyHostel1_1X_2023-11-13_11-00-00_000127_000":
-    #     import ipdb; ipdb.set_trace()
 
     tracks=pd.DataFrame({x: labels[x] for x in ["twitch", "rejection", "touch"]})
     tracks["frame_idx"]=np.arange(labels.shape[0])
