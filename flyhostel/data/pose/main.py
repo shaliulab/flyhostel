@@ -47,14 +47,13 @@ from flyhostel.utils import (
     get_wavelet_downsample,
     get_basedir,
     get_square_width,
+    get_local_identities,
     rsync_files_from,
+    dunder_to_slash,
+    load_meta_info,
+    load_metadata,
 )
 
-pd.set_option("display.max_columns", 100)
-
-def dunder_to_slash(experiment):
-    tokens = experiment.split("_")
-    return tokens[0] + "/" + tokens[1] + "/" + "_".join(tokens[2:4])
 
 
 # keep only interactions where the distance between animals is max mm_max mm
@@ -63,14 +62,6 @@ from flyhostel.data.pose.sleap import draw_video_row
 from flyhostel.data.deg import DEGLoader
 from flyhostel.data.pose.video_crosser import CrossVideo
 
-def make_int_or_str(values):
-    out=[]
-    for val in values:
-        try:
-            out.append(str(int(val)))
-        except ValueError:
-            out.append(val)
-    return out
 
 
 class FlyHostelBackup:   
@@ -203,6 +194,8 @@ class FlyHostelLoader(
 
 
         self.load_meta_info()
+        self.number_of_animals=int(self.metadata["number_of_animals"].iloc[0])
+
         if identity_table is None:
             if self.number_of_animals==1:
                 self.identity_table="IDENTITY"
@@ -242,38 +235,8 @@ class FlyHostelLoader(
         * t_after_ref: Number of seconds between start time and ZT0. Add it to an imgstore timestamp to get the ZT time
         """
 
-        self.meta_info={}
-        assert os.path.exists(self.dbfile), f"{self.dbfile} does not exist"
-        with sqlite3.connect(self.dbfile) as conn:
-            start_time=int(float(pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'date_time';", con=conn)["value"].values.item()))
-            start_time=start_time-start_time%3600
-            start_time=start_time%(24*3600)
-            metadata_str=pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'ethoscope_metadata'", con=conn)["value"].values.tolist()[0]
-
-        metadata=pd.read_csv(io.StringIO(metadata_str)).iloc[:, 1:]
-
-        try:
-            metadata_single_animal=metadata.loc[metadata["identity"]==self.identity]
-            if metadata_single_animal.shape[0]==0:
-                raise KeyError
-        except KeyError:
-            metadata_single_animal=metadata.loc[metadata["region_id"]==self.identity]
-        
-        if metadata_single_animal.shape[0]!=1:
-            logger.error("%s rows for identity %s in %s", metadata_single_animal.shape[0], self.identity, self.dbfile)
-            raise Exception
-
-
-        reference_hour=(metadata_single_animal["reference_hour"]*3600).item()
-        
-        assert "identity" in metadata_single_animal.columns, f"identity column not found in metadata"
-        metadata_single_animal["identity"]=make_int_or_str(metadata_single_animal["identity"])
-        metadata_single_animal["region_id"]=make_int_or_str(metadata_single_animal["region_id"])
-        metadata_single_animal["number_of_animals"]=make_int_or_str(metadata_single_animal["number_of_animals"])
-        self.metadata=metadata_single_animal
-        self.number_of_animals=int(self.metadata["number_of_animals"].iloc[0])
-
-        self.meta_info={"t_after_ref": start_time-reference_hour} # seconds
+        self.metadata=load_metadata(self.dbfile, self.identity)
+        self.meta_info=load_meta_info(self.dbfile, self.identity)
 
 
     def __str__(self):
@@ -550,7 +513,7 @@ class FlyHostelLoader(
             self.load_pose_data(*args, identity=ident, min_time=min_time, max_time=max_time, verbose=False, cache=cache, files=files, write_only=write_only, **kwargs)
         logger.info("Loading DEG data")
         if load_deg:
-            self.load_deg_data(*args, identity=identity, ground_truth=True, stride=stride, verbose=False, cache=cache, **kwargs)
+            self.load_deg_data(*args, ground_truth=True, stride=stride, verbose=False, cache=cache, **kwargs)
 
         if load_behavior:
             logger.info("Loading behavior data")
@@ -587,6 +550,7 @@ class FlyHostelLoader(
             reference_hour=reference_hour,
             min_time=min_time, max_time=max_time, stride=stride,
             roi_0_table=roi_0_table, identity_table=identity_table,
+            framerate = self.framerate,
             **kwargs
         )
 
