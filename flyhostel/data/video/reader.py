@@ -125,6 +125,13 @@ class MP4Reader:
 
         if self.success:
             self._data.columns = ["frame_number", "x", "y", self.IDENTIFIER_COLUMN, "chunk"]
+           
+            x_is_missing=self._data["x"].isna()
+            if x_is_missing.any():
+                frames=self._data.loc[x_is_missing, "frame_number"].drop_duplicates()
+                logger.warning("%s frames have missing flies", len(frames))
+                self._data=self._data.loc[~x_is_missing]
+    
             self._data.set_index(["frame_number", self.IDENTIFIER_COLUMN], inplace=True)
             self._data["x"] = np.int32(np.floor(self._data["x"]))
             self._data["y"] = np.int32(np.floor(self._data["y"]))
@@ -350,6 +357,9 @@ class MP4Reader:
                 centroid = self.get_centroid(frame_number, identifier=identifier)
                 if centroid is None:
                     img_=self._NULL.copy()
+                elif abs(centroid[0]) > 2000000:
+                    import ipdb; ipdb.set_trace()
+
                 else:
                     img_=self.crop_image(img, centroid)
             arr.append(img_)
