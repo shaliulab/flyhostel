@@ -109,6 +109,11 @@ def load_original_resolution(basedir):
     with sqlite3.connect(dbfile) as conn:
         original_resolution=pd.read_sql_query(sql="SELECT value FROM METADATA WHERE field IN ('frame_width', 'frame_height');", con=conn).values.flatten().tolist()
         original_resolution=[int(e) for e in original_resolution]
+
+    # enforce square frames
+    if original_resolution[0]!=original_resolution[1]:
+        logger.warning("Not square frame detected in METADATA. Correcting")
+        original_resolution=[min(original_resolution), min(original_resolution)]
     return original_resolution
 
 def load_tracking_data(basedir, frame_numbers):
