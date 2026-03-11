@@ -352,8 +352,8 @@ def integrate_human_annotations(
     if os.path.exists(annotated_table_file):
         annotated_table=pd.read_csv(annotated_table_file)
         annotated_table=annotated_table.loc[
-            (annotated_table["chunk"]>=first_frame_number*chunksize) &
-            (annotated_table["chunk"]<=last_frame_number*chunksize)
+            (annotated_table["chunk"]>=first_frame_number//chunksize) &
+            (annotated_table["chunk"]<=last_frame_number//chunksize)
         ]
         if annotated_table.shape[0]==0:
             annotated_table=None
