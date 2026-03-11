@@ -8,12 +8,16 @@ from idtrackerai.blob import _overlaps_with_fraction
 
 logger=logging.getLogger(__name__)
 
-def select_by_contour(contour, contours_list, debug=False):
+def select_by_contour(contour, candidates, debug=False, frame=None):
     """
-    Select one of several machine-made squares around each centroid (contours_list) based on a human-made contour annotation (contour)
+    Select one of several machine-made squares around each centroid (candidates) based on a human-made contour annotation (contour)
     
     The selected square will be that which maximizes the overlap with the human-made contour
     If 1) >1 square is fully contained in the annotation 2) none overlaps at all, or 3) there is a tie, a ValueError is raised
+
+    Arguments:
+
+        debug (bool): If True, print score assigned to each candidate contour in candidates
 
     Note:
 
@@ -22,9 +26,19 @@ def select_by_contour(contour, contours_list, debug=False):
     """
 
     scores=[]
-    for putative_match in contours_list:
+    for candidate in candidates:
+        if debug:
+            mask=cv2.drawContours(
+                frame.copy(),
+                # np.zeros_like(frame),
+                [candidate],
+                -1, 255, -1
+            )
+
+            cv2.imwrite("mask.png", mask)
+            
         scores.append(
-            _overlaps_with_fraction(contour, np.array(putative_match))
+            _overlaps_with_fraction(contour, candidate)
         )
     scores=np.array(scores)
     
@@ -38,7 +52,6 @@ def select_by_contour(contour, contours_list, debug=False):
 
     winner_tied=n_winners>1
     if debug:
-        import ipdb; ipdb.set_trace()
         print("Scores: ", scores)
     if de_novo:
         # de novo

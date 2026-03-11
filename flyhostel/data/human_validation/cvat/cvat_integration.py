@@ -413,6 +413,8 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     config=load_idtrackerai_config(basedir)
     dbfile=get_dbfile(basedir)
     chunksize=get_chunksize(dbfile=dbfile)
+    experiment=get_experiment_identifier(basedir)
+    yolo_square_size=get_square_width(experiment) // 2
 
     cap=None
     score_dist=[]
@@ -446,24 +448,26 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
             ret, frame = cap.read()
             frame=frame[:,:,0]
             # this replicates the execution of the idtrackerai preprocessing, but not YOLOv7
-            contours_list = process_frame(frame, config)
+            candidates = process_frame(frame, config)
+            candidates = [np.array(candidate) for candidate in candidates]
 
             selection_method="contour"
 
             if (df["modified"]==1).any():
-                contours_list=get_contour_list_from_yolo_centroids(df[["x", "y"]].values, size=50)
+                candidates=get_contour_list_from_yolo_centroids(df[["x", "y"]].values, size=yolo_square_size)
                 # raise ValueError("modified frames not supported")
 
             used_indices=[]
             for annot_idx_2 in range(annotation.shape[0]):
 
-                contour=annotated_contours[annotation["idx"].iloc[annot_idx_2]]
+                human_contour=annotated_contours[annotation["idx"].iloc[annot_idx_2]]
                 local_identity=annotation["local_identity"].iloc[annot_idx_2]
-                
+               
+                debug=False
                 if selection_method=="contour":
-                    match_idx, n=select_by_contour(contour, contours_list, debug=False)
+                    match_idx, n=select_by_contour(human_contour, candidates, debug=debug, frame=frame)
                     if match_idx is None:
-                        logger.debug("Could not select by contour in frame %s", frame_number)
+                        logger.warning("Could not select by contour in frame %s", frame_number)
 
                 # annotation overlaps
                 if match_idx is not None:
