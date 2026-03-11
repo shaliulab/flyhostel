@@ -3,6 +3,7 @@ import logging
 import json
 import os.path
 import sqlite3
+import numpy as np
 import pandas as pd
 
 from flyhostel.utils import get_dbfile
@@ -20,7 +21,6 @@ def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VA
     conf=cur.fetchone()[0]
     number_of_animals=int(json.loads(conf)["_number_of_animals"]["value"])
 
-
     cur.execute(f"PRAGMA table_info('{concatenation_table}');")
     header=[row[1] for row in cur.fetchall()]
 
@@ -30,11 +30,15 @@ def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VA
     concatenation["chunk"]=concatenation["chunk"].astype(int)
     
     concatenation.sort_values("chunk", inplace=True)
-    diff=concatenation["chunk"].drop_duplicates().diff().iloc[1:].values
+    diff=concatenation["chunk"].drop_duplicates().diff().iloc[1:]
+
     
     if errors == "raise":
-        assert (diff==1).all()
-
+        if not (diff==1).all():
+            rows=np.where(diff!=1)[0].tolist()
+            rows=sorted(rows + (np.array(rows)+1).tolist())
+            print(concatenation.iloc[1:].loc[sorted(rows)])
+            raise ValueError("Missing chunks in concatenation")
 
     concatenation["dfile"] = [
         infer_analysis_path(basedir, int(row["local_identity"]), str(int(row["chunk"])).zfill(6), number_of_animals=number_of_animals)
