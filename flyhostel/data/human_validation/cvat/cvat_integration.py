@@ -18,17 +18,27 @@ from idtrackerai_validator_server.backend import (
     process_frame,
 )
 from flyhostel.data.human_validation.cvat.contour_utils import (
-    rle_to_blob, polygon_to_blob, get_contour_list_from_yolo_centroids, select_by_contour
+    rle_to_blob,
+    polygon_to_blob,
+    get_contour_list_from_yolo_centroids,
+    select_by_contour
 )
 from flyhostel.data.human_validation.cvat.utils import (
-    load_original_resolution, annotate_crossings, get_dbfile
+    load_original_resolution,
+    annotate_crossings,
 )
-from flyhostel.utils.utils import get_chunksize, get_number_of_animals, get_experiment_identifier
+from flyhostel.utils.utils import (
+    get_dbfile,
+    get_square_width,
+    get_chunksize,
+    get_number_of_animals,
+    get_experiment_identifier
+)
+
 from .api import (
     get_tasks_for_project,
     cvat_auth
 )
-
 PROJECTS_JSON="/flyhostel_data/videos/index_cvat_projects.json"
 
 logger=logging.getLogger(__name__)
@@ -108,6 +118,9 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
     assert chunksize is not None
 
     original_resolution=load_original_resolution(basedir)
+
+
+    print(f"Detected resolution: {original_resolution}")
 
 
     block_size=number_of_rows*number_of_cols
@@ -260,7 +273,8 @@ def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of
     annotations_df, contours=load_task_annotations(
         annotations, images, categories,
         basedir=basedir,
-        frame_width=frame_width, frame_height=frame_height,
+        frame_width=frame_width,
+        frame_height=frame_height,
         number_of_rows=number_of_rows, number_of_cols=number_of_cols,
         chunksize=chunksize
     )
@@ -506,8 +520,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                         logger.debug("De novo annotation detected in frame %s with local identity %s", frame_number, local_identity)
                     elif n!=1:
                         logger.debug("Multiple winners detected in frame %s with local identity %s", frame_number, local_identity)
-
-
+                
             pb.update(1)
     
         identity_corrected=pd.DataFrame.from_records(identity_corrected, columns=["frame_number", "in_frame_index", "local_identity"])
