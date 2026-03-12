@@ -8,7 +8,7 @@ import logging
 logger=logging.getLogger(__name__)
 
 # Update local_identity
-def update_identity(df, field="identity", n_jobs=1):
+def set_0_identity_to_negative(df, field="identity", n_jobs=1):
     """
     Replaces all instances of local identity = 0 by 
     negative local identities so that no two flies have the same local identity=0
@@ -30,7 +30,7 @@ def update_identity(df, field="identity", n_jobs=1):
         ])
         df_not_ok["scene"]=np.cumsum(new_scene)
 
-        dfs=update_identity_in_all_scenes(df_not_ok, n_jobs=n_jobs, field=field)
+        dfs=set_0_identity_to_negative_in_all_scenes(df_not_ok, n_jobs=n_jobs, field=field)
 
         df_not_ok=pd.concat(dfs, axis=0)
         df=pd.concat([
@@ -47,12 +47,12 @@ def update_identity(df, field="identity", n_jobs=1):
     return df
 
 
-def update_identity_in_all_scenes(df, n_jobs, field="identity"):
+def set_0_identity_to_negative_in_all_scenes(df, n_jobs, field="identity"):
     dfs=joblib.Parallel(
         n_jobs=n_jobs
     )(
         joblib.delayed(
-            update_identity_in_scene
+            set_0_identity_to_negative_in_scene
         )(
             df_scene.copy(), field=field, scene_id=scene_id
         )
@@ -61,7 +61,7 @@ def update_identity_in_all_scenes(df, n_jobs, field="identity"):
     return dfs
 
 
-def update_identity_in_scene(df, field="identity", scene_id=None):
+def set_0_identity_to_negative_in_scene(df, field="identity", scene_id=None):
 
     # Track the last used identity for animals with identity == 0
     counter = 0

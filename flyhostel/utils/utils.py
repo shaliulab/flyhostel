@@ -882,3 +882,20 @@ def rsync_files_from_less_verbose(
 def dunder_to_slash(experiment):
     tokens = experiment.split("_")
     return tokens[0] + "/" + tokens[1] + "/" + "_".join(tokens[2:4])
+
+def prepare_batches(data, batch_size, n_jobs):
+
+    batches=[]
+    if n_jobs>=1:
+        n_batches=n_jobs
+    else:
+        n_cpus=joblib.cpu_count()
+        n_batches=n_cpus+n_jobs
+
+    n_batches=n_windows//batch_size + 1
+
+    for j in range(n_batches):
+        batches.append(
+            data[j*batch_size:(j+1)*batch_size]
+        )
+    return batches

@@ -5,7 +5,7 @@ import cv2
 import hashlib
 import logging
 import pandas as pd
-
+from flyhostel.utils import get_basedir
 from imgstore.interface import VideoCapture
 from idtrackerai_validator_server.backend import (
     draw_frame,
@@ -139,20 +139,33 @@ class ImageSequenceWriter(BaseManifest):
 
 
 def generate_validation_video(
-    store_path, row, df, number_of_animals, chunksize, framerate,
+    experiment, qc_result, df, number_of_animals, chunksize, framerate,
     output_folder=".", format=".mp4", field="identity",
     compute_checksum=False,
 ):
+
+    """
+    Make a pair of video and manifest files for every ensemble of windows
+    whose qc is not perfect 
+
+    Arguments:
+        experiment (str)
+        qc_result: (dict-like): Contains
+            frame_number, last_frame_number, and columns needed by annotate_frame
+        df (pd.DataFrame): Contains frame_number and whatever draw_frame needs
+    
+    """
+
     vw = None
     cap = None
     output_video = None
     output_path_csv = None
+    basedir = get_basedir(experiment)
 
     try:
-        cap = VideoCapture(store_path, 50)
-        frame_number_0 = int(row["frame_number"])
-        frame_number_last = int(df["frame_number"].iloc[-1])
-        experiment = row["experiment"]
+        cap = VideoCapture(os.path.join(basedir, "metadata.yaml"), 50)
+        frame_number_0 = int(qc_result["frame_number"])
+        frame_number_last = int(qc_result["last_frame_number"])
 
         cap.set(1, frame_number_0)
 
@@ -175,7 +188,7 @@ def generate_validation_video(
             tracking_data = df.loc[df["frame_number"] == frame_number]
 
             frame = draw_frame(frame, tracking_data, number_of_animals, field=field)
-            frame = annotate_frame(frame, row)
+            frame = annotate_frame(frame, qc_result)
 
             if vw is None:
                 suffix = f"{str(frame_number_0 // chunksize).zfill(6)}_{str(frame_number_0).zfill(10)}"
@@ -214,11 +227,11 @@ def generate_validation_video(
             accum += 1
 
         logger.info("Wrote %s frames", accum)
-        row["nframes"]=accum
+        qc_result["nframes"]=accum
 
         # Write metadata CSV if we produced something meaningful
         if output_video is not None and (os.path.exists(output_video) or os.path.isdir(output_video)):
-            pd.DataFrame([row]).to_csv(output_path_csv, index=False)
+            pd.DataFrame([qc_result]).to_csv(output_path_csv, index=False)
 
     except Exception:
         logger.exception("Failed generating validation video for store_path=%s", store_path)

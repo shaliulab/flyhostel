@@ -61,7 +61,7 @@ setup(
             "annotate-video=flyhostel.data.bin.movie:main",
             "list-frames-with-no-animals=flyhostel.data.sqlite3.missing_animals:main",
             "make-identogram=flyhostel.data.bin.human_validation.annotate:main",
-            "make-space-time-images=flyhostel.data.bin.human_validation.make_space_time_images:main",
+            "export-images=flyhostel.data.bin.human_validation.export:main",
             "auto-annotate-qc=flyhostel.data.bin.human_validation.qc:main",
             "integrate-human-annotations=flyhostel.data.bin.human_validation.integrate:main",
             "save-human-annotations=flyhostel.data.bin.human_validation.integrate:save",

@@ -30,7 +30,7 @@ def main():
     except:
         pass
     
-    df, df_bin, qc_fail=annotate_for_validation(
+    df, qc_fail=annotate_for_validation(
         args.experiment, args.folder,
         time_window_length=args.time_window_length,
         format=".mp4",

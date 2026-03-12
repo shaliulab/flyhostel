@@ -3,9 +3,16 @@ import logging
 import sqlite3
 import pandas as pd
 import numpy as np
-from flyhostel.utils import get_chunksize
-from flyhostel.data.human_validation.update_identity import update_identity
-from flyhostel.utils.utils import get_first_frame, get_last_frame 
+from flyhostel.utils import (
+    get_basedir,
+    get_dbfile,
+    get_chunksize
+)
+from flyhostel.data.human_validation.set_0_identity import set_0_identity_to_negative
+from flyhostel.utils.utils import (
+    get_first_frame,
+    get_last_frame
+) 
 
 logger=logging.getLogger()
 TRACKING_FIELDS=["modified", "fragment", "x", "y"]
@@ -83,7 +90,22 @@ def load_roi0(conn, tracking_fields, min_frame_number=None, max_frame_number=Non
     return roi0
 
 
-def load_data(dbfile, tracking_fields, min_frame_number=None, max_frame_number=None):
+def load_data(experiment, tracking_fields, min_frame_number=None, max_frame_number=None):
+    """
+    Load segmentation and identification data as produced by the idtracker.ai pipeline
+
+    Return
+
+        data (pd.DataFrame): One row per frame and animal, with features:
+            frame_number
+            identity
+            local_identity
+            in_frame_index
+            t                    - time since experiment start? (not since ZT0) in seconds
+        as well as what is passed in tracking_fields
+    """
+
+    dbfile = get_dbfile(get_basedir(experiment))
 
     with sqlite3.connect(dbfile) as conn:
         logger.debug("Loading from %s - IDENTITY", dbfile)
@@ -103,7 +125,7 @@ def load_data(dbfile, tracking_fields, min_frame_number=None, max_frame_number=N
             min_frame_number=min_frame_number,
             max_frame_number=max_frame_number
         )
-    
+
     chunksize=get_chunksize(dbfile=dbfile)
 
     store_index["t"]=store_index["frame_time"]/1000
@@ -145,23 +167,24 @@ def generate_label(df):
     return df
 
 def load_tracking_data(
-        dbfile, folder, experiment,
+        experiment,
+        folder,
         min_frame_number=None,
         max_frame_number=None,
         n_jobs=1, cache=True
     ):
 
-
     output_path_feather_df=os.path.join(folder, experiment + f"_tracking_data.feather")
 
     chunksize=get_chunksize(experiment)
+    dbfile=get_dbfile(get_basedir(experiment))
+
     if min_frame_number is None:
         min_frame_number=get_first_frame(dbfile)
 
     if max_frame_number is None:
         max_frame_number=get_last_frame(dbfile)
         
-
     if os.path.exists(output_path_feather_df) and cache:
         logger.debug("Loading %s", output_path_feather_df)
         df=pd.read_feather(output_path_feather_df)
@@ -172,13 +195,11 @@ def load_tracking_data(
     else:
         os.makedirs(folder, exist_ok=True)
         df=load_data(
-            dbfile, TRACKING_FIELDS,
+            experiment, TRACKING_FIELDS,
             min_frame_number=min_frame_number,
             max_frame_number=max_frame_number
         )
-        df = update_identity(df.copy(), field=FIELD, n_jobs=n_jobs)
-        logger.debug("Generating identogram label")
-        df=generate_label(df)
+        df = set_0_identity_to_negative(df.copy(), field=FIELD, n_jobs=n_jobs)
         if cache:
             df.reset_index(drop=True).to_feather(output_path_feather_df)
 

@@ -27,6 +27,7 @@ from flyhostel.utils import (
     get_basedir,
     get_dbfile,
     get_chunksize,
+    get_number_of_animals,
 )
 
 pd.set_option("display.max_rows", 1000)
@@ -42,7 +43,9 @@ def all_id_expected_qc_scene(scene, number_of_animals):
 def scene_qc(scene, number_of_animals, chunksize):
     """
         Arguments:
-            scene (pd.DataFrame): Dataset of animal positions (centroid_x and centroid_y) over time (frame_number) with identity annotation (id) and fragment annotation (fragment)
+            scene (pd.DataFrame): Dataset of animal positions (centroid_x and centroid_y)
+              over time (frame_number) with identity annotation (id)
+              and fragment annotation (fragment)
             number_of_animals (int)
 
         Returns:
@@ -89,13 +92,30 @@ def scene_qc(scene, number_of_animals, chunksize):
     except Exception as error:
         print(scene)
         raise error
+
+ 
+    qc_pass=gap_n_frames==0 and gap_distance==0 and (between_chunks==0 or all_valid_ids==0)
+
+    # qc.loc[~(
+    #     (qc["gap_n_frames"]==0) & (qc["gap_distance"]==0)
+    # )  & (
+    #     (qc["between_chunks"]==0) | (qc["all_valid_ids"]==0)
+    # )]
+    
+
         
     return {
         "all_valid_ids": all_valid_ids,
-        "min_distance": min_distance, "max_velocity": max_velocity,
-        "gap_n_frames": gap_n_frames, "gap_distance": gap_distance, "maintains_id": maintains_id,
-        "between_chunks": between_chunks, "broken": broken, "length": scene_length,
+        "min_distance": min_distance,
+        "max_velocity": max_velocity,
+        "gap_n_frames": gap_n_frames,
+        "gap_distance": gap_distance,
+        "maintains_id": maintains_id,
+        "between_chunks": between_chunks,
+        "broken": broken,
+        "length": scene_length,
         "n_failed_fragments": n_failed_fragments,
+        "pass": qc_pass,
     }
 
 def min_distance_between_animals_qc(scene):
@@ -264,28 +284,22 @@ def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
     
     """
 
-    # output_path_feather_df=os.path.join(folder, experiment + f"_tracking_data.feather")
-    # tracking_data=pd.read_feather(output_path_feather_df)
-
-
-    dbfile = get_dbfile(get_basedir(experiment))
+    number_of_animals=get_number_of_animals(experiment)
     chunksize = get_chunksize(experiment)
 
     tracking_data=load_tracking_data(
-        dbfile=dbfile,
+        experiment,
         folder=folder,
-        experiment=experiment,
-        min_frame_number=None, max_frame_number=None,
-        n_jobs=1, cache=True
-    
+        min_frame_number=None,
+        max_frame_number=None,
+        n_jobs=1,
+        cache=True
     )
 
     tracking_data["id"]=experiment[:26] + "|" + tracking_data["identity"].astype(str).str.zfill(2)
     manifests=sorted(glob.glob(f"{folder}/movies/{experiment}*jsonl"))
     if sample_size is not None:
         manifests=manifests[:sample_size]
-
-    number_of_animals=int(experiment.split("_")[1].rstrip("X"))
 
     kwargs=[]
     manifests_todo=[]
@@ -300,7 +314,7 @@ def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
         scene_length=int(row["nframes"])
 
         scene=tracking_data.loc[
-            (tracking_data["frame_number"] >= scene_start) & (tracking_data["frame_number"] < scene_start+scene_length),
+            (tracking_data["frame_number"] >= scene_start) & (tracking_data["frame_number"] <= scene_start+scene_length),
             ["local_identity", "frame_number", "x","y", "in_frame_index", "fragment"]
         ]
         scene.columns=["id", "frame_number", "centroid_x", "centroid_y", "in_frame_index", "fragment"]

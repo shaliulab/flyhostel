@@ -12,6 +12,7 @@ def generate_hover_text(df, meta_columns=["identity","frame_idx", "t_round", "ch
     return text
         
 def draw_identogram(df_bin, number_of_animals):
+    raise NotImplementedError
 
     colors=get_spaced_colors_util(number_of_animals, black=False)
     colors={i+1: colors[i] for i in range(len(colors))}
