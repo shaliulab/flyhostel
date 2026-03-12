@@ -12,7 +12,9 @@ from .qcs import (
     all_found_qc,
     all_id_expected_qc,
     first_frame_idx_qc,
+    last_frame_idx_qc,
     inter_qc,
+    INDICES
 )
 
 logger=logging.getLogger(__name__)
@@ -29,7 +31,7 @@ def all_qc_batch(all_windows, **kwargs):
 
 
 # @profile
-def all_qc(i, number_of_animals, behavior_window, chunksize, window_before=None, window_after=None, logfile=None):
+def all_qc(i, number_of_animals, behavior_window, chunksize, window_before=None, logfile=None):
     """
     For every group of windows, verify:
 
@@ -38,7 +40,7 @@ def all_qc(i, number_of_animals, behavior_window, chunksize, window_before=None,
         * That behavior_window is not in the first or last frame of a chunk
         * That there was no fragment change (potential errors) between the three windows
     """
-    frame_number=int(behavior_window[0, frame_number_idx])
+    frame_number=int(behavior_window[0, INDICES["frame_number"]])
 
     yolov7_pass=yolov7_qc(behavior_window)
     all_found_pass=all_found_qc(behavior_window, number_of_animals)
@@ -49,14 +51,13 @@ def all_qc(i, number_of_animals, behavior_window, chunksize, window_before=None,
     if i == 0:
         inter_qc_pass=True
     else:
-        inter_qc_pass=inter_qc(window_before=window_before, window=behavior_window, window_after=window_after)
+        inter_qc_pass=inter_qc(window_before=window_before, window=behavior_window)
 
     if i % 50000 == 0 and logfile is not None:
         with open(logfile, "w") as handle:
             handle.write(f"Last window: {i}\nLast frame number {frame_number}\n")
 
     qc = (
-        True and
         # require yolov7 is not used
         yolov7_pass and
         # require all flies are found / segmented (even if the identity is not assigned)
@@ -81,10 +82,6 @@ def all_qc(i, number_of_animals, behavior_window, chunksize, window_before=None,
     }
 
     return result
-
-
-def annotate_nan_frames(df):
-    return df
 
 
 def generate_consecutive_windows(df):
@@ -127,14 +124,14 @@ def generate_consecutive_windows(df):
             "i": i,
             "window_before": window_group[0],
             "behavior_window": window_group[1],
-            "window_after": window_group[2],
+            # "window_after": window_group[2],
         })
         pb.update(1)
         i+=1
     return output
     
 
-def analyze_experiment(df, number_of_animals, min_frame_number, max_frame_number, chunksize, n_jobs=1):
+def analyze_experiment(df, number_of_animals, chunksize, n_jobs=1):
     """
     Quality control (QC) of segmentation and identification (idtrackerai+yolov7) pipeline
 
@@ -149,8 +146,6 @@ def analyze_experiment(df, number_of_animals, min_frame_number, max_frame_number
             frame_number
             x
             y
-        min_frame_number (int): Start QC from this frame
-        max_frame_number (int): End QC at this frame
         chunksize (int): Number of frames in a flyhostel chunk
         For 150 FPS = 45000 in 5 minutes
 

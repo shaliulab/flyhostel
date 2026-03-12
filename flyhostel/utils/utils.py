@@ -885,6 +885,8 @@ def dunder_to_slash(experiment):
 
 def prepare_batches(data, batch_size, n_jobs):
 
+    n_windows=len(data)
+
     batches=[]
     if n_jobs>=1:
         n_batches=n_jobs

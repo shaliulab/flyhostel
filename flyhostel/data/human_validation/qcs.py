@@ -7,18 +7,21 @@
 # 5 frame_number
 # 6 x
 # 7 y
+import numpy as np
 
-identity_idx=0
-chunk_idx=2
-fragment_idx=3
-modified_idx=4
-frame_number_idx=5
+INDICES={
+    "identity": 0,
+    "chunk": 2,
+    "fragment": 3,
+    "modified": 4,
+    "frame_number":5,
+}
 
 def yolov7_qc(window):
     """
     Return True if YOLOv7 did not process any frame in the group
     """
-    return (window[:, modified_idx]==0).all()
+    return (window[:, INDICES["modified"]]==0).all()
 
 
 def all_found_qc(window, number_of_animals):
@@ -29,7 +32,7 @@ def all_found_qc(window, number_of_animals):
     return window.shape[0]==number_of_animals
 
 
-def all_id_expected_qc(window, number_of_animals, idx=identity_idx):
+def all_id_expected_qc(window, number_of_animals, idx=INDICES["identity"]):
     """
     Return True only if the local identities found are the ones expected
     from the number of animals
@@ -47,29 +50,24 @@ def first_frame_idx_qc(window, chunksize):
     """
     Return True if this window is not in the first frame of the chunk
     """
-    return window[0, frame_number_idx] % chunksize != 0
+    return window[0, INDICES["frame_number"]] % chunksize != 0
 
 def last_frame_idx_qc(window, chunksize):
     """
     Return True if this window is not in the first frame of the chunk
     """
-    return window[0, frame_number_idx] % chunksize != (chunksize-1)
+    return window[0, INDICES["frame_number"]] % chunksize != (chunksize-1)
 
 
-def inter_qc(window_before, window, window_after):
+def inter_qc(window_before, window):
     """
     Return False if the fragment identifiers in the two windows are not the same
     In other words, flag a fragment change
     In other words, return True if all fragment identifiers are the same 
     """
 
-    is_different = not set(window[:, fragment_idx]).issubset(window_before[:, fragment_idx])
-    if window_after is None:
-        is_end_of_chunk=False
-    else:
-        is_end_of_chunk = window[0, chunk_idx] < window_after[0, chunk_idx]
-
-    return not is_different and not is_end_of_chunk
+    fragment_identifiers_constant = set(window[:, INDICES["fragment"]]).issubset(window_before[:, INDICES["fragment"]])
+    return fragment_identifiers_constant
 
 
 def intra_qc(window, number_of_animals):
@@ -90,5 +88,4 @@ def nms_qc(window):
     u, c = np.unique(x_y, return_counts=True, axis=0)
     duplicates=np.sum(c > 1)
     return not duplicates
-
 

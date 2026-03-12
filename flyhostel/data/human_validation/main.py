@@ -76,14 +76,13 @@ def annotate_for_validation(
     logger.debug("Running QC of experiment %s", experiment)
 
     qc=analyze_experiment(
-        df.copy(), number_of_animals,
-        min_frame_number=min_frame_number,
-        max_frame_number=max_frame_number,
-        chunksize = chunksize,
+        df.copy(),
+        number_of_animals=number_of_animals,
+        chunksize=chunksize,
         n_jobs=n_jobs,
     )
-    qc["chunk"]=qc["frame_number"]//chunksize
     qcs=[col for col in qc.columns if col != "frame_number"]
+    qc["chunk"]=qc["frame_number"]//chunksize
 
     logger.info("%s %% of %s passes QC", round(100*qc["qc"].mean(), 2), experiment)
 
