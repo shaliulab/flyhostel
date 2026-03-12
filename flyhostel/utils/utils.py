@@ -70,9 +70,16 @@ def get_basedir(experiment):
     basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
     return basedir
 
-def get_pixels_per_mm(experiment):
+def get_pixels_per_mm_from_roi_width(experiment):
+    raise NotImplementedError
+
+def get_pixels_per_mm_from_metadata(experiment):
     dbfile=get_dbfile(get_basedir(experiment))
     return int(float(load_metadata_prop("pixels_per_cm", dbfile=dbfile))/10)
+
+def get_pixels_per_mm(*args, **kwargs):
+    return get_pixels_per_mm_from_metadata(*args, **kwargs)
+
 
 def get_number_of_animals(experiment):
     tokens = experiment.split("_")
