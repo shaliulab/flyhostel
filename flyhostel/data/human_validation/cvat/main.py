@@ -374,7 +374,6 @@ def integrate_human_annotations(
     except Exception as error:
         print(error)
         print(traceback.print_exc())
-        import ipdb; ipdb.set_trace()
 
     # Save result!
     out_file=os.path.join(folder, f"{experiment}.feather")
