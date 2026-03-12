@@ -116,23 +116,31 @@ def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated
     chunks=sorted(lid_table["chunk"].to_pandas().unique())
 
     identity_table=make_identity_table(lid_table, chunks, chunksize, debug=debug)
+    identity_table["priority"]=2
+    identity_table_backup=identity_table.copy()
     
     if annotated_table is not None:
         annotated_table["distance"]=np.nan
         annotated_table["is_inferred"]=False
         annotated_table["priority"]=1
-        identity_table["priority"]=2
 
         identity_table=pd.concat([
-            identity_table,
+            identity_table_backup,
             annotated_table
         ], axis=0)\
             .sort_values(["priority", "chunk", "local_identity"], ascending=True)\
             .drop_duplicates(["chunk", "local_identity"])\
+            .sort_values(["chunk", "local_identity"])
             
-   
     identity_table.to_csv("identity_table.csv")
-    
+
+    counts=identity_table.value_counts(["chunk", "local_identity_after"]).reset_index(name="count")
+    error_df=counts.query("count>1")
+    if error_df.shape[0]>0:
+        import ipdb; ipdb.set_trace()
+        raise ValueError("Local identity after is repeated. See identity_table.csv")
+
+
     logger.debug("Propagate identities")
     ref_chunk=chunks[0]
     print(f"Reference chunk = {ref_chunk}")
