@@ -55,17 +55,19 @@ def all_qc(i, number_of_animals, behavior_window, chunksize, window_before=None,
         with open(logfile, "w") as handle:
             handle.write(f"Last window: {i}\nLast frame number {frame_number}\n")
 
-    qc = True and \
+    qc = (
+        True and
         # require yolov7 is not used
-        yolov7_pass and \
-        # require all flies are found / segmented (even if the identity is not assigned) 
-        all_found_pass and \
-        # require fragments dont change 
-        inter_qc_pass and \
+        yolov7_pass and
+        # require all flies are found / segmented (even if the identity is not assigned)
+        all_found_pass and
+        # require fragments dont change
+        inter_qc_pass and
         # require it is not first frame in chunk unless all animals have an identity
-        (first_frame_idx_pass or all_id_expected_pass) and \
+        (first_frame_idx_pass or all_id_expected_pass) and
         # require it is not last frame in chunk unless all animals have an identity
         (first_frame_idx_pass or all_id_expected_pass)
+    )
 
     result={
         "frame_number": frame_number,
@@ -132,7 +134,7 @@ def generate_consecutive_windows(df):
     return output
     
 
-def analyze_video(df, number_of_animals, min_frame_number, max_frame_number, chunksize, n_jobs=1):
+def analyze_experiment(df, number_of_animals, min_frame_number, max_frame_number, chunksize, n_jobs=1):
     """
     Quality control (QC) of segmentation and identification (idtrackerai+yolov7) pipeline
 

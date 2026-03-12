@@ -4,12 +4,11 @@ has issues
 """
 import os.path
 import logging
-
-import pandas as pd
 import joblib
 
 from flyhostel.utils.utils import (
     get_framerate,
+    get_basedir,
     get_first_frame,
     get_last_frame,
     get_number_of_animals,
@@ -17,35 +16,13 @@ from flyhostel.utils.utils import (
     get_chunksize,
 )
 from flyhostel.data.human_validation.utils import load_tracking_data, FIELD
-from flyhostel.data.human_validation.qc import analyze_video
+from flyhostel.data.human_validation.qc import analyze_experiment
 from flyhostel.data.human_validation.video import generate_validation_video
-from flyhostel.data.pose.ethogram import annotate_bouts, annotate_bout_duration
+from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
 
 logger=logging.getLogger(__name__)
 
 TESTING=False
-
-
-
-def rle(df, features=None):
-    encoding=encode([
-        str(qc)[0]
-        for qc in df["qc"].values
-    ])
-
-    out=pd.DataFrame.from_records(
-        encoding,
-        columns=["status", "length"]
-    )
-    
-    # row in the original df where the bout starts
-    out["index"]=[0] + out["length"].cumsum().tolist()[:-1]
-
-    # use the original df to get the value of the features passed
-    if features is not None:
-        for feat in features:
-            out[feat]=df[feat].iloc[out["index"]].values
-    return out
 
 
 def annotate_for_validation(
@@ -62,9 +39,9 @@ def annotate_for_validation(
     Generate movies capturing each scene where validation may be needed based on heuristics and QC
     It is the entrypoint of make-identogram
 
-    QC is performed in analyze_video
-
-
+    QC is performed in analyze_experiment
+    Then frames with some QC problem are saved as videos,
+        one video for every group of consecutive frames with problems
     """
 
 
@@ -98,7 +75,7 @@ def annotate_for_validation(
 
     logger.debug("Running QC of experiment %s", experiment)
 
-    qc=analyze_video(
+    qc=analyze_experiment(
         df.copy(), number_of_animals,
         min_frame_number=min_frame_number,
         max_frame_number=max_frame_number,
