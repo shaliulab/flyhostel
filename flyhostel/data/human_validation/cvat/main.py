@@ -356,6 +356,7 @@ def integrate_human_annotations(
             (annotated_table["chunk"]<=last_frame_number//chunksize)
         ]
         if annotated_table.shape[0]==0:
+            logger.warning("Ignoring annotated table!")
             annotated_table=None
     else:
         annotated_table=None
