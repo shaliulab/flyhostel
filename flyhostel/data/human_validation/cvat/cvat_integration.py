@@ -428,7 +428,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     dbfile=get_dbfile(basedir)
     chunksize=get_chunksize(dbfile=dbfile)
     experiment=get_experiment_identifier(basedir)
-    yolo_square_size=get_square_width(experiment) // 2
+    # yolo_square_size=get_square_width(experiment) // 2
 
     cap=None
     score_dist=[]
@@ -468,7 +468,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
             selection_method="contour"
 
             if (df["modified"]==1).any():
-                candidates=get_contour_list_from_yolo_centroids(df[["x", "y"]].values, size=yolo_square_size)
+                candidates=get_contour_list_from_yolo_centroids(df[["x", "y"]].values, size=50)
                 # raise ValueError("modified frames not supported")
 
             used_indices=[]
