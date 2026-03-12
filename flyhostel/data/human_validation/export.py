@@ -14,6 +14,7 @@ from .constants import (
     NUMBER_OF_COLS,
     NUMBER_OF_ROWS,
     RESOLUTION,
+    IMAGES_FOLDER,
 )
 
 logger=logging.getLogger(__name__)
@@ -51,7 +52,7 @@ def generate_image(scene_number, folder, number_of_rows=4, number_of_columns=4):
             break
     cap.release()
 
-    output_folder=os.path.join(folder, "space_time", scene_name)
+    output_folder=os.path.join(folder, IMAGES_FOLDER, scene_name)
     os.makedirs(output_folder, exist_ok=True)
     block_size=number_of_rows*number_of_columns
     
