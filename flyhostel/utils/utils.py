@@ -221,8 +221,7 @@ def raw_copy(file, dest_path):
     shutil.copy(file, dest_path)
 
 def find_chunk_from_filename(file):
-
-    match=int(re.search("session_(\d{6})", file).group(1))
+    match=int(re.search("session_(\\d{6})", file).group(1))
     return match
 
 def find_start_and_end_of_chunk(session_folder, chunk):
