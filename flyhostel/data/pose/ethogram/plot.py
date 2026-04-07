@@ -99,7 +99,7 @@ def bin_behavior_table_v2(df, chunksize, framerate, time_window_length=1, x_var=
             * the column for each behavior should contain the score of that behavior 
         time_window_length (int): Number of seconds that should make up each bin
         x_var (str): If equal to seconds, a new t is computed. Set to None if you want to not change t
-        t0 (int): t which should be as new zt0. ignored if x_var is not seconds
+        t0 (int): t which should be used as new zt0. ignored if x_var is not seconds
         behavior_col (str): Column in df which contains the behavioral label 
     """
 
