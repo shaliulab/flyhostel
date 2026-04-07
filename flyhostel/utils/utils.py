@@ -900,3 +900,21 @@ def prepare_batches(data, batch_size, n_jobs):
             data[j*batch_size:(j+1)*batch_size]
         )
     return batches
+
+def safe_cudf(df, col_types=None):
+    # Check each column's actual value types (not just dtype)
+    for col in df.columns:
+        types = df[col].map(type).unique()
+        if len(types) > 1:
+            print(f"\nColumn '{col}' has mixed types: {types}")
+            # Find and print the offending rows
+            type_series = df[col].map(type)
+            type_series=type_series.loc[type_series!=None]
+            dominant_type = type_series.value_counts().idxmax()
+            mask = type_series != dominant_type
+            print(f"    Dominant type: {dominant_type}")
+            print(f"    Offending rows ({mask.sum()} total):")
+            print(df[mask])
+            if col == "class_name":
+                selected=[isinstance(x, float) and ~np.isnan(x) for x in df[col]]
+                print(df.loc[selected])
