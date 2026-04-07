@@ -24,9 +24,14 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize,
             if manual_validation.get("by_identity", True):
                 extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["local_identity"]==local_identity))]
                 extra_data["fragment"]=np.nan
+
             else:
                 if np.isnan(manual_validation.get("first_frame_number", np.nan)):
-                    extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["fragment"]==fragment))]
+                    extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["fragment"]==fragment))].copy()
+                    if extra_data.shape[0]==0:
+                        logger.warning("Ignoring line in validation.csv")
+                        logger.warning(manual_validation)
+                       
                 else:
                     frame_numbers=np.arange(manual_validation["first_frame_number"], manual_validation["last_frame_number"]+1)
                     if np.isnan(fragment):
@@ -40,7 +45,7 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize,
                         extra_data["validated"]=1
                         extra_data["in_frame_index"]=np.nan
                         extra_data["modified"]=1
-                        extra_data["class_name"]=None                                    
+                        extra_data["class_name"]="undefined"  
                         extra_data["frame_validated"]=False
                         index=((new_data["frame_number"].isin(frame_numbers))&(new_data["local_identity"]==local_identity))
                         nrows_removed=index.sum()
@@ -62,7 +67,7 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize,
                         # new_data = new_data.loc[~is_same_fragment_and_frame].copy()
 
 
-
+            extra_data["class_name"]="undefined"
             extra_data["in_frame_index"]=np.nan
             nrows=new_data.shape[0]
  
@@ -113,7 +118,7 @@ def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize,
                         "in_frame_index": [max_in_frame_index+1],
                         "fragment": [max_fragment+1],
                         "modified": [1],
-                        "class_name": [None],
+                        "class_name": ["undefined"],
                         "chunk": [chunk]
                     })
                 else:

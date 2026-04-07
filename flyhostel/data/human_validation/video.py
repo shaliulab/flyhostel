@@ -139,7 +139,7 @@ class ImageSequenceWriter(BaseManifest):
 
 
 def generate_validation_video(
-    experiment, qc_result, df, number_of_animals, chunksize, framerate,
+    experiment, qc_result, tracking_data, number_of_animals, chunksize, framerate,
     output_folder=".", format=".mp4", field="identity",
     compute_checksum=False,
 ):
@@ -161,9 +161,11 @@ def generate_validation_video(
     output_video = None
     output_path_csv = None
     basedir = get_basedir(experiment)
+    store_path=os.path.join(basedir, "metadata.yaml")
+
 
     try:
-        cap = VideoCapture(os.path.join(basedir, "metadata.yaml"), 50)
+        cap = VideoCapture(store_path, 50)
         frame_number_0 = int(qc_result["frame_number"])
         frame_number_last = int(qc_result["last_frame_number"])
 
@@ -185,9 +187,9 @@ def generate_validation_video(
                 break
 
             frame_number = cap.frame_number
-            tracking_data = df.loc[df["frame_number"] == frame_number]
+            tracking_data_this_frame = tracking_data.loc[tracking_data["frame_number"] == frame_number]
 
-            frame = draw_frame(frame, tracking_data, number_of_animals, field=field)
+            frame = draw_frame(frame, tracking_data_this_frame, number_of_animals, field=field)
             frame = annotate_frame(frame, qc_result)
 
             if vw is None:
@@ -233,8 +235,9 @@ def generate_validation_video(
         if output_video is not None and (os.path.exists(output_video) or os.path.isdir(output_video)):
             pd.DataFrame([qc_result]).to_csv(output_path_csv, index=False)
 
-    except Exception:
-        logger.exception("Failed generating validation video for store_path=%s", store_path)
+    except Exception as error:
+        logger.error("Failed generating validation video for %s", basedir)
+        logger.error(error)
 
     finally:
         try:

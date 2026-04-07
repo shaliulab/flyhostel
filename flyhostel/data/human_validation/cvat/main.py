@@ -14,6 +14,7 @@ from flyhostel.utils.utils import (
     get_pixels_per_mm,
     get_number_of_animals,
     get_zt_from_chunk,
+    safe_cudf,
 )
 from flyhostel.data.human_validation.cvat.cvat_integration import (
     get_tasks_for_project,
@@ -191,6 +192,8 @@ def integrate_human_annotations(
             "annotation_id", "local_identity", "is_a_crossing"
         ]], on="annotation_id"
     ).drop("annotation_id", axis=1)
+    human_data.loc[human_data["is_a_crossing"].isna(), "is_a_crossing"]=False
+
     human_data["validated"]=2
 
     # Propagate human-made identities through the fragment structure found by the machine 
@@ -207,6 +210,8 @@ def integrate_human_annotations(
     # This is achieved thanks to the how='inner', which means fragments with no human-made identity assignments are excluded
     logger.debug("Combine human and machine data")
     cross=human_data.merge(machine_data_with_identity_annotations.drop(["validated", "chunk", "fragment", "x", "y"], axis=1), on=["frame_number", "local_identity"],  indicator=True, how="outer")
+    cross.loc[cross["class_name"].isna(), "class_name"]="undefined"
+
     wo_in_frame_index=cross.loc[cross["_merge"]=="left_only"].drop("_merge", axis=1)
     wt_in_frame_index=cross.loc[cross["_merge"]!="left_only"].drop("_merge", axis=1)
     wt_in_frame_index=machine_data_with_identity_annotations.merge(wt_in_frame_index[["frame_number", "in_frame_index", "local_identity"]], on=["frame_number", "in_frame_index", "local_identity"], how="left")
@@ -245,9 +250,9 @@ def integrate_human_annotations(
 
     de_novo_fragments["validated"]=2
     identity_singletons["modified"]=0
-    identity_singletons["class_name"]=None
+    identity_singletons["class_name"]="undefined"
     de_novo_fragments["modified"]=0
-    de_novo_fragments["class_name"]=None
+    de_novo_fragments["class_name"]="undefined"
 
     # Add blobs from crossing fragments (fragment set to na)
     annotations_without_clean_spatial_machine_data_and_rest_of_machine_data=pd.concat([
@@ -277,6 +282,9 @@ def integrate_human_annotations(
     duplications=annotations_without_clean_spatial_machine_data_and_rest_of_machine_data[["chunk", "fragment"]].drop_duplicates().merge(
         human_data_and_propagation_via_fragments[["chunk", "fragment"]].drop_duplicates(), how="outer", indicator=True
     )
+
+
+
     annotations_without_clean_spatial_machine_data_and_rest_of_machine_data_clean=duplications.loc[duplications["_merge"]=="left_only"].merge(
         annotations_without_clean_spatial_machine_data_and_rest_of_machine_data,
         how="left",
@@ -314,7 +322,8 @@ def integrate_human_annotations(
     if os.path.exists(validation_csv):
         new_data=apply_validation_csv_file(new_data.copy(), machine_data, validation_csv, chunksize, replace=False)
 
-    # TODO not neeeded in theory?
+
+    # TODO not needed in theory?
     new_data.drop_duplicates(["frame_number", "local_identity"], inplace=True)
 
     # Second discard:
@@ -369,11 +378,25 @@ def integrate_human_annotations(
     try:
         logger.debug("Annotate identity")
         logger.debug(f"Saving data until annotate_identity to {out_file}")
+        new_data.loc[~new_data["local_identity"].isna(), "local_identity"]=new_data.loc[~new_data["local_identity"].isna(), "local_identity"].astype(int)
+        
         new_data.reset_index(drop=True).to_feather(out_file)
-        out=annotate_identity(cudf.DataFrame(new_data), number_of_animals, chunksize, annotated_table=annotated_table)
+
+        new_data=new_data.loc[~new_data["local_identity"].isna()]
+        new_data["local_identity"]=new_data["local_identity"].astype(int)        
+        new_data["is_a_crossing"]=new_data["is_a_crossing"].astype(bool)
+
+        safe_cudf(new_data)
+        try:
+            new_data_cudf=cudf.DataFrame(new_data)
+        except Exception as error:
+            print(error)
+            import ipdb; ipdb.set_trace()
+            raise error
+        
+        out=annotate_identity(new_data_cudf, number_of_animals, chunksize, annotated_table=annotated_table)
     except Exception as error:
-        print(error)
-        print(traceback.print_exc())
+        raise error
 
     # Save result!
     out_file=os.path.join(folder, f"{experiment}.feather")
@@ -429,6 +452,7 @@ def integrate_human_annotations(
         path=os.path.join(folder, f"{name}.feather")
         logger.debug("Saving --> %s", path)
         df.reset_index(drop=True).to_feather(path)
+        
 
     groupby=df_identity.groupby("identity")
     print("Number of frames seen")

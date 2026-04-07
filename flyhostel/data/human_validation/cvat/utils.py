@@ -112,7 +112,7 @@ def load_original_resolution(basedir):
 
     # enforce square frames
     if original_resolution[0]!=original_resolution[1]:
-        logger.warning("Not square frame detected in METADATA. Correcting")
+        logger.warning("Non-square frame detected in METADATA. Correcting")
         original_resolution=[min(original_resolution), min(original_resolution)]
     return original_resolution
 
@@ -138,6 +138,7 @@ def load_machine_data(basedir, where=""):
         identity_table=pd.read_sql_query(sql=cmd, con=conn)
         logger.debug("Done")
 
+    roi_0_table.loc[roi_0_table["class_name"].isna(), "class_name"] = "undefined"
     return identity_table, roi_0_table
 
 def annotate_crossings(ident, roi0, crossings):

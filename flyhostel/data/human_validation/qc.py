@@ -19,19 +19,17 @@ from .qcs import (
 
 logger=logging.getLogger(__name__)
 
-# @profile
 def all_qc_batch(all_windows, **kwargs):
     out=[]
     while len(all_windows)>0:
         consecutive_windows=all_windows.pop(0)
-        out.append(all_qc(**consecutive_windows, **kwargs))
+        out.append(unisex_qc(**consecutive_windows, **kwargs))
 
     qc=pd.DataFrame(out)
     return qc
 
 
-# @profile
-def all_qc(i, number_of_animals, behavior_window, chunksize, window_before=None, logfile=None):
+def unisex_qc(i, number_of_animals, behavior_window, chunksize, window_before=None, logfile=None):
     """
     For every group of windows, verify:
 
@@ -77,7 +75,7 @@ def all_qc(i, number_of_animals, behavior_window, chunksize, window_before=None,
         "all_id_expected_qc": all_id_expected_pass,
         "first_frame_idx_qc": first_frame_idx_pass,
         "last_frame_idx_qc": last_frame_idx_pass,
-        "inter_qc_qc": inter_qc_pass,
+        "inter_qc": inter_qc_pass,
         "qc": qc
     }
 

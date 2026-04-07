@@ -5,7 +5,7 @@ has issues
 import os.path
 import logging
 import joblib
-
+from tqdm.auto import tqdm
 from flyhostel.utils.utils import (
     get_framerate,
     get_basedir,
@@ -54,7 +54,6 @@ def annotate_for_validation(
 
     output_path_csv=os.path.join(output_folder, experiment + f"_machine-qc-index-{time_window_length}-s.csv")
 
-    df_bin=None
     df=None
     qc_fail=None
 
@@ -63,7 +62,9 @@ def annotate_for_validation(
 
     if max_frame_number is None:
         max_frame_number=get_last_frame(dbfile)
-        
+
+    print(f"Analyzing from frame {min_frame_number} ({min_frame_number//chunksize}) to {max_frame_number} ({max_frame_number//chunksize})")
+
     
     df=load_tracking_data(
         experiment, output_folder,
@@ -86,23 +87,11 @@ def annotate_for_validation(
 
     logger.info("%s %% of %s passes QC", round(100*qc["qc"].mean(), 2), experiment)
 
-    # TODO
-    # If qc can be used instead of df in annotate_bouts
-    # this block can be simplified like this
-    #######
-    df=df.merge(
-        qc[["frame_number"] + qcs], on="frame_number", how="left"
-    )
-    qc_rle = df[["frame_number"] + qcs]
-    #######
-    # qc_rle = annotate_bout_duration(annotate_bouts(qc.copy(), variable="qc"), fps=framerate)\
-    #######
-
-    qc_rle = annotate_bout_duration(annotate_bouts(df.copy(), variable="qc"), fps=framerate)\
+    qc_rle = annotate_bout_duration(annotate_bouts(qc.copy(), variable="qc"), fps=framerate)\
         .query("bout_in==1")\
         .rename({"bout_out": "length", "qc": "status"}, axis=1)
 
-    qc_fail=qc_rle.loc[qc_rle["status"]=="F"].copy()
+    qc_fail=qc_rle.loc[qc_rle["status"]==False].copy()
 
     margin_size=2
     qc_fail["last_frame_number"]=qc_fail["frame_number"]+qc_fail["length"]+margin_size
@@ -110,15 +99,15 @@ def annotate_for_validation(
     qc_fail.to_csv(output_path_csv)
 
     data=[]
-    for i, row in qc_fail.iterrows():
-        frame_number_0=row["frame_number"]
-        frame_number_last=row["last_frame_number"]
+    for i, qc_result in qc_fail.iterrows():
+        frame_number_0=qc_result["frame_number"]
+        frame_number_last=qc_result["last_frame_number"]
         tracking_data=df.loc[
             (df["frame_number"]>=frame_number_0) &
             (df["frame_number"]<=frame_number_last)
         ]
         if df.shape[0]>0:
-            data.append({"row": row, "tracking_data": tracking_data})
+            data.append({"qc_result": qc_result, "tracking_data": tracking_data})
 
     logger.debug("Will generate %s videos", len(data))
 
@@ -136,14 +125,13 @@ def annotate_for_validation(
             generate_validation_video
         )(
             experiment,
-            row=data[i]["row"],
-            df=data[i]["tracking_data"],
+            **d,
             output_folder=movies_folder,
             format=format,
             field=FIELD,
             **kwargs
         )
-        for i in range(len(data))
+        for d in tqdm(data)
     )
     return df, qc_fail
 
