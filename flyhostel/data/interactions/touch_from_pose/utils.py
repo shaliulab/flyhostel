@@ -474,53 +474,282 @@ def detect_touch_pairs(
 
     return out, df
 
+# def stack_individuals_v1(
+#     datasets: list,
+#     ind_names=None,
+#     join="outer",
+#     on_overlap="raise",
+# ) -> xr.Dataset:
+#     """
+#     Stack multiple single-individual movement datasets along 'individuals'.
+#     Each input dataset must have an 'individuals' dim of size 1.
+
+#     Datasets sharing the same individual name (after optional relabeling via
+#     ind_names) are concatenated along 'frame_number' (non-overlapping) before
+#     being stacked along 'individuals'. 'time' is a non-dimension coordinate on
+#     'frame_number' and is carried along automatically.
+
+#     The result has one entry per unique individual name.
+
+#     Parameters
+#     ----------
+#     datasets : list of xr.Dataset
+#         Each must have 'individuals' dim of size 1.
+#     ind_names : list of str, optional
+#         New labels for each dataset's individual. If None, uses the existing
+#         coordinate value.
+#     join : str
+#         Join strategy passed to xr.align (default 'outer').
+#     on_overlap : str
+#         How to handle overlapping frame_numbers within the same individual.
+#         - 'raise'  : raise ValueError (default)
+#         - 'warn'   : verify the overlapping frames are identical across sources,
+#                      emit a warning, then deduplicate and continue.
+#         - 'drop'   : silently deduplicate, keeping the first occurrence.
+#     """
+#     # --- 0) Sanity checks and optional relabeling ---
+#     labeled = []
+#     for i, ds in enumerate(datasets):
+#         if "individuals" not in ds.dims:
+#             raise ValueError(f"Dataset {i} has no 'individuals' dim.")
+#         if ds.sizes["individuals"] != 1:
+#             raise ValueError(f"Dataset {i} must have size 1 along 'individuals'.")
+#         if ind_names is not None:
+#             ds = ds.assign_coords(individuals=[ind_names[i]])
+#         labeled.append(ds)
+
+#     # --- 1) Group datasets by individual name ---
+#     groups: dict[str, list[xr.Dataset]] = {}
+#     for ds in labeled:
+#         ind_name = ds["individuals"].values.item()
+#         groups.setdefault(ind_name, []).append(ds)
+
+#     # --- 2) Within each group, concatenate along 'frame_number' ---
+#     merged_per_ind = []
+#     for ind_name, group in groups.items():
+#         if len(group) == 1:
+#             merged_per_ind.append(group[0])
+#             continue
+
+#         # Detect overlapping frame_number ranges across the group
+#         seen_frames: set = set()
+#         all_overlaps: set = set()
+#         for ds in group:
+#             frames = set(ds["frame_number"].values.tolist())
+#             overlap = seen_frames & frames
+#             if overlap:
+#                 all_overlaps |= overlap
+#             seen_frames |= frames
+
+#         if all_overlaps:
+#             message = (
+#                 f"Individual '{ind_name}' has overlapping frame_numbers "
+#                 f"across datasets: {all_overlaps}"
+#             )
+#             if on_overlap == "raise":
+#                 raise ValueError(message)
+
+#             elif on_overlap == "warn":
+#                 # Verify that all sources agree on the data at overlapping frames
+#                 for fn in all_overlaps:
+#                     sources = [
+#                         ds.sel(frame_number=fn)
+#                         for ds in group
+#                         if fn in ds["frame_number"].values
+#                     ]
+#                     # Compare every subsequent source against the first
+#                     for other in sources[1:]:
+#                         if not sources[0].equals(other):
+#                             raise ValueError(
+#                                 f"Individual '{ind_name}', frame {fn}: "
+#                                 f"overlapping sources disagree on data values. "
+#                                 f"Cannot safely deduplicate."
+#                             )
+#                 logger.warning(message)
+
+#             # 'raise' is already handled above; both 'warn' and 'drop' deduplicate
+#             # Concat everything, then keep the first occurrence of each frame_number
+#             combined = xr.concat(group, dim="frame_number")
+#             _, unique_idx = np.unique(combined["frame_number"].values, return_index=True)
+#             merged_per_ind.append(
+#                 combined.isel(frame_number=unique_idx).sortby("frame_number")
+#             )
+#             continue
+
+#         # No overlaps — plain concat
+#         merged_per_ind.append(
+#             xr.concat(group, dim="frame_number").sortby("frame_number")
+#         )
+
+#     # --- 3) Align across individuals (excluding 'individuals' dim) ---
+#     if len(merged_per_ind) > 1:
+#         aligned = list(
+#             xr.align(*merged_per_ind, join=join, exclude=["individuals"])
+#         )
+#     else:
+#         aligned = merged_per_ind
+
+#     # --- 4) Concatenate along 'individuals' ---
+#     out = xr.concat(aligned, dim="individuals")
+#     out.attrs.update(aligned[0].attrs)
+
+#     assert out.sizes["individuals"] == len(groups), (
+#         f"Expected {len(groups)} individuals, got {out.sizes['individuals']}"
+#     )
+#     return out
+
+
 def stack_individuals(
     datasets: list,
     ind_names=None,
     join="outer",
+    on_overlap="raise",
 ) -> xr.Dataset:
     """
-    Stack two single-individual movement datasets along 'individuals',
-    assuming each already has individuals dim of length 1 (e.g., 'individual_0').
+    Stack multiple single-individual movement datasets along 'individuals'.
+    Each input dataset must have an 'individuals' dim of size 1.
 
-    Relabels each to a unique name before concatenation and excludes
-    'individuals' from alignment to avoid unintended expansion.
+    Datasets sharing the same individual name (after optional relabeling via
+    ind_names) are concatenated along 'frame_number' (non-overlapping) before
+    being stacked along 'individuals'. 'time' is a non-dimension coordinate on
+    'frame_number' and is carried along automatically.
+
+    If some individuals are not observed in some frames, missing data variables
+    are filled with NaN and the 'time' coordinate is reconstructed as a 1D
+    array from the union of all individuals' frame_number->time mappings,
+    allowing swap_dims({"frame_number": "time"}) to work on the result.
+
+    The result has one entry per unique individual name.
+
+    Parameters
+    ----------
+    datasets : list of xr.Dataset
+        Each must have 'individuals' dim of size 1.
+    ind_names : list of str, optional
+        New labels for each dataset's individual. If None, uses the existing
+        coordinate value.
+    join : str
+        Join strategy passed to xr.align (default 'outer').
+    on_overlap : str
+        How to handle overlapping frame_numbers within the same individual.
+        - 'raise'  : raise ValueError (default)
+        - 'warn'   : verify the overlapping frames are identical across sources,
+                     emit a warning, then deduplicate and continue.
+        - 'drop'   : silently deduplicate, keeping the first occurrence.
     """
-    # 0) sanity checks
-    datasets_=[None, ] * len(datasets)
+    # --- 0) Sanity checks and optional relabeling ---
+    labeled = []
     for i, ds in enumerate(datasets):
         if "individuals" not in ds.dims:
-            raise ValueError(f"ds{i+1} has no 'individuals' dim.")
+            raise ValueError(f"Dataset {i} has no 'individuals' dim.")
         if ds.sizes["individuals"] != 1:
-            raise ValueError(f"ds{i+1} must have size 1 along 'individuals'.")
-    
+            raise ValueError(f"Dataset {i} must have size 1 along 'individuals'.")
         if ind_names is not None:
-            # 1) relabel the single label of each dataset to a unique name
             ds = ds.assign_coords(individuals=[ind_names[i]])
+        labeled.append(ds)
 
-        datasets_[i]=ds
+    # --- 1) Group datasets by individual name ---
+    groups: dict[str, list[xr.Dataset]] = {}
+    for ds in labeled:
+        ind_name = ds["individuals"].values.item()
+        groups.setdefault(ind_name, []).append(ds)
 
-    datasets=datasets_
-    del datasets_
-
-    datasets_aligned=[None, ] * len(datasets)
-    
-    for i, ds in enumerate(datasets):
-        if i == 0:
+    # --- 2) Within each group, concatenate along 'frame_number' ---
+    merged_per_ind = []
+    for ind_name, group in groups.items():
+        if len(group) == 1:
+            merged_per_ind.append(group[0])
             continue
-    
-        # 2) align everything EXCEPT the 'individuals' dim
-        # NOTE this may not work if alignment needs to be done
-        # also between non contiguous individuals
-        ds1, ds2 = xr.align(datasets[i-1], datasets[i], join=join, exclude=["individuals"])
-        datasets_aligned[i-1]=ds1
-        datasets_aligned[i]=ds2
 
-    # 3) concatenate along 'individuals' (now the labels are unique)
-    out = xr.concat(datasets_aligned, dim="individuals")
+        # Detect overlapping frame_number ranges across the group
+        seen_frames: set = set()
+        all_overlaps: set = set()
+        for ds in group:
+            frames = set(ds["frame_number"].values.tolist())
+            overlap = seen_frames & frames
+            if overlap:
+                all_overlaps |= overlap
+            seen_frames |= frames
 
-    # 4) keep attrs from the first input (optional)
-    out.attrs.update(ds1.attrs)
+        if all_overlaps:
+            message = (
+                f"Individual '{ind_name}' has overlapping frame_numbers "
+                f"across datasets: {all_overlaps}"
+            )
+            if on_overlap == "raise":
+                raise ValueError(message)
+
+            elif on_overlap == "warn":
+                for fn in all_overlaps:
+                    sources = [
+                        ds.sel(frame_number=fn)
+                        for ds in group
+                        if fn in ds["frame_number"].values
+                    ]
+                    for other in sources[1:]:
+                        if not sources[0].equals(other):
+                            raise ValueError(
+                                f"Individual '{ind_name}', frame {fn}: "
+                                f"overlapping sources disagree on data values. "
+                                f"Cannot safely deduplicate."
+                            )
+                logger.warning(message)
+
+            combined = xr.concat(group, dim="frame_number")
+            _, unique_idx = np.unique(combined["frame_number"].values, return_index=True)
+            merged_per_ind.append(
+                combined.isel(frame_number=unique_idx).sortby("frame_number")
+            )
+            continue
+
+        merged_per_ind.append(
+            xr.concat(group, dim="frame_number").sortby("frame_number")
+        )
+
+    # --- 3) Build a global frame_number -> time mapping before alignment ---
+    # Each per-individual dataset has time as a 1D coord on frame_number.
+    # Collect all (frame_number, time) pairs across all individuals so that
+    # after alignment fills missing frames with NaN, we can restore time as 1D.
+    frame_to_time: dict[int, float] = {}
+    for ds in merged_per_ind:
+        fns = ds["frame_number"].values
+        times = ds["time"].values
+        for fn, t in zip(fns, times):
+            if np.isnan(t):
+                continue
+            if fn not in frame_to_time:
+                frame_to_time[fn] = t
+            elif not np.isclose(frame_to_time[fn], t):
+                raise ValueError(
+                    f"frame_number {fn} maps to conflicting time values "
+                    f"across individuals: {frame_to_time[fn]} vs {t}. "
+                    f"Cannot represent 'time' as a 1D coordinate."
+                )
+
+    # --- 4) Align across individuals (excluding 'individuals' dim) ---
+    if len(merged_per_ind) > 1:
+        aligned = list(
+            xr.align(*merged_per_ind, join=join, exclude=["individuals"])
+        )
+    else:
+        aligned = merged_per_ind
+
+    # --- 5) Concatenate along 'individuals' ---
+    out = xr.concat(aligned, dim="individuals")
+    out.attrs.update(aligned[0].attrs)
+
+    # --- 6) Restore 'time' as a 1D coordinate on frame_number ---
+    # After outer-join alignment, 'time' may have become 2D (individuals, frame_number)
+    # because some individuals were missing some frames. Reconstruct it as 1D
+    # using the global mapping built in step 3.
+    all_frame_numbers = out["frame_number"].values
+    time_1d = np.array([frame_to_time.get(int(fn), np.nan) for fn in all_frame_numbers])
+
+    out = out.assign_coords(time=("frame_number", time_1d))
+
+    assert out.sizes["individuals"] == len(groups), (
+        f"Expected {len(groups)} individuals, got {out.sizes['individuals']}"
+    )
     return out
 
 

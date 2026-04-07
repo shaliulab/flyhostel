@@ -1,6 +1,6 @@
 import logging
 import glob
-
+import functools
 from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
@@ -30,14 +30,32 @@ legs=[leg for leg in all_legs if "J" not in leg]
 
 logger=logging.getLogger(__name__)
 
-def load_experiment_features(experiment):
+@functools.lru_cache
+def load_poses_from_file(pose_file, framerate):
+    return load_poses.from_file(pose_file, source_software="SLEAP", fps=framerate)
+
+
+def load_experiment_features(experiment, extra_bodyparts=[], min_time=None, max_time=None, on_overlap="raise"):
 
     number_of_animals=get_number_of_animals(experiment)
     animals=[f"{experiment}__{str(i+1).zfill(2)}" for i in range(number_of_animals)]
 
 
-    datasets=[]
+    datasets={}
     framerate_index=[]
+
+
+    if not isinstance(min_time, tuple):
+        min_time_l=[min_time]
+    else:
+        min_time_l=min_time
+    
+    if not isinstance(max_time, tuple):
+        max_time_l=[max_time]
+    else:
+        max_time_l=max_time
+
+
 
     for animal in tqdm(animals):
         experiment, identity = animal.split("__")
@@ -58,9 +76,18 @@ def load_experiment_features(experiment):
         pose_file=loader.get_pose_file_h5py(pose_name="raw")
         frames=get_frames(pose_file, chunksize)
 
-        
-        ds=load_poses.from_file(pose_file, source_software="SLEAP", fps=framerate)
-        ds=ds.sel(keypoints=["head", "thorax", "abdomen", "proboscis"] + legs)
+
+        ds = load_poses_from_file(pose_file, framerate)
+        ds = ds.assign_coords(individuals=("individuals", [animal]))
+
+        keypoints = ["head", "thorax", "abdomen", "proboscis"] + legs
+        for bp in extra_bodyparts:
+            if bp not in ds.keypoints:
+                logger.warning("%s not provided by pose data. Ignoring", bp)
+            if bp not in keypoints:
+                keypoints.append(bp)
+
+        ds=ds.sel(keypoints=keypoints)
         
         # only keep pose frames where the centroid frames are available
         # used to remove padded pose data at the beginning of the first chunk
@@ -85,23 +112,46 @@ def load_experiment_features(experiment):
         )
         # If you want time strictly increasing (and dt might not be sorted):
         ds = ds.sortby("time")
-
-
         ds = add_centroid_offset_single(ds, cx, cy)  # now positions are absolute
 
         if FILTER_BY_CONFIDENCE:
             ds.update({"position": filter_by_confidence(ds.position, ds.confidence, print_report=True)})
         if INTERPOLATE:
             ds.update({"position": interpolate_over_time(ds.position, print_report=True)})
+        
+        
+        for i, (min_time, max_time) in enumerate(zip(min_time_l, max_time_l)):
+            if min_time is not None or max_time is not None:
+                ds_final = ds.sel(time=slice(min_time, max_time))
+            else:
+                ds_final = ds
+    
+            if i in datasets:
+                datasets[i].append(ds_final)
+            else:
+                datasets[i]=[ds_final]
 
-        datasets.append(ds)
+    all_datasets=[]
+    for i in datasets:
+        # make sure all datasets from the same interval have the same frame_number/time grid
+        datasets_interval=datasets[i]
+        all_frames = functools.reduce(np.union1d, [d["frame_number"].values for d in datasets_interval])
+        for j, d in enumerate(datasets_interval):
+            d = d.swap_dims({"time": "frame_number"})
+            d = d.reindex(frame_number=all_frames)
+            all_datasets.append(d)
 
-    framerate_index=pd.DataFrame.from_records(framerate_index, columns=[
-        "experiment", "basedir", "framerate", "chunksize", "square_width",
-    ])
-    # Give your flies readable IDs
-    ds = stack_individuals(datasets, ind_names=animals, join="outer")
 
+
+
+    ds = stack_individuals(all_datasets, ind_names=None, join="exact", on_overlap=on_overlap)
+
+    # Now assign the shared 1D time coordinate
+    try:
+        ds = ds.swap_dims({"frame_number": "time"})
+    except Exception as error:
+        logger.error(error)
+        import ipdb; ipdb.set_trace()
     return ds
 
 
