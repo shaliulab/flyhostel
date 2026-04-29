@@ -349,6 +349,12 @@ class FlyHostelGroup(InteractionDetector):
                     data_files.append(file)
 
         validation_folder=os.path.join(self.basedir, ".", "flyhostel", "validation")
+        
+        if not os.path.exists(validation_folder):
+            print(f"mkdir {validation_folder}")
+            os.makedirs(validation_folder)
+
+
         if debug:
             files=[metadata_file]
         else:
