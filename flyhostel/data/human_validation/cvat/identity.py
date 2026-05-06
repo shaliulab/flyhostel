@@ -81,8 +81,25 @@ def make_identity_table(lid_table, chunks, chunksize, debug=False):
     identity_table=pd.DataFrame.from_records(identity_table, columns=["chunk", "local_identity", "local_identity_after", "distance"])
     identity_table["is_inferred"]=False
     return identity_table
+
+
+def make_local_identity_table(data, chunksize):
+    xf=establish_dataframe_framework(data)
+
+    data=xf.DataFrame(data.drop("identity", axis=1, errors="ignore"))
+    
+    first_frame=data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).first().reset_index()
+    last_frame=data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).last().reset_index()
+    first_frame["position"]="first"
+    last_frame["position"]="last"
+
+    lid_table=xf.concat([
+        first_frame, last_frame
+    ], axis=0).sort_values(["frame_number", "local_identity"])
+    lid_table["frame_idx"]=lid_table["frame_number"]%chunksize
+    return lid_table
             
-def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated_table=None):
+def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated_table=None, verbose=True):
     """
     Generate the identity track for each animal in a dataset
 
@@ -95,23 +112,18 @@ def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated
 
     xf=establish_dataframe_framework(data)
     data=xf.DataFrame(data.drop("identity", axis=1, errors="ignore"))
-    
-    first_frame=data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).first().reset_index()
-    last_frame=data[["chunk", "local_identity", "x", "y", "frame_number", "class_name", "modified"]].groupby(["chunk","local_identity"]).last().reset_index()
-    first_frame["position"]="first"
-    last_frame["position"]="last"
+    lid_table=make_local_identity_table(data, chunksize)
 
-    lid_table=xf.concat([
-        first_frame, last_frame
-    ], axis=0).sort_values(["frame_number", "local_identity"])
-    lid_table["frame_idx"]=lid_table["frame_number"]%chunksize
 
-    broken_tracks=lid_table.loc[~lid_table["frame_idx"].isin([0, chunksize-1])].to_pandas()
+    broken_tracks=lid_table.loc[~lid_table["frame_idx"].isin([0, chunksize-1])]
+    if xf is cudf:
+        broken_tracks=broken_tracks.to_pandas()
     # this can happen if a fly changes fragment
     # and regains the wrong local id in the process
     for _, track in broken_tracks.iterrows():
         info=f'Frame number: {int(track["frame_number"])} Local identity: {track["local_identity"]}. Position: {track["position"]}'
-        logger.warning(f"Track broken {info}")
+        if verbose:
+            logger.warning(f"Track broken {info}")
 
     chunks=sorted(lid_table["chunk"].to_pandas().unique())
 

@@ -46,6 +46,12 @@ from flyhostel.data.human_validation.cvat.constants import cvat_username, cvat_h
 
 DEBUG=True
 def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
+    """
+    
+    Arguments
+        task (int):
+        path (str): Folder where to download the zip file
+    """
 
     unzipped_folder=f"task_{task_number}"
     zip_file=os.path.join(path, f"{task_number}_annotations.zip")
@@ -77,6 +83,16 @@ def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
     return zip_file
 
 
+def download_annotations_from_cvat(experiment, path, tasks=None):
+    if tasks is None:
+        tasks=sorted(get_tasks_for_project(get_project_id_from_name(experiment, errors="raise")))
+    zip_files=[]
+
+    for task in tqdm(tasks, desc="Downloading CVAT annotations to .zip"):
+        zip_files.append(download_task_annotations_to_zip(task, path = path, redownload=True))
+    return zip_files
+
+
 def download_task_annotations(task_number, *args, **kwargs):
     unzipped_folder=f"task_{task_number}"
 
@@ -100,7 +116,7 @@ def download_task_annotations(task_number, *args, **kwargs):
     return annotations, images, categories
 
 
-def load_task_annotations(annotations, images, categories, basedir, frame_width=1000, frame_height=1000, number_of_rows=1, number_of_cols=1, chunksize=None):
+def load_task_annotations(annotations, images, categories, basedir, frame_width=1000, frame_height=1000, number_of_rows=1, number_of_cols=1, chunksize=None, image_format="v1"):
     """
     Returns:
 
@@ -136,12 +152,15 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
         ]
         image_filename=image["file_name"].item()
         # frame_number0 = first frame of the scene
-        frame_number0=int(
-            os.path.splitext(os.path.basename(image_filename))[0].split("_")[-2]
-        )
-        block=int(
-            os.path.splitext(os.path.basename(image_filename))[0].split("_")[-1]
-        )
+
+        tokens=os.path.splitext(os.path.basename(image_filename))[0].split("_")
+
+        if image_format=="v1":
+            block=int(tokens[-1])
+            frame_number0=int(tokens[-2])
+        else:
+            block=None
+            frame_number0=int(tokens[0])
 
         category=categories.loc[
             categories["id"]==annotation["category_id"], "name"
@@ -187,7 +206,11 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
             )
 
 
-        frame_number=frame_number0+frame_idx_in_block + block*block_size
+        if image_format=="v1":
+            frame_number=frame_number0+frame_idx_in_block + block*block_size
+        else:
+            frame_number=frame_number0
+
         if frame_number not in seen_lids:
             seen_lids[frame_number]=[]
     
@@ -260,7 +283,7 @@ def get_annotations(experiment, basedir, tasks, n_jobs=2, **kwargs):
     return annotations_df, contours
 
 
-def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of_rows=1, **kwargs):
+def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of_rows=1, image_format="v1", **kwargs):
     annotations, images, categories=download_task_annotations(task_number, **kwargs)
     chunksize=get_chunksize(experiment)
     
@@ -276,7 +299,8 @@ def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of
         frame_width=frame_width,
         frame_height=frame_height,
         number_of_rows=number_of_rows, number_of_cols=number_of_cols,
-        chunksize=chunksize
+        chunksize=chunksize,
+        image_format=image_format
     )
     annotations_df["task"]=task_number
     return annotations_df, contours

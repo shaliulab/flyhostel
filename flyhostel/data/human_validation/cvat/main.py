@@ -57,69 +57,26 @@ def select_frame_interval(data, frames_from_annotation, first_frame_number, last
     return first_frame_number, last_frame_number
     
 
-def integrate_human_annotations(
-        experiment, folder,
-        first_frame_number=None,
-        last_frame_number=None,
+
+
+
+def integrate_data(experiment, tasks,
         redownload=REDOWNLOAD_FROM_CVAT,
         number_of_rows=1,
         number_of_cols=1,
-        tasks=None,
         frames_from_annotation=False,
         reference_hour=13,
+        first_frame_number=None,
+        last_frame_number=None,
+        image_format="v1"
     ):
-    """
-    Add human validated identity tracks to a flyhostel dbfile
-    Annotations are downloaded from a locally running CVAT instance and stored in the form of new tables in the dbfile
-
-    This function returns None. Its purpose is to add or regenerate 3 tables in the dbfile of the experiment:
-        IDENTITY_VAL: Same information as IDENTITY, but containing human annotations
-        ROI_0_VAL: Same information as ROI_0, but containing human annotations
-        CONCATENATION_VAL: Same information as CONCATENATION, but containing human annotations
-
-    The identity information is organized in tracks and singletons:
-
-       * An identity track consists of a pair of a fragment identifier and a chunk.
-           The track informs which local identity acquired all blobs within an idtrackerai fragment and within the same chunk
-           The track has the ability that it can propagate the identity given by a human to one blob in the fragment
-               to all other blobs in the same fragment
-        * An identity singleton consists of an identity assigned to a blob which has no fragment or it's a crossing
-            blobs without fragments are generated when the human marks a fly _de_ _novo_ i.e. idtrackerai did not segment it as a separate fly because
-                1) it is missed
-                2) it is segmented merged with another fly but the merged blob is not marked as a crossing (even though it is)
-            crossings occur when the crossing detector of idtrackerai marks a blob as a crossing
-
-    Throughout the code the terms machine data and human data are used:
-
-        machine_data refers to identity assigments and segmentations produced by the machine, either AI or not (stored in a SQLite file)
-        human_data or annotations refers to the identity assignemtns and segmentations produced by a human (stored in a CVAT task)
-
-    A data point (combination of spatial and identity information) can have a value in the field "validated" out of 3 levels
-
-    2: The data point itself is modified by a human
-    1: The data point is not modified by a human directly, but some other data point in its fragment is modified by a human
-    0: The data point is not modified at all (still may be validated by the human, just not modified) 
-
-
-    Arguments
-        * experiment (str): Identifier of the flyhostel run (FlyHostelX_YX_YYYY-MM-DD_HH-MM-SS)
-        * folder (str): Where to save output csv files
-        * tasks (list): Task IDs corresponding to this experiment
-        * first_frame_number (int): First frame number of the validation tables
-        * last_frame_number (int): Last frame number of the validation tables
-    """
 
     basedir=get_basedir(experiment)
     number_of_animals=get_number_of_animals(experiment)
-    
     chunksize=get_chunksize(experiment)
 
-    if tasks is not None:
-        logger.warning("Passing tasks is deprecated. Querying database instead", tasks)
 
-    tasks=get_tasks_for_project(get_project_id_from_name(experiment))
-
-    annotations_df, contours=get_annotations(experiment, basedir, tasks, redownload=redownload, number_of_rows=number_of_rows, number_of_cols=number_of_cols)
+    annotations_df, contours=get_annotations(experiment, basedir, tasks, redownload=redownload, number_of_rows=number_of_rows, number_of_cols=number_of_cols, image_format=image_format)
     annotations_df["chunk"]=annotations_df["frame_number"]//chunksize
 
 
@@ -283,8 +240,6 @@ def integrate_human_annotations(
         human_data_and_propagation_via_fragments[["chunk", "fragment"]].drop_duplicates(), how="outer", indicator=True
     )
 
-
-
     annotations_without_clean_spatial_machine_data_and_rest_of_machine_data_clean=duplications.loc[duplications["_merge"]=="left_only"].merge(
         annotations_without_clean_spatial_machine_data_and_rest_of_machine_data,
         how="left",
@@ -298,6 +253,22 @@ def integrate_human_annotations(
     ], axis=0).sort_values(["frame_number", "validated"], ascending=[True, False])\
         .reset_index(drop=True)
         # .drop_duplicates(["frame_number", "fragment"])
+
+    
+    report_data={
+        "identity_tracks": identity_tracks,
+        "roi0_annotations": roi0_annotations,
+        "identity_annotations": identity_annotations
+    }
+
+    return updated_data, machine_data, report_data
+
+
+
+def manual_validations(experiment, updated_data, machine_data, first_frame_number, last_frame_number, folder, **report_data):
+
+    number_of_animals=get_number_of_animals(experiment)
+    chunksize=get_chunksize(experiment)
 
     # flies_lid_0=list_flies_with_lid_0(new_data)
     # flies_lid_0.to_csv(os.path.join(folder, "flies_lid_0.csv"))
@@ -352,9 +323,79 @@ def integrate_human_annotations(
     new_data["frame_idx"]=new_data["frame_number"]%chunksize
     new_data=assign_in_frame_indices(new_data, number_of_animals, experiment=experiment)
 
-    make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize)
+    make_report(folder, new_data=new_data, number_of_animals=number_of_animals, chunksize=chunksize, **report_data)
 
-    out_file=os.path.join(folder, f"{experiment}_without_identity.feather")
+    new_data=new_data.loc[
+        (new_data["frame_number"]>=first_frame_number) &
+        (new_data["frame_number"]<=last_frame_number)
+    ]
+
+    return new_data
+
+
+def integrate_human_annotations(
+        experiment,
+        folder,
+        first_frame_number=None,
+        last_frame_number=None,
+        tasks=None,
+        multisex = False,
+        **kwargs
+    ):
+    """
+    Add human validated identity tracks to a flyhostel dbfile
+    Annotations are downloaded from a locally running CVAT instance and stored in the form of new tables in the dbfile
+
+    This function returns None. Its purpose is to add or regenerate 3 tables in the dbfile of the experiment:
+        IDENTITY_VAL: Same information as IDENTITY, but containing human annotations
+        ROI_0_VAL: Same information as ROI_0, but containing human annotations
+        CONCATENATION_VAL: Same information as CONCATENATION, but containing human annotations
+
+    The identity information is organized in tracks and singletons:
+
+       * An identity track consists of a pair of a fragment identifier and a chunk.
+           The track informs which local identity acquired all blobs within an idtrackerai fragment and within the same chunk
+           The track has the ability that it can propagate the identity given by a human to one blob in the fragment
+               to all other blobs in the same fragment
+        * An identity singleton consists of an identity assigned to a blob which has no fragment or it's a crossing
+            blobs without fragments are generated when the human marks a fly _de_ _novo_ i.e. idtrackerai did not segment it as a separate fly because
+                1) it is missed
+                2) it is segmented merged with another fly but the merged blob is not marked as a crossing (even though it is)
+            crossings occur when the crossing detector of idtrackerai marks a blob as a crossing
+
+    Throughout the code the terms machine data and human data are used:
+
+        machine_data refers to identity assigments and segmentations produced by the machine, either AI or not (stored in a SQLite file)
+        human_data or annotations refers to the identity assignemtns and segmentations produced by a human (stored in a CVAT task)
+
+    A data point (combination of spatial and identity information) can have a value in the field "validated" out of 3 levels
+
+    2: The data point itself is modified by a human
+    1: The data point is not modified by a human directly, but some other data point in its fragment is modified by a human
+    0: The data point is not modified at all (still may be validated by the human, just not modified) 
+
+
+    Arguments
+        * experiment (str): Identifier of the flyhostel run (FlyHostelX_YX_YYYY-MM-DD_HH-MM-SS)
+        * folder (str): Where to save output csv files
+        * tasks (list): Task IDs corresponding to this experiment
+        * first_frame_number (int): First frame number of the validation tables
+        * last_frame_number (int): Last frame number of the validation tables
+    """
+
+    if multisex:
+        image_format="v2"
+    else:
+        image_format="v1"
+
+
+    if tasks is None:
+        tasks=get_tasks_for_project(get_project_id_from_name(experiment))
+    number_of_animals=get_number_of_animals(experiment)
+    chunksize=get_chunksize(experiment)
+
+    updated_data, machine_data, report_data=integrate_data(experiment, tasks=tasks, first_frame_number=first_frame_number, last_frame_number=last_frame_number, image_format=image_format, **kwargs)
+    new_data=manual_validations(experiment, updated_data, machine_data, first_frame_number=first_frame_number, last_frame_number=last_frame_number, **report_data, folder=folder)
 
     # required when a fly does not overlap between 2 chunks due to a lag to high between chunks
     annotated_table_file=os.path.join(folder, "validation_lags.csv")
@@ -370,12 +411,13 @@ def integrate_human_annotations(
     else:
         annotated_table=None
 
-    new_data=new_data.loc[
-        (new_data["frame_number"]>=first_frame_number) &
-        (new_data["frame_number"]<=last_frame_number)
-    ]
+
+    new_data.to_feather(f"{folder}/new_data.feather")
+
 
     try:
+        out_file=os.path.join(folder, f"{experiment}_without_identity.feather")
+
         logger.debug("Annotate identity")
         logger.debug(f"Saving data until annotate_identity to {out_file}")
         new_data.loc[~new_data["local_identity"].isna(), "local_identity"]=new_data.loc[~new_data["local_identity"].isna(), "local_identity"].astype(int)
@@ -383,7 +425,7 @@ def integrate_human_annotations(
         new_data.reset_index(drop=True).to_feather(out_file)
 
         new_data=new_data.loc[~new_data["local_identity"].isna()]
-        new_data["local_identity"]=new_data["local_identity"].astype(int)        
+        new_data["local_identity"]=new_data["local_identity"].astype(int)
         new_data["is_a_crossing"]=new_data["is_a_crossing"].astype(bool)
 
         safe_cudf(new_data)
