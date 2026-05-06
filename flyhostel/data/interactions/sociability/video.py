@@ -160,7 +160,7 @@ def process__crop(frame, row, half_width=100):
 #     frame=process__crop(frame, row, half_width=half_width)
 #     return frame
 
-def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, root="interactions/videos", process_frame=process__all, cache=True, **kwargs):
+def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, root="interactions/videos", process_frame=process__all, cache=True, isColor=False, **kwargs):
     """
     index needs to contain:
         1) video (str) path to single_animal video which should be used as INPUT
@@ -182,7 +182,7 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
 
     drawn_status=[]
 
-    for _, row in tqdm(index.iterrows()):
+    for i, row in tqdm(index.iterrows()):
 
         if "output_video" in row:
             video_name=row["output_video"]
@@ -243,7 +243,7 @@ def write_separate_videos(experiment, index, videoWriterClass, overwrite=False, 
                 cv2.VideoWriter_fourcc(*"MP4V"),
                 framerate,
                 frame.shape[:2][::-1],
-                isColor=False,
+                isColor=isColor,
                 **video_writer_kwargs
             )
         video_writer.write(frame)
