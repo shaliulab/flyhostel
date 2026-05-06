@@ -12,9 +12,15 @@ import joblib
 from confapp import conf
 import numpy as np
 import pandas as pd
-import cudf
-
 logger=logging.getLogger(__name__)
+
+try:
+    import cudf
+except ModuleNotFoundError:
+    cudf=None
+    logger.error("Cannot load cudf")
+
+
 
 if sys.version_info > (3, 8):
     import pickle
@@ -356,6 +362,8 @@ def annotate_time_in_dataset(dataset, index, t_column="t", t_after_ref=None):
 
 
 def establish_dataframe_framework(dt):
+    if cudf is None:
+        raise ModuleNotFoundError("cudf not installed")
     xf = pd if isinstance(dt, pd.DataFrame) else cudf if isinstance(dt, cudf.DataFrame) else None
     if xf is None:
         raise TypeError("dt must be either a pandas or cuDF DataFrame.")
