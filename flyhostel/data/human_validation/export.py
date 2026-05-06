@@ -104,6 +104,9 @@ def load_qc(folder):
 
 
 def export_images(folder, experiment, n_jobs):
+    """
+    entrypoint of export-images
+    """
 
     qc=load_qc(folder)
     pass_qc=qc.loc[qc["pass"]==True]
