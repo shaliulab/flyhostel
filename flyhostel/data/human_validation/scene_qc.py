@@ -59,7 +59,8 @@ def scene_qc(scene, number_of_animals, chunksize):
             between_chunks (bool): If true, the scene spans >2 chunks
             broken (int): Whether all animals are found in all frames (0) or not (1)
             length (int): Number of frames making up the scene
-            maintains_id (int): In scene where only 1 fragment is broken (giving 2 fragments), whether the 2 fragments have the same id or not
+            maintains_id (int): In scene where only 1 fragment is broken (giving 2 fragments),
+                whether the 2 fragments have the same identity or not
             n_failed_fragments (int): Number of fragments that dont span the whole scene,
                 which indicates they are broken due to some challenging behavior of the animal 
     """
