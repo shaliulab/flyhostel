@@ -9,7 +9,7 @@ from flyhostel.data.pose.constants import get_bodyparts
 TABLES = [
     "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0",
     "IDENTITY", "CONCATENATION", "BEHAVIORS", "STORE_INDEX",
-    "ENVIRONMENT", "AI", "ORIENTATION", "QC", "POSE"
+    "ENVIRONMENT", "AI", "ORIENTATION", "QC", "POSE", "LANDMARKS"
 ]
 
 BEHAVIORS=["background", "inactive", "walk", "pe", "rejection", "groom", "fall"]
@@ -19,7 +19,7 @@ PRESETS = {
     "default": [
         "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP",
         "CONCATENATION","STORE_INDEX",
-        "ENVIRONMENT", "AI", "QC",
+        "ENVIRONMENT", "AI", "QC", "LANDMARKS",
     ],
     "roi0": [
         "ROI_0"
