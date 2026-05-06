@@ -85,6 +85,7 @@ class WaveletLoader:
         # wavelets.append(wavelets_single_animal)
         wavelets=wavelets_single_animal
         # wavelets=pd.concat(wavelets, axis=0)
+        self.wavelets=wavelets
         return wavelets, (frequencies, freq_names)
 
 
