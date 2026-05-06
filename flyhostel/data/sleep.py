@@ -8,7 +8,7 @@ SLEEP_STATES={"WO_FEED": PURE_INACTIVE_STATES, "WITH_FEED": None}
 # Sleep functions
 def apply_inactive_rule(dataset_window, time_window_length, min_time_immobile):
     return sleep_contiguous(
-            ~dataset_window["windowed_var"],
+            ~dataset_window["windowed_var"], # input = moving. windowed_var = not moving
             1/time_window_length,
             min_valid_time=min_time_immobile
         )
