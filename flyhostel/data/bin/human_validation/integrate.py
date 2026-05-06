@@ -12,7 +12,9 @@ def get_parser():
     ap.add_argument("--experiment", type=str, required=True)
     ap.add_argument("--folder", type=str, default=None)
     ap.add_argument("--fn-interval", type=int, nargs=2, required=False, default=[None, None])
+    ap.add_argument("--tasks", type=int, nargs="+", required=False)
     ap.add_argument("--frames-from-annotation", dest="frames_from_annotation", action="store_true", help="Infer frame window from annotations")
+    ap.add_argument("--multisex", action="store_true", help="Are there flies from both sexes in the experiment?")
     return ap
 
 def main():
@@ -32,12 +34,14 @@ def main():
     integrate_human_annotations(
         args.experiment,
         folder=folder,
+        tasks=args.tasks,
         first_frame_number=args.fn_interval[0],
         last_frame_number=args.fn_interval[1],
         redownload=args.redownload,
         number_of_rows=args.number_of_rows,
         number_of_cols=args.number_of_cols,
         frames_from_annotation=args.frames_from_annotation,
+        multisex=args.multisex
     )
 
 
