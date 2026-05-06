@@ -290,6 +290,14 @@ def get_wavelet_profile(experiment):
 
 def get_framerate(experiment):
     dbfile=get_dbfile(get_basedir(experiment))
+    try:
+        return float(load_metadata_prop("framerate", dbfile=dbfile))
+    except sqlite3.DatabaseError as error:
+        logger.error(error)
+        basedir=get_basedir(experiment)
+        with open(f"{basedir}/metadata.yaml", "r") as handle:
+            metadata=yaml.load(handle, yaml.SafeLoader)["__store"]
+        return metadata["framerate"]
 
 
 def get_resolution(experiment):
