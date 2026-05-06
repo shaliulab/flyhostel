@@ -12,6 +12,7 @@ import joblib
 from confapp import conf
 import numpy as np
 import pandas as pd
+import cv2
 from matplotlib import cm
 
 logger=logging.getLogger(__name__)
@@ -289,7 +290,17 @@ def get_wavelet_profile(experiment):
 
 def get_framerate(experiment):
     dbfile=get_dbfile(get_basedir(experiment))
-    return float(load_metadata_prop("framerate", dbfile=dbfile))
+
+
+def get_resolution(experiment):
+    basedir=get_basedir(experiment)
+    videos=glob.glob(f"{basedir}/*.mp4")
+    assert len(videos)>0
+    cap=cv2.VideoCapture(videos[0])
+    width, height = (cap.get(3), cap.get(4))
+    cap.release()
+    return width, height
+
 
 def get_partition_size(experiment):
     return int(
