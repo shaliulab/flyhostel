@@ -1,7 +1,7 @@
 import time
+import pickle
 import io
 import shutil
-import itertools
 import h5py
 import glob
 import time
@@ -14,31 +14,46 @@ import pandas as pd
 import numpy as np
 
 from flyhostel.data.pose.pose import FilterPose
-from flyhostel.utils import load_roi_width, load_metadata_prop, restore_cache, save_cache
+from flyhostel.utils import (
+    load_roi_width,
+    restore_cache,
+    save_cache
+)
 from flyhostel.data.pose.movie_old import make_pose_movie
 from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from imgstore.interface import VideoCapture
 from flyhostel.data.pose.loaders.wavelets import WaveletLoader
 from flyhostel.data.pose.loaders.behavior import BehaviorLoader
-from flyhostel.data.pose.landmarks import LandmarksLoader
-
+from flyhostel.data.pose.loaders.landmarks import LandmarksLoader
+from flyhostel.data.pose.loaders.movement import MovementLoader
+from flyhostel.data.pose.loaders.rejections import RejectionsLoader
 from flyhostel.data.pose.loaders.pose import PoseLoader
+from flyhostel.data.pose.loaders.sleep import SleepLoader
 from flyhostel.data.pose.loaders.interactions import InteractionsLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
-from flyhostel.data.pose.constants import framerate as FRAMERATE
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 from flyhostel.data.pose.constants import ROI_WIDTH_MM
 from flyhostel.data.pose.sleep import SleepAnnotator
+from flyhostel.data.pose.loaders.concatenation import ConcatenationLoader
+
 from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
 from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
-from motionmapperpy import setRunParameters
-wavelet_downsample=setRunParameters().wavelet_downsample
-pd.set_option("display.max_columns", 100)
+from flyhostel.utils import (
+    get_chunksize,
+    get_framerate,
+    get_pose_file,
+    get_number_of_animals,
+    get_pixels_per_mm,
+    get_wavelet_downsample,
+    get_basedir,
+    get_square_width,
+    get_local_identities,
+    rsync_files_from,
+    dunder_to_slash,
+    load_meta_info,
+    load_metadata,
+)
 
-def dunder_to_slash(experiment):
-    tokens = experiment.split("_")
-    return tokens[0] + "/" + tokens[1] + "/" + "_".join(tokens[2:4])
 
 
 # keep only interactions where the distance between animals is max mm_max mm
@@ -47,57 +62,69 @@ from flyhostel.data.pose.sleap import draw_video_row
 from flyhostel.data.deg import DEGLoader
 from flyhostel.data.pose.video_crosser import CrossVideo
 
-def make_int_or_str(values):
-    out=[]
-    for val in values:
-        try:
-            out.append(str(int(val)))
-        except ValueError:
-            out.append(val)
-    return out
 
 
-class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, InteractionsLoader, PoseLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader):
+class FlyHostelBackup:   
+    
+    DEFAULT_CHUNKS=list(range(0, 400))
+
+    def __init__(self, *args, **kwargs):
+        self.chunksize=None
+        self.basedir=None
+        self.dbfile=None
+        super(FlyHostelBackup, self).__init__(*args, **kwargs)
+
+    
+    def backup(self, new_basedir, chunks=None, dry_run=False):
+
+        # pose files in flyhostel/single_animal
+        pose_files=[]
+        if chunks is None:
+            pose_chunks=self.DEFAULT_CHUNKS
+        else:
+            pose_chunks=chunks
+        
+        frame_numbers=[chunk*self.chunksize for chunk in pose_chunks]
+
+        table = get_local_identities(self.dbfile, frame_numbers=frame_numbers).reset_index(drop=True)
+        for chunk in pose_chunks:
+            hit=table.query("chunk == @chunk and identity == @self.identity")["local_identity"]
+            if hit.shape[0]==1:
+                local_identity=hit.item()
+
+                mp4_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
+                slp_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4.predictions.slp")
+                h5_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4.predictions.h5")
+                for file in [mp4_file, slp_file, h5_file]:
+                    if os.path.exists(file):
+                        pose_files.append(file)
+
+        # motiomnampper.feather file
+        behavior_files=glob.glob(os.path.join(self.basedir, ".", "motionmapper", str(self.identity).zfill(2), f"{self.datasetnames[0]}*"))
+        # Backup these things separately
+        # interactions_entries=glob.glob(os.path.join(self.get_interactions_data_dir(), f"{self.experiment}*"))
+        # deg_entries=glob.glob(os.path.join(self.get_deg_data_dir(), f"{self.experiment}*"))
+        # all_entries=interactions_entries+deg_entries
+
+        files_to_backup = pose_files + behavior_files
+        return rsync_files_from(files_to_backup, new_basedir, dry_run=dry_run)
+
+
+class FlyHostelLoader(
+    FlyHostelBackup, CrossVideo, FilesystemInterface, ConcatenationLoader, SleepAnnotator, InteractionsLoader, PoseLoader,
+    SleepLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader, MovementLoader, RejectionsLoader):
     """
     Analyse microbehavior produced in the flyhostel
 
-    experiment="FlyHostelX_XX_XX-XX-XX_XX-XX-XX"
+    experiment="FlyHostelF_NX_YY-MM-DD_HH-MM-SS"
 
-    loader = FlyHostelLoader(experiment, n_jobs=20)
-    # n_jobs simply controls how many processes to use in parallel when loading idtrackerai (centroid) data
+    loader = FlyHostelLoader(experiment, identity=identity)
+    
+    # to load behavioral timeseries
+    loader.load_behavior_data()
 
-    # loads centroid data (idtrackerai) and pose data (SLEAP)
-    loader.load_data(min_time=14*3600, max_time=22*3600, time_system="zt")
-    # populates loader.dt (centroid) and loader.pose (pose)
-
-    # quantifies bouts of proboscis extension
-    loader.detect_proboscis_extension(self.pose)
-    # output is saved in loader.pe_df
-
-    # output is saved in loader.dt_sleep (original framerate)
-    # and loader.dt_sleep_2fps
-
-    ## annotate interactions between flies and keep track of which body part was used
-    # connect pose and centroid
-    loader.integrate(self.dt, self.pose_boxcar)
-    # pre-filter frames so only frames where at least two animals are at < 3 mm of each other are kept
-    loader.compute_pairwise_distances(dist_max=3)
-
-    # now on this subset, compute the interfly body pair distance
-    # find the minimum distance between 2 bodyparts of different flies
-    # and require it to be less than 2 mm for 3 seconds
-    loader.annotate_interactions(dist_max=2, min_bout=3)
-
-    # output is saved in
-    loader.interactions_sleep
-
-
-    # to load DEG human made labels (ground_truth)
-
-    # if identity is None, all available identities in the loader are loaded
-    loader.load_deg_data(identity=None)
-    # now loader.deg is populated
-
+    # to load interaction timeseries
+    loader.load_interaction_data()
     """
 
     def __init__(self, experiment, identity, *args, lq_thresh=1, roi_width_mm=ROI_WIDTH_MM, n_jobs=1, chunks=None,
@@ -138,7 +165,13 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         # because the arena is circular
         self.roi_height = self.roi_width
 
-        self.framerate= int(float(load_metadata_prop(dbfile=self.dbfile, prop="framerate")))
+        self.framerate= get_framerate(self.experiment)
+        self.chunksize=get_chunksize(self.experiment)
+        self.pixels_per_mm=get_pixels_per_mm(experiment)
+        self.wavelet_downsample=get_wavelet_downsample(experiment)
+        self.square_width=get_square_width(experiment)
+
+
         self.roi_width_mm=roi_width_mm
         self.px_per_mm=self.roi_width/roi_width_mm
 
@@ -161,6 +194,8 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
 
 
         self.load_meta_info()
+        self.number_of_animals=int(self.metadata["number_of_animals"].iloc[0])
+
         if identity_table is None:
             if self.number_of_animals==1:
                 self.identity_table="IDENTITY"
@@ -177,6 +212,22 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         else:
             self.roi_0_table=roi_0_table
 
+
+
+
+    def __repr__(self):
+        return self.experiment + '__' + str(self.identity).zfill(2)
+
+        
+    @classmethod
+    def load_from_cache(cls, cache_file):
+        if os.path.exists(cache_file):
+            with open(cache_file, "rb") as handle:
+                logger.info("Loading %s", cache_file)
+                loader=pickle.load(handle)
+            return loader
+        return None
+        
     def load_meta_info(self):
         """
         Populate meta_info dictionary with keys:
@@ -184,38 +235,8 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         * t_after_ref: Number of seconds between start time and ZT0. Add it to an imgstore timestamp to get the ZT time
         """
 
-        self.meta_info={}
-        assert os.path.exists(self.dbfile), f"{self.dbfile} does not exist"
-        with sqlite3.connect(self.dbfile) as conn:
-            start_time=int(float(pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'date_time';", con=conn)["value"].values.item()))
-            start_time=start_time-start_time%3600
-            start_time=start_time%(24*3600)
-            metadata_str=pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'ethoscope_metadata'", con=conn)["value"].values.tolist()[0]
-
-        metadata=pd.read_csv(io.StringIO(metadata_str)).iloc[:, 1:]
-
-        try:
-            metadata_single_animal=metadata.loc[metadata["identity"]==self.identity]
-            if metadata_single_animal.shape[0]==0:
-                raise KeyError
-        except KeyError:
-            metadata_single_animal=metadata.loc[metadata["region_id"]==self.identity]
-        
-        if metadata_single_animal.shape[0]!=1:
-            logger.error("%s rows for identity %s in %s", metadata_single_animal.shape[0], self.identity, self.dbfile)
-            raise Exception
-
-
-        reference_hour=(metadata_single_animal["reference_hour"]*3600).item()
-        
-        assert "identity" in metadata_single_animal.columns, f"identity column not found in metadata"
-        metadata_single_animal["identity"]=make_int_or_str(metadata_single_animal["identity"])
-        metadata_single_animal["region_id"]=make_int_or_str(metadata_single_animal["region_id"])
-        metadata_single_animal["number_of_animals"]=make_int_or_str(metadata_single_animal["number_of_animals"])
-        self.metadata=metadata_single_animal
-        self.number_of_animals=int(self.metadata["number_of_animals"].iloc[0])
-
-        self.meta_info={"t_after_ref": start_time-reference_hour} # seconds
+        self.metadata=load_metadata(self.dbfile, self.identity)
+        self.meta_info=load_meta_info(self.dbfile, self.identity)
 
 
     def __str__(self):
@@ -237,6 +258,23 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         loader=cls.from_metadata(*args, **kwargs)
         dt=loader.load_analysis_data()
         return dt
+
+
+    def annotate_frame_number_in_dataset(self, df):
+        assert self.dt is not None
+        t_index=self.dt[["t", "frame_number"]].copy()
+        t_index["frame_number"]=np.array(t_index["frame_number"].values, np.int64)
+        t_index["t_round"]=1*(t_index["t"]//1)
+        t_index=t_index[["frame_number", "t_round"]].groupby("t_round").first().reset_index().rename({"t_round": "t"}, axis=1)
+        df=df.merge(t_index, on="t", how="left")
+        return df
+
+    def annotate_t_in_dataset(self, df):
+        assert self.dt is not None
+        t_index=self.dt[["t", "frame_number"]].copy()
+        t_index["frame_number"]=np.array(t_index["frame_number"].values, np.int64)
+        df=df.merge(t_index, on="frame_number", how="left")
+        return df
 
 
     def get_simple_metadata(self):
@@ -271,7 +309,7 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         data=self.dt.copy()
         meta=data.meta.copy()
         centroid_columns=data.columns.tolist()
-        data=data.loc[data["frame_number"] % wavelet_downsample == 0]
+        data=data.loc[data["frame_number"] % self.wavelet_downsample == 0]
         behavior_columns=["behavior",  "score", "bout_in", "bout_out", "bout_count", "duration"]
 
         if self.behavior is None:
@@ -302,15 +340,15 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         return self.analysis_data
 
 
-    def process_data(self, stride, *args, min_time=MIN_TIME, max_time=MAX_TIME, useGPU=-1, framerate=FRAMERATE, cache=None, speed=False, sleep=False, **kwargs):
-        self.filter_and_interpolate_pose(*args, min_time=min_time, max_time=max_time, stride=stride, useGPU=useGPU, framerate=framerate, cache=cache, **kwargs)
+    def process_data(self, stride, *args, min_time=MIN_TIME, max_time=MAX_TIME, useGPU=-1, cache=None, speed=False, sleep=False, **kwargs):
+        self.filter_and_interpolate_pose(*args, min_time=min_time, max_time=max_time, stride=stride, useGPU=useGPU, cache=cache, **kwargs)
 
         if speed:
             logger.debug("Computing speed features on dataset of shape %s", self.pose_boxcar.shape)
             self.compute_speed(
                 self.pose_boxcar, min_time=min_time, max_time=max_time,
                 stride=stride,
-                framerate=framerate, cache=cache, useGPU=useGPU
+                framerate=self.framerate, cache=cache, useGPU=useGPU
             )
 
         if sleep:
@@ -360,8 +398,50 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         out=pd.concat(out, axis=0)
         return out
 
+    def load_store_index_v2(self, min_time=None, max_time=None):
+        """
+        Load rows from STORE_INDEX with an optional time window.
+        min_time / max_time are in seconds relative to ZT0.
+        STORE_INDEX.frame_time is in milliseconds relative to experiment start (t=0 at start).
+        self.meta_info["t_after_ref"] (t0) is seconds from ZT0 to experiment start.
 
-    def load_store_index(self, cache=None):
+        The WHERE clause enforces:
+            frame_time >= (min_time - t0) * 1000       [if min_time is not None]
+            frame_time <= (max_time - t0) * 1000       [if max_time is not None]
+        """
+        t0 = self.meta_info["t_after_ref"]  # seconds from ZT0 to experiment start
+
+        clauses = []
+        params = []
+
+        # Convert ZT0-relative times to experiment-relative milliseconds
+        if min_time is not None:
+            min_rel_ms = (min_time - t0) * 1000.0
+            clauses.append("frame_time >= ?")
+            params.append(min_rel_ms)
+
+        if max_time is not None:
+            max_rel_ms = (max_time - t0) * 1000.0
+            clauses.append("frame_time <= ?")
+            params.append(max_rel_ms)
+
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        cmd = f"SELECT * FROM STORE_INDEX {where_clause};"
+
+        with sqlite3.connect(self.dbfile) as conn:
+            cursor = conn.cursor()
+            cursor.execute(cmd, params)
+            rows = cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+
+        self.store_index = pd.DataFrame(rows, columns=cols)
+        
+        # Convert to seconds for downstream use
+        self.store_index["frame_time"] = self.store_index["frame_time"] / 1000.0
+        self.store_index["t"]=self.store_index["frame_time"] + t0
+        return self.store_index
+
+    def load_store_index(self,cache=None):
 
         if cache is not None:
             path = os.path.join(cache, f"{self.experiment}_store_index.pkl")
@@ -433,11 +513,11 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
             self.load_pose_data(*args, identity=ident, min_time=min_time, max_time=max_time, verbose=False, cache=cache, files=files, write_only=write_only, **kwargs)
         logger.info("Loading DEG data")
         if load_deg:
-            self.load_deg_data(*args, identity=identity, ground_truth=True, stride=stride, verbose=False, cache=cache, **kwargs)
+            self.load_deg_data(*args, ground_truth=True, stride=stride, verbose=False, cache=cache, **kwargs)
 
         if load_behavior:
             logger.info("Loading behavior data")
-            self.load_behavior_data(self.experiment, identity, min_time=min_time, max_time=max_time)
+            self.load_behavior_data(min_time=min_time, max_time=max_time)
 
     def make_movie(self, ts=None, frame_numbers=None, **kwargs):
         return make_pose_movie(self.basedir, self.dt_with_pose, ts=ts, frame_numbres=frame_numbers, **kwargs)
@@ -447,6 +527,8 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
             self, *args, experiment=None, identity=None, min_time=MIN_TIME, max_time=MAX_TIME, stride=1,
             reference_hour=np.nan, cache=None, identity_table=None, roi_0_table=None, **kwargs
         ):
+        """
+        """
 
         if experiment is None:
             experiment=self.experiment
@@ -466,8 +548,9 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
         dt, meta_info=load_centroid_data(
             *args, experiment=experiment, identity=identity,
             reference_hour=reference_hour,
-            min_time=min_time, max_time=max_time, stride=1,
+            min_time=min_time, max_time=max_time, stride=stride,
             roi_0_table=roi_0_table, identity_table=identity_table,
+            framerate = self.framerate,
             **kwargs
         )
 
@@ -495,19 +578,14 @@ class FlyHostelLoader(CrossVideo, FilesystemInterface, SleepAnnotator, Interacti
 
 
     def draw_videos(self, index):
+
         for i, row in index.iterrows():
-            draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos")
+            draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos", chunksize=self.chunksize, fps=fps)
 
     def get_pose_file_h5py(self, pose_name="filter_rle-jump"):
-        animal=self.experiment + "__" + str(self.identity).zfill(2)
-        pose_file=os.path.join(
-            self.basedir, "motionmapper",
-            str(self.identity).zfill(2),
-            f"pose_{pose_name}",
-            animal,
-            animal + ".h5"
-        )
+        pose_file=get_pose_file(self.experiment, self.identity, pose_name=pose_name)
         return pose_file
+
     
     def manage_backup_copies(self, file, fail=False):
         if validate_h5py_file(file):
@@ -529,3 +607,53 @@ def validate_h5py_file(file):
     except Exception as e:
         print(f"File {file} integrity check failed: {e}")
         return False
+
+
+def init_loaders(experiment, metadata):
+    number_of_animals=get_number_of_animals(experiment)
+    
+    if number_of_animals==1:
+        identities=[0]
+    else:
+        identities=list(range(1, number_of_animals+1))
+    
+    basedir = get_basedir(experiment)
+    if not os.path.exists(basedir):
+        return []
+    loaders=[FlyHostelLoader(experiment, identity=identity) for identity in identities]
+    loaders=filter_loaders(loaders, metadata)
+    return loaders
+
+
+def filter_loaders(loaders, metadata):
+    skip_experiment=False
+    for meta_prop, value in metadata.items():
+        try:
+            val=loaders[0].metadata[meta_prop].iloc[0]
+        except KeyError as error:
+            logger.warning("%s not available for %s", meta_prop, loaders[0].experiment)
+            # logger.error(error)
+            val=np.nan
+
+        # val==val passes if it's not nan
+        # np.isnan fails if val is a str
+        if val!=val:
+            pass
+    
+        elif isinstance(value, list):
+            if val not in value:
+                skip_experiment=True
+                logger.info("meta property %s value %s != %s", meta_prop, val, value)
+                break
+            else:
+                pass
+        
+        elif val!=value:
+            skip_experiment=True
+            logger.info("meta property %s value %s != %s", meta_prop, val, value)
+            break
+    
+    if skip_experiment:
+        return []
+    
+    return loaders

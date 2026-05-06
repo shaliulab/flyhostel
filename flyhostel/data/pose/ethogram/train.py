@@ -25,39 +25,39 @@ MODELS={"RandomForestClassifier": RandomForestClassifier, "XGBClassifier": XGBCl
 from sklearn.metrics import ConfusionMatrixDisplay, balanced_accuracy_score, top_k_accuracy_score, accuracy_score
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.preprocessing import StandardScaler
-
+from motionmapperpy import PROFILES
 from motionmapperpy.motionmapper import generate_frequencies
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import bodyparts_xy as BODYPARTS_XY
-from flyhostel.data.pose.constants import WAVELET_DOWNSAMPLE, MOTIONMAPPER_PARAMS
 from flyhostel.data.pose.constants import DEFAULT_FILTERS
 DEFAULT_FILTERS="-".join(DEFAULT_FILTERS)
 from flyhostel.data.deg import LABELS
 from flyhostel.data.pose.ethogram.utils import load_train_test_split
 from flyhostel.data.pose.ethogram.loader import load_animals, DISTANCE_FEATURES_PAIRS, document_provenance, validate_animals_data
+from flyhostel.utils import get_wavelet_downsample
 
 
+def get_frequencies(minF, maxF, numPeriods):
+    return np.round(generate_frequencies(minF, maxF, numPeriods), 4)
 
-def get_frequencies(params):
-    return np.round(generate_frequencies(params.minF, params.maxF, params.numPeriods), 4)
 
-
-def get_frequencies_bps(params=MOTIONMAPPER_PARAMS, freqs=None, bodyparts_xy=BODYPARTS_XY):
+def get_frequencies_bps(*args, freqs=None, bodyparts_xy=BODYPARTS_XY):
     if freqs is None:
-        freqs=get_frequencies(params)
+        freqs=get_frequencies(*args)
 
     freq_names=[f"{e0}_{e1}" for e0, e1 in itertools.product(bodyparts_xy, freqs) if not e0.startswith("thorax") and not e0.startswith("head")]
     return freq_names
 
 
 def get_features(
+        *args,
         freqs=None, bodyparts_xy=BODYPARTS_XY,
         distance_features_pairs=DISTANCE_FEATURES_PAIRS,
         probabilities=None,
         speed_features=None,
         landmarks=None,
         ):
-    freq_names=get_frequencies_bps(freqs=freqs, bodyparts_xy=bodyparts_xy)
+    freq_names=get_frequencies_bps(*args, freqs=freqs, bodyparts_xy=bodyparts_xy)
     features=freq_names + [f"{p0}_{p1}_distance" for p0, p1 in distance_features_pairs]
     if speed_features is not None:
         features+=speed_features    
@@ -87,14 +87,13 @@ def build_eval_params(eval_params):
     eval_params["speed_features"]=eval_params.get("speed_features", None)
     eval_params["downsample_test"]=eval_params.get("downsample_test", 1)
     eval_params["bodyparts"]=eval_params.get("bodyparts", BODYPARTS)
-    eval_params["freqs"]=eval_params.get("freqs", get_frequencies(MOTIONMAPPER_PARAMS))
     eval_params["distance_features_pairs"]=eval_params.get("distance_features_pairs", DISTANCE_FEATURES_PAIRS)
     return eval_params
 
 
 def train(
         train_set_animals, test_set_animals, norm=True, output_folder=".", label="behavior", n_jobs_load=1, model_arch="RandomForestClassifier",
-        eval_params={}, cache=None, refresh_cache=True, on_fail="raise", **kwargs):
+        eval_params={}, cache=None, refresh_cache=True, on_fail="raise", profile = list(PROFILES.keys()), downsample_to_pe=True, deg_folder=None, **kwargs):
     f"""
     Train a multiclass classifier to predict a behavior using the WT features and the head-proboscis distance
 
@@ -135,14 +134,27 @@ def train(
         raise ValueError(f"Please pass a model arch which is one of {MODELS.keys()}")
 
 
+    assert deg_folder is not None, f"Please pass a valid deg_folder"
+    assert os.path.exists(deg_folder), f"{deg_folder} does not exist"
+
+    all_animals=list(set(list(set(train_set_animals)) + list(set(test_set_animals))))
+    all_experiments=list(set([animal.split("__")[0] for animal in all_animals]))
+    downsample=list(set([get_wavelet_downsample(experiment) for experiment in all_experiments]))
+    assert len(downsample)==1, "Experiments dont have a consistent wavelet downsample"
+    wavelet_downsample=downsample[0]
+
     os.makedirs(output_folder)
     split={"train": train_set_animals, "test": test_set_animals}
     with open(os.path.join(output_folder, "split.yaml"), "w") as handle:
         yaml.dump(split, handle, sort_keys=False)
 
 
-    provenance=document_provenance()
+    provenance=document_provenance(deg_folder)
     eval_params=build_eval_params(eval_params)
+
+    params=PROFILES[profile]
+    eval_params["freqs"]=get_frequencies(params["minF"], params["maxF"], params["numPeriods"])
+    
     bodyparts_xy=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in eval_params["bodyparts"]]))
     provenance.update(eval_params)
 
@@ -152,6 +164,7 @@ def train(
         yaml.safe_dump(provenance, handle)
 
     features=get_features(
+        params["minF"], params["maxF"], params["numPeriods"],
         freqs=eval_params["freqs"],
         bodyparts_xy=bodyparts_xy,
         distance_features_pairs=eval_params["distance_features_pairs"],
@@ -162,9 +175,19 @@ def train(
     )
 
     validate_animals_data(train_set_animals+test_set_animals)
-    load_scores_data=True
-    train_data=load_animals(train_set_animals, load_deg_data=True, load_scores_data=load_scores_data, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
-    test_data=load_animals(test_set_animals, load_deg_data=True, load_scores_data=load_scores_data, cache=cache, refresh_cache=refresh_cache, n_jobs=n_jobs_load, filters=DEFAULT_FILTERS, on_fail=on_fail)
+    loader_kwargs={
+        "load_deg_data": True,
+        "load_scores_data": True,
+        "cache": cache,
+        "refresh_cache": refresh_cache,
+        "n_jobs": n_jobs_load,
+        "filters": DEFAULT_FILTERS,
+        "on_fail": on_fail,
+        "downsample": wavelet_downsample,
+    }
+
+    train_data=load_animals(train_set_animals, **loader_kwargs)
+    test_data=load_animals(test_set_animals, **loader_kwargs)
     train_data=downsample_dataset(train_data, eval_params["downsample_train"])
     test_data=downsample_dataset(test_data, eval_params["downsample_test"])
 
@@ -186,7 +209,12 @@ def train(
 
     # Downsample so that least abundant classes are not so underrepresented
     n_samples_inactive_pe=train_data.loc[train_data["behavior"]=="inactive+pe"].shape[0]
-    train_data_downsampled=train_data.groupby("behavior").apply(lambda df: df.sample(n=min(n_samples_inactive_pe, df.shape[0]))).reset_index(drop=True)
+    
+    if downsample_to_pe:
+        n_samples=n_samples_inactive_pe
+        train_data_downsampled=train_data.groupby("behavior").apply(lambda df: df.sample(n=min(n_samples, df.shape[0]))).reset_index(drop=True)
+    else:
+        train_data_downsampled=train_data.copy()
     assert train_data_downsampled["head_proboscis_distance"].isna().sum()==0
 
     train_data_downsampled.to_feather(os.path.join(output_folder, "train_set.feather"))
@@ -235,7 +263,11 @@ def train(
         pickle.dump((model, features, scaler), handle)
 
     try:
-        preds=inference(test_data, label, model_path, inactive_states=["inactive", "inactive+pe", "inactive+rejection", "inactive+micromovement"])
+        preds=inference(
+            test_data, label, model_path,
+            fps=params["samplingFreq"]/wavelet_downsample,
+            deg_folder=deg_folder,
+        )
     
     except Exception as error:
         test_data.reset_index().to_feather(os.path.join(output_folder, "test_predictions.feather"))
@@ -265,6 +297,7 @@ def train(
     y_true=preds[label].values
     y_pred=preds["prediction"].values
     columns=[f"{behavior}_prob" for behavior in np.unique(y_true)]
+
     y_score=preds[columns].values
     sample_weights=get_sample_weights(y_true)
     

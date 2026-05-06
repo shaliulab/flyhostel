@@ -5,7 +5,7 @@ import logging
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
-from flyhostel.utils import get_sqlite_file, get_local_identities, get_single_animal_video, get_chunksize
+from flyhostel.utils import get_sqlite_file, get_local_identities, get_single_animal_video, get_chunksize, get_basedir
 
 logger=logging.getLogger(__name__)
 
@@ -14,8 +14,9 @@ def cross_with_video_data(dt):
     dt["identity"] = [int(e.split("|")[1]) for e in dt["id"]]
     animal=dt["animal"].iloc[0]
     dbfile=get_sqlite_file(animal.split("|")[0] + "*")
-
-    chunksize=get_chunksize(dbfile)
+    experiment=animal.split("__")[0]
+    basedir=get_basedir(experiment)
+    chunksize=get_chunksize(experiment)
 
     dt["chunk"]=dt["frame_number"]//chunksize
 
@@ -37,7 +38,7 @@ def cross_with_video_data(dt):
     dt_chunk["frame_number"]=dt_chunk["chunk"]*chunksize
  
     for i, row in tqdm(dt_chunk.iterrows()):
-        video=get_single_animal_video(row["dbfile"], row["frame_number"], table=table, identity=row["identity"], chunksize=chunksize)
+        video=get_single_animal_video(basedir, row["frame_number"], table=table, identity=row["identity"], chunksize=chunksize)
         print(i, row["identity"], row["chunk"], video)
         dt_chunk["video"].loc[i]=video
         dt_chunk["local_identity"].loc[i]=int(os.path.basename(os.path.dirname(video)))
@@ -71,7 +72,7 @@ class CrossVideo(ABC):
         dt.sort_values("bp_distance_mm", inplace=True)
         dbfile=dt.iloc[0]["dbfile"]
 
-        chunksize=get_chunksize(dbfile)
+        chunksize=get_chunksize(dbfile=dbfile)
 
         frame_numbers=[int(e) for e in sorted(dt["frame_number"].unique())]    
         table = get_local_identities(dt.iloc[0]["dbfile"], frame_numbers=frame_numbers)
@@ -81,9 +82,10 @@ class CrossVideo(ABC):
         dt["video1"]=None
         dt["video2"]=None
 
+        dt["basedir"]=[os.path.dirname(f) for f in dt["dbfile"]]
         for i, row in dt.iterrows():
-            dt["video1"].loc[i]=get_single_animal_video(row["dbfile"], row["frame_number"], table=table, identity=row["identity1"], chunksize=chunksize)
-            dt["video2"].loc[i]=get_single_animal_video(row["dbfile"], row["frame_number"], table=table, identity=row["identity2"], chunksize=chunksize)
+            dt["video1"].loc[i]=get_single_animal_video(row["basedir"], row["frame_number"], table=table, identity=row["identity1"], chunksize=chunksize)
+            dt["video2"].loc[i]=get_single_animal_video(row["basedir"], row["frame_number"], table=table, identity=row["identity2"], chunksize=chunksize)
 
         dt=dt.loc[~pd.isna(dt["video1"])]
         return dt

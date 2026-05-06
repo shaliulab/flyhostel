@@ -1,4 +1,5 @@
 import json
+import requests
 import os.path
 import math
 import logging
@@ -11,33 +12,65 @@ import joblib
 import numpy as np
 import pandas as pd
 from imgstore.interface import VideoCapture
-from idtrackerai_validator_server.backend import load_idtrackerai_config, process_frame
-from flyhostel.data.pose.constants import chunksize
+from flyhostel.data.human_validation.cvat.utils import assign_in_frame_indices
+from idtrackerai_validator_server.backend import (
+    load_idtrackerai_config,
+    process_frame,
+)
 from flyhostel.data.human_validation.cvat.contour_utils import (
-    rle_to_blob, polygon_to_blob, get_contour_list_from_yolo_centroids, select_by_contour
+    rle_to_blob,
+    polygon_to_blob,
+    get_contour_list_from_yolo_centroids,
+    select_by_contour
 )
 from flyhostel.data.human_validation.cvat.utils import (
-    load_original_resolution, annotate_crossings, get_dbfile
+    load_original_resolution,
+    annotate_crossings,
 )
-from flyhostel.utils.utils import get_chunksize
+from flyhostel.utils.utils import (
+    get_dbfile,
+    get_square_width,
+    get_chunksize,
+    get_number_of_animals,
+    get_experiment_identifier
+)
+
+from .api import (
+    get_tasks_for_project,
+    cvat_auth
+)
+PROJECTS_JSON="/flyhostel_data/videos/index_cvat_projects.json"
+
 logger=logging.getLogger(__name__)
 from flyhostel.data.human_validation.cvat.constants import cvat_username, cvat_host, cvat_password
 
 DEBUG=True
-def download_task_annotations(task_number, redownload=False):
+def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
+    """
+    
+    Arguments
+        task (int):
+        path (str): Folder where to download the zip file
+    """
 
     unzipped_folder=f"task_{task_number}"
+    zip_file=os.path.join(path, f"{task_number}_annotations.zip")
 
     if not os.path.exists(unzipped_folder) or redownload:
-        zip_file=f"{task_number}_annotations.zip"
-
+    
         if os.path.exists(zip_file):
             os.remove(zip_file)
 
         if os.path.exists(zip_file):
             shutil.rmtree(unzipped_folder)
 
-        cmd=f"/home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli --auth {cvat_username}:{cvat_password} --server-host 'http://{cvat_host}' --server-port 8080 dump --format 'COCO 1.0' {task_number} {task_number}_annotations.zip"
+        cmd=f"""
+        /home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli
+        --auth {cvat_username}:{cvat_password}
+        --server-host 'http://{cvat_host}'
+        --server-port 8080
+        dump --format 'COCO 1.0' {task_number} {zip_file}
+        """
         cmd_list=shlex.split(cmd)
 
         p=subprocess.Popen(
@@ -47,9 +80,32 @@ def download_task_annotations(task_number, redownload=False):
 
         assert os.path.exists(zip_file), f"{zip_file} was not downloaded"
 
+    return zip_file
 
+
+def download_annotations_from_cvat(experiment, path, tasks=None):
+    if tasks is None:
+        tasks=sorted(get_tasks_for_project(get_project_id_from_name(experiment, errors="raise")))
+    zip_files=[]
+
+    for task in tqdm(tasks, desc="Downloading CVAT annotations to .zip"):
+        zip_files.append(download_task_annotations_to_zip(task, path = path, redownload=True))
+    return zip_files
+
+
+def download_task_annotations(task_number, *args, **kwargs):
+    unzipped_folder=f"task_{task_number}"
+
+    zip_file=download_task_annotations_to_zip(task_number, *args, **kwargs)
+    assert os.path.exists(zip_file), f"{zip_file} not found"
+
+    try:
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
             zip_ref.extractall(unzipped_folder)
+    except Exception as error:
+        logger.error(error)
+        logger.error("Cannot unzip %s", zip_file)
+        import ipdb; ipdb.set_trace()
 
     with open(f"{unzipped_folder}/annotations/instances_default.json", "r") as handle:
         cvat_annotations=json.load(handle)
@@ -60,7 +116,7 @@ def download_task_annotations(task_number, redownload=False):
     return annotations, images, categories
 
 
-def load_task_annotations(annotations, images, categories, basedir, frame_width=1000, frame_height=1000, number_of_rows=1, number_of_cols=1):
+def load_task_annotations(annotations, images, categories, basedir, frame_width=1000, frame_height=1000, number_of_rows=1, number_of_cols=1, chunksize=None, image_format="v1"):
     """
     Returns:
 
@@ -74,7 +130,13 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
     """
     parsed_annot=[]
     contours=[]
+
+    assert chunksize is not None
+
     original_resolution=load_original_resolution(basedir)
+
+
+    print(f"Detected resolution: {original_resolution}")
 
 
     block_size=number_of_rows*number_of_cols
@@ -90,12 +152,15 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
         ]
         image_filename=image["file_name"].item()
         # frame_number0 = first frame of the scene
-        frame_number0=int(
-            os.path.splitext(os.path.basename(image_filename))[0].split("_")[-2]
-        )
-        block=int(
-            os.path.splitext(os.path.basename(image_filename))[0].split("_")[-1]
-        )
+
+        tokens=os.path.splitext(os.path.basename(image_filename))[0].split("_")
+
+        if image_format=="v1":
+            block=int(tokens[-1])
+            frame_number0=int(tokens[-2])
+        else:
+            block=None
+            frame_number0=int(tokens[0])
 
         category=categories.loc[
             categories["id"]==annotation["category_id"], "name"
@@ -141,7 +206,11 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
             )
 
 
-        frame_number=frame_number0+frame_idx_in_block + block*block_size
+        if image_format=="v1":
+            frame_number=frame_number0+frame_idx_in_block + block*block_size
+        else:
+            frame_number=frame_number0
+
         if frame_number not in seen_lids:
             seen_lids[frame_number]=[]
     
@@ -156,8 +225,15 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
         contours.append(contour)
         i+=1
 
-    annotations_df=pd.DataFrame.from_records(parsed_annot, columns=["idx", "frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel", "frame_idx_in_block"])
-
+    annotations_df=pd.DataFrame.from_records(
+        parsed_annot,
+        columns=["idx", "frame_number", "x", "y", "local_identity", "contour_id", "text", "frame_number0", "block", "block_size", "panel", "frame_idx_in_block"],
+    )
+    
+    annotations_df["frame_number"]=annotations_df["frame_number"].astype(int)
+    annotations_df["chunk"]=annotations_df["frame_number"]//chunksize
+    annotations_df["x"]=annotations_df["x"].astype(float)
+    annotations_df["y"]=annotations_df["y"].astype(float)
     return annotations_df, contours
 
 
@@ -177,14 +253,14 @@ def join_task_data(task1, task2):
     ], axis=0)
     return annotations_df, contours
 
-def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
+def get_annotations(experiment, basedir, tasks, n_jobs=2, **kwargs):
 
     n_jobs=min(len(tasks), n_jobs)
     out = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             get_annotation
         )(
-            basedir, task_number, **kwargs
+            experiment, basedir, task_number, **kwargs
         )
         for task_number in tasks
     )
@@ -197,11 +273,19 @@ def get_annotations(basedir, tasks, n_jobs=2, **kwargs):
             (annotations_df, contours), (annotations_df2, contours2)
         )
 
+    
+    experiment=get_experiment_identifier(basedir)
+    number_of_animals=get_number_of_animals(experiment)
+
+    annotations_df=assign_in_frame_indices(annotations_df, number_of_animals, experiment=experiment)
+    annotations_df["fragment"]=np.nan
+
     return annotations_df, contours
 
 
-def get_annotation(basedir, task_number, number_of_cols=1, number_of_rows=1, **kwargs):
+def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of_rows=1, image_format="v1", **kwargs):
     annotations, images, categories=download_task_annotations(task_number, **kwargs)
+    chunksize=get_chunksize(experiment)
     
     assert len(images["width"].unique())==1
     frame_width=images["width"].unique()[0]//number_of_cols
@@ -212,8 +296,11 @@ def get_annotation(basedir, task_number, number_of_cols=1, number_of_rows=1, **k
     annotations_df, contours=load_task_annotations(
         annotations, images, categories,
         basedir=basedir,
-        frame_width=frame_width, frame_height=frame_height,
+        frame_width=frame_width,
+        frame_height=frame_height,
         number_of_rows=number_of_rows, number_of_cols=number_of_cols,
+        chunksize=chunksize,
+        image_format=image_format
     )
     annotations_df["task"]=task_number
     return annotations_df, contours
@@ -363,7 +450,9 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     """
     config=load_idtrackerai_config(basedir)
     dbfile=get_dbfile(basedir)
-    chunksize=get_chunksize(dbfile)
+    chunksize=get_chunksize(dbfile=dbfile)
+    experiment=get_experiment_identifier(basedir)
+    # yolo_square_size=get_square_width(experiment) // 2
 
     cap=None
     score_dist=[]
@@ -397,27 +486,26 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
             ret, frame = cap.read()
             frame=frame[:,:,0]
             # this replicates the execution of the idtrackerai preprocessing, but not YOLOv7
-            contours_list = process_frame(frame, config)
+            candidates = process_frame(frame, config)
+            candidates = [np.array(candidate) for candidate in candidates]
 
             selection_method="contour"
 
             if (df["modified"]==1).any():
-                contours_list=get_contour_list_from_yolo_centroids(df[["x", "y"]].values, size=50)
+                candidates=get_contour_list_from_yolo_centroids(df[["x", "y"]].values, size=50)
                 # raise ValueError("modified frames not supported")
 
             used_indices=[]
             for annot_idx_2 in range(annotation.shape[0]):
 
-                contour=annotated_contours[annotation["idx"].iloc[annot_idx_2]]
+                human_contour=annotated_contours[annotation["idx"].iloc[annot_idx_2]]
                 local_identity=annotation["local_identity"].iloc[annot_idx_2]
-                
+               
+                debug=False
                 if selection_method=="contour":
-                    match_idx, n=select_by_contour(contour, contours_list, debug=False)
+                    match_idx, n=select_by_contour(human_contour, candidates, debug=debug, frame=frame)
                     if match_idx is None:
-                        logger.debug("Could not select by contour in frame %s", frame_number)
-
-                    # elif frame_number==13532157:
-                    #     print(annotation.iloc[annot_idx_2], df.iloc[match_idx])
+                        logger.warning("Could not select by contour in frame %s", frame_number)
 
                 # annotation overlaps
                 if match_idx is not None:
@@ -431,7 +519,10 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                         in_frame_index+=1
                     used_indices.append(in_frame_index)
                     if DEBUG and ~np.isnan(local_identity):
-                        print(frame_number, in_frame_index, local_identity)
+                        logger.debug(
+                            "Fly blob added in frame %s with in_frame_index %s and local_identity %s",
+                            frame_number, in_frame_index, local_identity
+                        )
 
                 if np.isnan(local_identity):
                     (roi0_row, ident_row), fragments_must_break, annotations_to_copy, annotations_to_spatial_copy, crossings=process_text_annotations(
@@ -453,8 +544,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                         logger.debug("De novo annotation detected in frame %s with local identity %s", frame_number, local_identity)
                     elif n!=1:
                         logger.debug("Multiple winners detected in frame %s with local identity %s", frame_number, local_identity)
-
-
+                
             pb.update(1)
     
         identity_corrected=pd.DataFrame.from_records(identity_corrected, columns=["frame_number", "in_frame_index", "local_identity"])
@@ -482,6 +572,27 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     roi0_corrected["modified"]=False
     roi0_corrected["validated"]=True
     identity_corrected["validated"]=True
+    
+    annotations_df["modified"]=False
+    annotations_df["validated"]=True
+
+    roi0_corrected=pd.concat([
+        roi0_corrected[["frame_number", "in_frame_index", "x", "y", "fragment", "modified", "validated"]],
+        annotations_df[["frame_number", "in_frame_index", "x", "y", "fragment", "modified", "validated"]]
+    ], axis=0)\
+        .reset_index(drop=True)\
+        .drop_duplicates(["frame_number", "in_frame_index"])\
+        .sort_values(["frame_number", "in_frame_index"])
+
+    identity_corrected=pd.concat([
+        identity_corrected[["frame_number", "in_frame_index", "local_identity", "validated"]],
+        annotations_df[["frame_number", "in_frame_index", "local_identity", "validated"]]
+    ], axis=0)\
+        .reset_index(drop=True)\
+        .drop_duplicates(["frame_number", "in_frame_index"])\
+        .sort_values(["frame_number", "in_frame_index"])
+    
+
     roi0_corrected["chunk"]=roi0_corrected["frame_number"]//chunksize
     
     if fragments_must_break:
@@ -515,3 +626,52 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     roi0_corrected["annotation_id"]=[f"{row['frame_number']}_{row['in_frame_index']}" for _, row in roi0_corrected.iterrows()]
     
     return identity_corrected, roi0_corrected, score_dist
+
+
+def update_project_list():
+    url="http://localhost:8080/api/projects?page_size=9999&scheme=json"
+    print(f"Fetching {url}")
+
+    with requests.Session() as s:
+        # 1) Log in (endpoint and payload depend on your API)
+        r = cvat_auth(s)
+    
+        # 2) Now cookies are stored in `s`, and will be sent automatically
+        r = s.get(url)
+        r.raise_for_status()
+        out = r.json()
+
+        with open(PROJECTS_JSON, 'w') as handle:
+            json.dump(out, handle)
+
+    return out
+
+def get_project_id_from_name(experiment, errors="raise"):
+
+    update_project_list()
+
+    with open(PROJECTS_JSON, "r") as handle:
+        index_cvat_projects=json.load(handle)
+    
+    assert index_cvat_projects["next"] is None
+    assert index_cvat_projects["previous"] is None
+    project_id=None
+    hit=False
+    for project in index_cvat_projects["results"]:
+        if project["name"]==experiment:
+            if hit == True:
+                if errors=="raise":
+                    raise Exception(f"More than 1 project with the same name (experiment)")
+                elif errors=="ignore":
+                    logger.warning("More than 1 project with the same name %s", experiment)
+            
+            project_id=project["id"]
+            hit=True
+    
+    if project_id is None:
+        if errors=="raise":
+            raise Exception(f"0 projects with name {experiment}")
+        elif errors=="ignore":
+            logger.warning("0 projects with name %s", experiment)
+
+    return project_id

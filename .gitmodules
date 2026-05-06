@@ -16,3 +16,6 @@
 [submodule "libraries/confapp"]
 	path = libraries/confapp
 	url = git@github.com:shaliulab/confapp
+[submodule "flyhostel/modelling"]
+	path = flyhostel/modelling
+	url = git@github.com:shaliulab/flyhostel-modelling

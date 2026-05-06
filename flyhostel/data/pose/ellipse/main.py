@@ -21,11 +21,10 @@ from .hungarian import hungarian_matching
 from .utils import select_loader
 from .distance import compute_min_distance
 from flyhostel.data.interactions.classifier.inter_orientation import compute_inter_orientation_one_pair
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 logger=logging.getLogger(__name__)
 
 from sync_paper.sleep import sleep_annotation_rf
-from sync_paper.constants import INACTIVE_STATES
+from sync_paper.constants import PURE_INACTIVE_STATES
 
 def load_fly_data(loader, min_time, max_time, n_jobs=1, framerate=50, **kwargs):
     loader.load_centroid_data(min_time=min_time, max_time=max_time, n_jobs=n_jobs)
@@ -35,7 +34,7 @@ def load_fly_data(loader, min_time, max_time, n_jobs=1, framerate=50, **kwargs):
     loader.load_behavior_data(min_time=min_time, max_time=max_time)
     loader.behavior.sort_values(["frame_number"], inplace=True)
     print("Computing sleep")
-    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(INACTIVE_STATES)
+    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(PURE_INACTIVE_STATES)
     loader.sleep=sleep_annotation_rf(loader.behavior)
 
 
@@ -87,7 +86,8 @@ def process_experiment(experiment, identities, min_time, max_time, sources=["ope
 def process_data(loaders, sources, n_jobs):
     ellipse_data=model_ellipses(loaders, sources, n_jobs=n_jobs)
     describe_interactions_between_ellipses(loaders, ellipse_data)
-    temporal_features=quantify_activity_in_context(loaders, [10, 60, 300], FRAMERATE)
+    framerate=loaders[0].framerate
+    temporal_features=quantify_activity_in_context(loaders, [10, 60, 300], framerate)
     return temporal_features
 
 
@@ -110,7 +110,7 @@ def model_ellipses(loaders, sources, n_jobs):
     ellipse_data_pose=None
 
     if "opencv" in sources:
-        ellipse_data_cv=get_ellipses_from_opencv(loaders, frame_numbers, n_jobs=n_jobs)
+        ellipse_data_cv, contours=get_ellipses_from_opencv(loaders, frame_numbers, n_jobs=n_jobs)
         index=ellipse_data_cv.loc[ellipse_data_cv["id"].isna()].groupby("frame_number").size()
         # get the frame number where not all ellipses got an id
         frame_numbers=index.loc[index!=0].index.tolist()

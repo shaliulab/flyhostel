@@ -46,6 +46,7 @@ METADATA_FILE = "metadata.csv"
 
 try:
     DOWNLOAD_FLYHOSTEL_METADATA=os.environ.get("DOWNLOAD_FLYHOSTEL_METADATA", None)
+    DOWNLOAD_FLYHOSTEL_METADATA="/home/vibflysleep/mambaforge/envs/rapids-23.04/bin/download_flyhostel_metadata"
     assert DOWNLOAD_FLYHOSTEL_METADATA is not None and os.path.exists(DOWNLOAD_FLYHOSTEL_METADATA)
 
 except AssertionError:

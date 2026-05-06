@@ -7,6 +7,11 @@ import cv2
 import numpy as np
 import joblib
 import imgstore
+from flyhostel.utils import (
+    get_number_of_animals,
+    get_framerate,
+    get_chunksize,
+)
 
 # from flyhostel.data.hdf5 import HDF5VideoMaker
 from .maker import MP4VideoMaker
@@ -22,12 +27,16 @@ def get_machine_id():
 
 logger = logging.getLogger(__name__)
 
-def validate_video(path):
+def validate_video(path, chunksize):
 
     cap = cv2.VideoCapture(path)
     ret, frame = cap.read()
     if not ret:
         warnings.warn(f"Validation for {path} failed. ret not True")
+
+    nframes=cap.get(7)
+    assert nframes==chunksize
+
 
     if not isinstance(frame, np.ndarray):
         warnings.warn(f"Validation for {path} failed. output is not an array")
@@ -37,7 +46,7 @@ def validate_video(path):
 
 class SingleVideoMaker(MP4VideoMaker):
 
-    def __init__(self, flyhostel_dataset, identifiers, stacked=False, value=None):
+    def __init__(self, experiment, flyhostel_dataset, identifiers, stacked=False, value=None):
         """
         
         identifiers (list): Local identity of the animals whose video you want to create.
@@ -45,11 +54,18 @@ class SingleVideoMaker(MP4VideoMaker):
 
         """
 
+        assert not stacked
+
         self._flyhostel_dataset = flyhostel_dataset
         self._basedir = "."
+        self.experiment=experiment
         self._index_db = os.path.join(self._basedir, "index.db")
         self._identifiers = identifiers
         self._stacked=stacked
+
+        self._number_of_animals = get_number_of_animals(self.experiment)
+        self.framerate = get_framerate(self.experiment)
+        self.chunksize = get_chunksize(self.experiment)
 
         self.background_color = 255
         print(f"Reading {self._flyhostel_dataset}")
@@ -68,20 +84,6 @@ class SingleVideoMaker(MP4VideoMaker):
             cmd = "SELECT MIN(frame_number), MAX(frame_number) FROM ROI_0;"
             cur.execute(cmd)
             self.min_frame_number, self.max_frame_number = cur.fetchone()
-
-
-            cmd = 'SELECT value FROM METADATA WHERE field = "idtrackerai_conf";'
-            cur.execute(cmd)
-            conf = cur.fetchone()[0]
-            self._number_of_animals = int(json.loads(conf)["_number_of_animals"]["value"])
-
-            cmd = 'SELECT value FROM METADATA WHERE field = "framerate";'
-            cur.execute(cmd)
-            self.framerate=int(float(cur.fetchone()[0]))
-
-            cmd = 'SELECT value FROM METADATA WHERE field = "chunksize";'
-            cur.execute(cmd)
-            self.chunksize=int(float(cur.fetchone()[0]))
 
 
         if len(self._identifiers) == 0 or (len(self._identifiers) == 1 and self._identifiers[0] == -1):
@@ -121,7 +123,6 @@ class SingleVideoMaker(MP4VideoMaker):
 
         if chunksize is None:
             chunksize= self.chunksize
-        print(f"chunksize = {chunksize}")
 
         self.video_writer[identifier] = imgstore.new_for_format(
             mode="w",
@@ -210,7 +211,7 @@ class SingleVideoMaker(MP4VideoMaker):
         filename=self._make_single_video(*args, **kwargs)
         if filename is not None:
             print(f"Validating {filename}")
-            validate_video(filename)
+            validate_video(filename, chunksize=self.chunksize)
 
 
     @staticmethod

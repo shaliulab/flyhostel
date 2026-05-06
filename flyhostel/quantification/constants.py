@@ -1,2 +1,2 @@
 TRAJECTORIES_SOURCE="trajectories_source"
-FLYHOSTEL_ID="flyhostel_id"
+FLYHOSTEL_ID="id"

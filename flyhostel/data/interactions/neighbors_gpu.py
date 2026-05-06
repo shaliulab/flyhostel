@@ -14,7 +14,8 @@ logger=logging.getLogger(__name__)
 time_counter=logging.getLogger("time_counter")
 
 from flyhostel.utils import establish_dataframe_framework
-def compute_distance_between_all_ids(df, ids, step=10, **kwargs):
+
+def compute_distance_between_all_ids(df, ids=None, step=10, **kwargs):
     """
         Arguments:
 
@@ -25,7 +26,7 @@ def compute_distance_between_all_ids(df, ids, step=10, **kwargs):
         in all frames available in df
 
         Returns
-            distance_matrix (cp.array): Distance between two flies in a pair, organized by:
+            distance_matrix (cp.array): Distance between two flies in a pair in pixels, organized by:
             ids: number of flies
             neighbors: number of flies except the focal fly
             t: timestamps
@@ -39,8 +40,15 @@ def compute_distance_between_all_ids(df, ids, step=10, **kwargs):
     
     if isinstance(df, cudf.DataFrame):
         nx=cp
+        xf=cudf
     else:
         nx=np
+        xf=pd
+
+    values, counts=np.unique(ids, return_counts=True)
+    # if np.any(counts!=1):
+    #     import ipdb; ipdb.set_trace()
+    time_index=df[["frame_number"]].drop_duplicates().sort_values("frame_number")
 
     for i, (id1, id2) in enumerate(itertools.combinations(ids, 2)):
         with codetiming.Timer(
@@ -48,6 +56,14 @@ def compute_distance_between_all_ids(df, ids, step=10, **kwargs):
             logger=time_counter.debug
         ):
             dff=df.loc[df["id"].isin([id1, id2])]
+            
+            time_index1=time_index.copy()
+            time_index2=time_index.copy()
+            time_index1["id"]=id1
+            time_index2["id"]=id2
+            time_index_=xf.concat([time_index1, time_index2], axis=0).reset_index(drop=True).sort_values(["frame_number", "id"])
+            dff=time_index_.merge(dff, on=["frame_number", "id"], how="left")
+               
             assert dff.shape[0]>0, f"{id1} and {id2} are not present in this dataset"
             assert len(dff["id"].unique())==2, f"Not all ids are found in this dataset"
             dist=compute_distance_between_pairs(
@@ -57,7 +73,6 @@ def compute_distance_between_all_ids(df, ids, step=10, **kwargs):
             )
             distances.append(dist)
             pairs.append((id1, id2))
-
 
     distance_matrix=[]
     for animal1 in ids:
@@ -70,7 +85,15 @@ def compute_distance_between_all_ids(df, ids, step=10, **kwargs):
             selector=pairs.index(this_pair)
             this_animal_distances.append(distances[selector])
 
-        distance_matrix.append(nx.stack(this_animal_distances))
+        try:
+            arr=nx.stack(this_animal_distances)
+        except Exception as error:
+            for arr_ in this_animal_distances:
+                print(animal1, ids, arr_.shape)
+            logger.error(error)
+            # import ipdb; ipdb.set_trace()
+            raise error
+        distance_matrix.append(arr)
 
         del this_animal_distances
 
@@ -164,8 +187,6 @@ def compute_distance_between_pairs(df, step=10):
 def fill_time(dt, focal_ids):
 
     xf=establish_dataframe_framework(dt)
-
-
     index_single=dt[["frame_number"]].drop_duplicates()
     index=[]
     for id in focal_ids:
@@ -187,7 +208,7 @@ def find_neighbors(dt, dist_max_px, step, demo=False):
     Annotate neighbors of each agent at each timestamp
 
     Arguments
-        dt (cudf.DataFrame): Dataset with columns id, frame_number, centroid_x, centroid_y
+        dt (cudf.DataFrame): Dataset with columns id, frame_number, centroid_x, centroid_y, t
         dist_max_px (float): Maximum of pixels between two flies considered to be neigbors
     
     Returns
@@ -211,8 +232,7 @@ def find_neighbors(dt, dist_max_px, step, demo=False):
     focal_ids=ids_cpu.unique().tolist()
     
     dt=fill_time(dt, focal_ids)
-    data_for_computation=dt[["id", "frame_number", "centroid_x", "centroid_y"]]
-    del dt
+    data_for_computation=dt[["id", "frame_number", "centroid_x", "centroid_y", "t"]]
     fn_min=data_for_computation["frame_number"].min()
     fn_max=data_for_computation["frame_number"].max()+step
     distance_matrix=compute_distance_between_all_ids(data_for_computation, ids=focal_ids, step=step)
@@ -245,12 +265,25 @@ def find_neighbors(dt, dist_max_px, step, demo=False):
             "frame_number": frame_number[frame_pos],
         })
 
+        # time_index=data_for_computation[["frame_number", "t"]]
+        # time_index=time_index.loc[~time_index["t"].isna()]
+        # time_index.drop_duplicates(inplace=True)
+        # out=out.merge(
+        #     time_index,
+        #     on="frame_number",
+        #     how="left"
+        # )
+        # if out["t"].isna().any():
+        #     import ipdb; ipdb.set_trace()
+        #     # raise ValueError("t annotation is missing")
+
         nns.append(out)
 
     nns=xf.concat(nns, axis=0)
     logger.debug("merging")
-    dt_annotated = data_for_computation.merge(nns, on=["frame_number", "id"])
+    dt_annotated = data_for_computation.merge(nns, on=["frame_number", "id"], how="right")
     logger.debug("done")
+    dt_annotated=dt_annotated[["id", "nn", "distance", "frame_number", "t"]]
     if demo:
         return dt_annotated, distance_matrix
     else:
@@ -352,8 +385,14 @@ def find_closest_entities(arr):
 
 def find_closest_pair(arr, time_axis, partner_axis):
     """
-    arr is assumed to have 3 dimensions
+    Arguments:
+
+        * arr (nx.array) Matrix of flies, partner flies and timestamps containing distance in pixels
+        * time_axis (int): Axis containing the time dimension. Should be 2
+        * partner_axis (int): Axis containing parnter flies. Should be 1
+
     """
+
     if isinstance(arr, cp.ndarray):
         nx=cp
     else:
@@ -374,8 +413,9 @@ def find_closest_pair(arr, time_axis, partner_axis):
     try:
         flat_indices = nx.argmin(reshaped_arr, axis=1)
     except Exception as error:
-        print(error)
+        logger.error(error)
         import ipdb; ipdb.set_trace()
+
     # Convert flattened indices to 2D indices in the original n x n body parts grid
     n=arr.shape[-1] # because of the C order in reshape
     j_indices, k_indices = nx.divmod(flat_indices, n)

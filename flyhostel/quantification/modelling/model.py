@@ -28,7 +28,7 @@ class SocialSleepModel:
                 if individual.is_moving():
                     for neighbor in individual.neighbors(self.animals):
                         p = individual.interact(neighbor)
-                        neighbor.conditionally_moves(p)                        
+                        neighbor.conditionally_moves(p)
                 else:
                     individual.spontaneously_moves()
                     # TODO

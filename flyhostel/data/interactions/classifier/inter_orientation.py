@@ -106,6 +106,7 @@ def calculate_rotation_to_point_top_left_origin(points_AB, points_A_prime):
 
     Returns:
     numpy.ndarray: Array of shape (N,) containing the angles (in degrees) needed to rotate AB to point towards A'.
+    Positive degrees = clock-wise and negative degrees = counter clock-wise
     """
     # Extract points A and B from the segment AB
     A = points_AB[:, 0]  # Shape: (N, 2)
@@ -142,10 +143,6 @@ def calculate_interorientation_(pose1, pose2):
     )
 
 
-def project_to_absolute_coords(pose, bodypart):
-    pose[f"{bodypart}_x"]=pose["center_x"]
-    pose[f"{bodypart}_y"]=pose["center_y"]
-    return pose
 
 def sync_datasources(*args):
     """
@@ -162,7 +159,17 @@ def sync_datasources(*args):
         df1=df1.loc[df1["frame_number"].isin(df["frame_number"])]
         df2=df2.loc[df2["frame_number"].isin(df["frame_number"])]
         out.append(df)
-    
+
+    for df in out:
+        gaps, counts=np.unique(df["frame_number"].diff(), return_counts=True)
+        
+        # check that there are no gaps
+        # i.e. all frames are followed by the +1 frame, and only
+        # one frame (the first one) has no preceding frame
+        assert gaps[0]==1
+        assert np.isnan(gaps[1])
+        assert counts[1]==1
+
     return out
 
 def compute_inter_orientation_one_pair(loader1, loader2, nan_policy="omit"):

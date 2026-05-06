@@ -1,5 +1,5 @@
 import argparse
-from flyhostel.data.human_validation.space_time_images import make_space_time_images
+from flyhostel.data.human_validation.export import export_images
 
 def get_parser():
     ap=argparse.ArgumentParser()
@@ -10,7 +10,10 @@ def get_parser():
 
 
 def main():
-    
+
     ap = get_parser()
     args=ap.parse_args()
-    make_space_time_images(args.folder, args.experiment, args.n_jobs)
+    export_images(
+        args.folder, args.experiment,
+        n_jobs=args.n_jobs
+    )

@@ -8,12 +8,10 @@ import pandas as pd
 import numpy as np
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
 from flyhostel.data.pose.constants import bodyparts_xy as BODYPARTS_XY
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 logger=logging.getLogger(__name__)
 
 CHUNK_SECONDS=30*60
-CHUNK_FRAMES=CHUNK_SECONDS*FRAMERATE
 
 try:
     import cupy as cp
@@ -21,7 +19,7 @@ except:
     logger.warning("cupy not installed")
 
 def filter_pose(
-        filter_f, pose, bodyparts,
+        filter_f, pose, bodyparts, framerate,
         window_size=0.5, min_window_size=100,
         min_supporting_points=3, features=["x", "y"],
         useGPU=-1
@@ -131,12 +129,17 @@ def filter_pose(
     # for i, frame in enumerate(tqdm(window_id)):
     #     values_arr[frame][window_pos[i], :, :]=np.nan
 
+
+    chunk_frames=CHUNK_SECONDS*framerate
+
+
+
     # values_arr has shape min_window_size, _, _, n_windows
     if useGPU >= 0:
 
         try:
-            block_starts=np.arange(0, len(values_arr), CHUNK_FRAMES)
-            block_ends=block_starts+CHUNK_FRAMES
+            block_starts=np.arange(0, len(values_arr), chunk_frames)
+            block_ends=block_starts+chunk_frames
             filtered_pose_list=[]
             for i, block_start in enumerate(tqdm(block_starts, desc="GPU Processing")):
                 block_end=block_ends[i]
@@ -221,13 +224,13 @@ def arr2df(pose, arr, bodyparts, features=["x", "y"]):
     return new_pose
 
 
-def interpolate_pose(pose, columns=None, seconds: Union[None, Dict, float, int]=0.5, pose_framerate=FRAMERATE, cache=None):
+def interpolate_pose(pose, framerate, columns=None, seconds: Union[None, Dict, float, int]=0.5, cache=None):
     if columns is None:
         columns=BODYPARTS_XY
 
 
     if isinstance(seconds, float) or isinstance(seconds, int):
-        interpolation_limit=max(1, int(seconds*pose_framerate))
+        interpolation_limit=max(1, int(seconds*framerate))
         # pose[columns].interpolate(method="linear", limit_direction="both", inplace=True, limit=interpolation_limit)
         pose[columns].ffill(inplace=True, limit=interpolation_limit)
         pose[columns].bfill(inplace=True, limit=interpolation_limit)
@@ -245,7 +248,7 @@ def interpolate_pose(pose, columns=None, seconds: Union[None, Dict, float, int]=
         reverse_dict={v: [k for k in seconds if seconds[k]==v] for v in values}
 
         for seconds in values:
-            interpolation_limit=max(1, int(seconds*pose_framerate))
+            interpolation_limit=max(1, int(seconds*framerate))
             bodyparts=reverse_dict[seconds]
             columns=list(itertools.chain(*[[bp + "_x", bp + "_y"] for bp in bodyparts]))
             before=time.time()

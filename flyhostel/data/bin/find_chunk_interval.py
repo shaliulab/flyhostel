@@ -3,11 +3,13 @@ import os.path
 import sqlite3
 
 from flyhostel.data.pose.main import FlyHostelLoader
-from flyhostel.data.pose.export import load_concatenation_table, parse_number_of_animals
+from flyhostel.data.pose.loaders.concatenation import load_concatenation_table
+from flyhostel.utils import get_number_of_animals
 
 def get_parser():
 
     ap = argparse.ArgumentParser()
+    ap.add_argument("experiment", type=str)
     ap.add_argument("basedir", type=str)
     ap.add_argument("flyhostel_db", type=str)
     ap.add_argument("concatenation_table_name", type=str, default=None)
@@ -19,18 +21,19 @@ def main():
 
     args=ap.parse_args()
     basedir = args.basedir
+    experiment=args.experiment
     flyhostel_db = args.flyhostel_db
     concatenation_table_name=args.concatenation_table_name
+    number_of_animals=get_number_of_animals(experiment)
 
     experiment2="_".join(basedir.split(os.path.sep)[-3:])
+    assert experiment == experiment2
 
-    with sqlite3.connect(f'file:{flyhostel_db}?mode=ro', uri=True) as conn:
-        cur=conn.cursor()
-        number_of_animals=parse_number_of_animals(cur)
+
     identities=[number_of_animals-1]
 
     loader=FlyHostelLoader(
-        experiment=experiment2,
+        experiment=experiment,
         identity=identities[0],
         chunks=range(0, 400),
         identity_table="IDENTITY",
@@ -53,7 +56,7 @@ def main():
 
     with open('chunks.txt', 'w') as fout:
         for chunk in range(start_chunk, end_chunk+1):
-            fout.write(f"{basedir},{flyhostel_db},{concatenation_table_name},{str(chunk).zfill(6)}\n")
+            fout.write(f"{experiment},{basedir},{flyhostel_db},{concatenation_table_name},{str(chunk).zfill(6)}\n")
 
 if __name__ == "__main__":
     main()

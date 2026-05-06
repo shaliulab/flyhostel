@@ -8,12 +8,16 @@ from idtrackerai.blob import _overlaps_with_fraction
 
 logger=logging.getLogger(__name__)
 
-def select_by_contour(contour, contours_list, debug=False):
+def select_by_contour(contour, candidates, debug=False, frame=None):
     """
-    Select one of several machine-made squares around each centroid (contours_list) based on a human-made contour annotation (contour)
+    Select one of several machine-made squares around each centroid (candidates) based on a human-made contour annotation (contour)
     
     The selected square will be that which maximizes the overlap with the human-made contour
     If 1) >1 square is fully contained in the annotation 2) none overlaps at all, or 3) there is a tie, a ValueError is raised
+
+    Arguments:
+
+        debug (bool): If True, print score assigned to each candidate contour in candidates
 
     Note:
 
@@ -22,9 +26,19 @@ def select_by_contour(contour, contours_list, debug=False):
     """
 
     scores=[]
-    for putative_match in contours_list:
+    for candidate in candidates:
+        if debug:
+            mask=cv2.drawContours(
+                frame.copy(),
+                # np.zeros_like(frame),
+                [candidate],
+                -1, 255, -1
+            )
+
+            cv2.imwrite("mask.png", mask)
+            
         scores.append(
-            _overlaps_with_fraction(contour, np.array(putative_match))
+            _overlaps_with_fraction(contour, candidate)
         )
     scores=np.array(scores)
     
@@ -38,18 +52,22 @@ def select_by_contour(contour, contours_list, debug=False):
 
     winner_tied=n_winners>1
     if debug:
-        import ipdb; ipdb.set_trace()
         print("Scores: ", scores)
     if de_novo:
         # de novo
         match_idx=None
         n=0
     elif winner_tied:
-        logger.error(f"The annotated contour is fully contained in {n_winners} yolo boxes")
+        logger.debug(f"The annotated contour is fully contained in {n_winners} yolo boxes")
         match_idx=None
         n=-1
     elif tied:
-        logger.error(f"The annotated contour equally overlaps with {(np.diff(scores[scores>0])==0).sum()+1} yolo boxes")
+        n_boxes=(np.diff(scores[scores>0])==0).sum()+1
+        if n_boxes==2:
+            logger.debug(f"The annotated contour equally overlaps with {n_boxes} yolo boxes")
+        else:
+            logger.error(f"The annotated contour equally overlaps with {n_boxes} yolo boxes")
+        
         match_idx=None
         n=-1
     else:
@@ -94,7 +112,10 @@ def polygon_to_blob(polygon, frame_width, frame_height, number_of_cols, original
     
     contour=np.array(polygon).reshape((-1, 1, 2)).astype(np.int32)
     frame_idx_in_block=contour_to_frame_idx_in_block(contour, frame_width, frame_height, number_of_cols)
-    contour=reproject_contour(contour, frame_width, frame_height, original_resolution)
+    if number_of_cols==1:
+        contour=reproject_contour_uni_frame(contour, frame_width, frame_height, original_resolution)
+    else:
+        contour=reproject_contour(contour, frame_width, frame_height, original_resolution)
 
     x, y=contour_to_centroid(contour)
     # x=int(x / frame_width * original_resolution[0])
@@ -143,7 +164,11 @@ def rle_to_blob(*args, frame_width, frame_height, number_of_cols, original_resol
     assert len(contours)==1, "This annotation is segmented into >1 contour. Does it have a hole in it?"
     contour=contours[0]
     frame_idx_in_block=contour_to_frame_idx_in_block(contour, frame_width, frame_height, number_of_cols)
-    contour=reproject_contour(contour, frame_width, frame_height, original_resolution)
+    if number_of_cols==1:
+        contour=reproject_contour_uni_frame(contour, frame_width, frame_height, original_resolution)
+    else:
+        contour=reproject_contour(contour, frame_width, frame_height, original_resolution)
+
     x, y=contour_to_centroid(contour)
     
     return frame_idx_in_block, (x, y), contour
@@ -177,3 +202,15 @@ def reproject_contour(contour, frame_width, frame_height, original_resolution):
     contour=contour.astype(np.int32)
     
     return contour
+
+
+def reproject_contour_uni_frame(contour, frame_width, frame_height, original_resolution):
+
+    # projcting back in to the original resolution
+    contour[:,:,0]=original_resolution[0]*contour[:,:,0]/frame_width
+    contour[:,:,1]=original_resolution[1]*contour[:,:,1]/frame_height
+    
+    contour=contour.astype(np.int32)
+    
+    return contour
+

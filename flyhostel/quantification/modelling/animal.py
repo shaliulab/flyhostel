@@ -127,7 +127,6 @@ class SimpleAnimal(BaseAnimal):
         pass
 
 
-
 class BehaviorSensitiveProbabilityOfMovementMixin:
     
     def interact(self, other):
@@ -190,6 +189,6 @@ class AnimalWithArousalThreshold(SimpleAnimal, RandomlyMovingAnimalMixin):
 class AnimalSensitiveToGroupSize(AnimalWithArousalThreshold):
 
     def arousal_threshold(self, animals):
-        threshold = super(AnimalSensitiveToGroupSize, self).arousal_threshold()    
+        threshold = super(AnimalSensitiveToGroupSize, self).arousal_threshold()
         scaling_factor=1.0
         threshold + np.log(animals * scaling_factor)

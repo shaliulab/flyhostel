@@ -14,13 +14,15 @@ from sklearn.decomposition import PCA
 
 print(sklearn.__version__)
 
-from flyhostel.utils import get_basedir
+from flyhostel.utils import (
+    get_framerate,
+    get_basedir
+)
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.pose.ethogram.plot import bin_behavior_table_v2
 from flyhostel.data.pose.constants import BEHAVIOR_IDX_MAP
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 from sync_paper.sleep import sleep_annotation_rf
-from sync_paper.constants import INACTIVE_STATES
+from sync_paper.constants import PURE_INACTIVE_STATES
 
 from .inter_orientation import calculate_angles_with_vertical_batch, compute_inter_orientation
 from .dtw import  compress_interaction
@@ -75,7 +77,7 @@ def load_fly_data(loader, min_time, max_time):
     loader.load_behavior_data(loader.experiment, loader.identity, min_time=min_time, max_time=max_time)
 
     print("Computing sleep")
-    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(INACTIVE_STATES)
+    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(PURE_INACTIVE_STATES)
     loader.sleep=sleep_annotation_rf(loader.behavior)
 
 
@@ -84,6 +86,7 @@ def load_interactions(experiment, identities, time_index, min_time, max_time, di
     Load cached interactions detected for this experiment
     """
     basedir=get_basedir(experiment)
+    framerate=get_framerate(experiment)
     interaction_features=["id", "nn", "distance_mm", "frame_number"]
 
     df_=pd.read_csv(os.path.join(basedir, "interactions", experiment + "_interactions.csv"))[interaction_features]
@@ -106,7 +109,7 @@ def load_interactions(experiment, identities, time_index, min_time, max_time, di
     # add global interaction features
     interaction_index=df_.groupby(["id", "interaction"]).agg({"frame_number": [np.min, np.max], "distance_mm": np.min}).reset_index()
     interaction_index.columns=["id", "interaction", "frame_number_start", "frame_number_end", "distance_mm_min"]
-    interaction_index["duration"]=(interaction_index["frame_number_end"]-interaction_index["frame_number_start"])/FRAMERATE
+    interaction_index["duration"]=(interaction_index["frame_number_end"]-interaction_index["frame_number_start"])/framerate
     df_=df_.merge(interaction_index, on=["id", "interaction"])
     return df_
 

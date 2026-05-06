@@ -1,7 +1,6 @@
 import numpy as np
-from flyhostel.data.pose.constants import chunksize
 
-def make_identity_tracks(ident, roi0, include_crossings=False):
+def make_identity_tracks(ident, roi0, chunksize, include_crossings=False):
     if include_crossings:
         pass
     else:
@@ -22,8 +21,8 @@ def make_identity_tracks(ident, roi0, include_crossings=False):
     return identity_tracks
 
 
-def make_identity_singletons(ident, roi0):
-    identity_singletons=make_identity_tracks(ident, roi0, include_crossings=True)
+def make_identity_singletons(ident, roi0, chunksize):
+    identity_singletons=make_identity_tracks(ident, roi0, chunksize, include_crossings=True)
     identity_singletons.loc[identity_singletons["is_a_crossing"]==True, "fragment"]=np.nan
     identity_singletons=identity_singletons.loc[identity_singletons["fragment"].isna()]
     identity_singletons=identity_singletons.merge(

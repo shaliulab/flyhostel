@@ -10,10 +10,9 @@ from flyhostel.data.deg import read_label_file
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.pose.fh_umap import add_n_steps_in_the_past
 from flyhostel.data.pose.constants import bodyparts_xy
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 
 
+import numpy as np
 import cudf
 import cupy as cp
 
@@ -22,7 +21,6 @@ BODY_LENGTH=2
 ARENA_WIDTH=60
 ARENA_HEIGHT=60
 target_fps=30
-stride=FRAMERATE//target_fps
 dsna_folder="/home/vibflysleep/opt/drosophila-social-network-analysis"
 
 
@@ -87,6 +85,11 @@ def export_to_dsna(experiment, min_time=7*3600, max_time=17*3600):
     cache_file2=f"{cache_folder}/{experiment}_indexed.feather"
     os.makedirs(output_folder, exist_ok=True)
     excel_sheet_path=os.path.join(output_folder, f"{experiment}.xlsx")
+
+    get_framerate(get_dbfile(get_basedir(experiment)))
+    stride=framerate//target_fps
+
+
 
 
     if os.path.exists(cache_file):

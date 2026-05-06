@@ -1,10 +1,9 @@
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
-FRAMERATE=150
 interval_time=30
 
-def quantify_activity_in_context(loaders, interval_times, framerate=FRAMERATE):
+def quantify_activity_in_context(loaders, interval_times):
     """
     Quantify features of id and nn animals before and after the interactoin 
     """
@@ -19,6 +18,9 @@ def quantify_activity_in_context(loaders, interval_times, framerate=FRAMERATE):
             df1=loader1.interaction_ellipse2.loc[
                     (loader1.interaction_ellipse2["nn"]==loader2.ids[0])
             ]
+
+            assert loader1.framerate==loader2.framerate
+            framerate=loader1.framerate
             index=df1.groupby(["id", "nn", "interaction"]).first().reset_index()
             index["id_distance_pre"]=np.nan
             index["nn_distance_pre"]=np.nan

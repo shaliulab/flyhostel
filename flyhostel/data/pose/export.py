@@ -7,7 +7,10 @@ import numpy as np
 import joblib
 import pandas as pd
 import h5py
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
+
+from flyhostel.utils import (
+    get_chunksize
+)
 
 MINS=.5
 
@@ -49,7 +52,6 @@ def make_link(analysis_file, directory, dry_run=False):
             os.remove(new_link)
 
         status=0
-        # status=impute_body_part(analysis_file, "proboscis", "head")
 
         if status is None:
             return
@@ -80,7 +82,10 @@ def impute_body_part(analysis_file, body_part, reference):
     return missing
 
 
-def load_file(file):
+def load_file(file, chunksize=None):
+
+    if chunksize is None:
+        print("chunksize is not passed. No checks for missing data will be made")
 
     if not os.path.exists(file):
         print(f"{file} does not exist")
@@ -97,10 +102,16 @@ def load_file(file):
         logging.warning("Cannot open file %s", file)
         raise error
 
-    
+    if chunksize is not None:
+        
+        if tracks.shape[3]!=chunksize:
+            import ipdb; ipdb.set_trace()
+
+        assert tracks.shape[3]==chunksize, f"{file} is missing pose estimates (found {tracks.shape[3]} instead of {chunksize})"
+
     return node_names, tracks, score, file
 
-def load_files(files, n_jobs=1):
+def load_files(files, chunksize, n_jobs=1):
     """
     Load a collection of SLEAP .h5 files
     """
@@ -111,7 +122,7 @@ def load_files(files, n_jobs=1):
         joblib.delayed(
             load_file
         )(
-           file
+           file, chunksize=chunksize
         )
         for file in files
     )
@@ -133,7 +144,6 @@ def load_files(files, n_jobs=1):
                 template_score = score.copy()
                 template_score[:] = np.nan
 
-            assert dataset.shape[3]==CHUNKSIZE, f"{file} is missing pose estimates (found {dataset.shape[3]} instead of {CHUNKSIZE})"
         else:
             raise ValueError(f"{file} could not be loaded")
             
@@ -197,32 +207,10 @@ def parse_number_of_animals(cur):
     number_of_animals=int(conf["_number_of_animals"]["value"])
     return number_of_animals
 
-def infer_analysis_path(basedir, local_identity, chunk, number_of_animals):
-    if number_of_animals==1:
-        return os.path.join(basedir, "flyhostel", "single_animal", str(0).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
-    else:
-        return os.path.join(basedir, "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
 
-def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VAL"):
-    cur.execute("SELECT value FROM METADATA where field ='idtrackerai_conf';")
-    conf=cur.fetchone()[0]
-    number_of_animals=int(json.loads(conf)["_number_of_animals"]["value"])
+def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", strict=True):
 
-
-    cur.execute(f"PRAGMA table_info('{concatenation_table}');")
-    header=[row[1] for row in cur.fetchall()]
-
-    cur.execute(f"SELECT * FROM {concatenation_table};")
-    records=cur.fetchall()
-    concatenation=pd.DataFrame.from_records(records, columns=header)
-    concatenation["dfile"] = [
-        infer_analysis_path(basedir, int(row["local_identity"]), str(int(float(row["chunk"]))).zfill(6), number_of_animals=number_of_animals)
-        for i, row in concatenation.iterrows()
-    ]
-    return concatenation
-
-
-def pipeline(experiment_name, identity, concatenation, chunks=None, output="."):
+    chunksize=get_chunksize(experiment_name)
 
     if chunks is not None:
         concatenation=concatenation.loc[concatenation["chunk"].isin(chunks)]
@@ -242,10 +230,16 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output="."):
     if chunks is not None:
         if concatenation_i.shape[0] < len(chunks):
             print(f"{concatenation_i.shape[0]} < {len(chunks)}. The concatenation is missing data")
-            raise Exception(f"Chunks missing in concatenation table for identity {identity}: {set(chunks).difference(set(concatenation_i['chunk'].tolist()))}")
+            if strict:
+                raise Exception(f"Chunks missing in concatenation table for identity {identity}: {set(chunks).difference(set(concatenation_i['chunk'].tolist()))}")
+            else:
+                first_chunk_missing=concatenation_i.iloc[1:].loc[concatenation_i["chunk"].diff().iloc[1:]!=1]["chunk"].iloc[0]
+                concatenation_i=concatenation_i.query(f"chunk < {first_chunk_missing}")
+
+
 
     files=concatenation_i["dfile"]
-    node_names, datasets, point_scores = load_files(files)
+    node_names, datasets, point_scores = load_files(files, chunksize)
     dest_file=os.path.join(output, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
 

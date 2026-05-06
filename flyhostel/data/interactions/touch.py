@@ -17,12 +17,9 @@ def get_edges_from_row(row, bodyparts):
     return edges
 
 def preprocess_data(df, bodyparts):
-
     df['edges'] = df.apply(lambda x: get_edges_from_row(x, bodyparts=bodyparts), axis=1)
 
     return df
-
-
 
 def point_distance(A, B):
     return np.linalg.norm(np.array(A) - np.array(B))

@@ -1,8 +1,16 @@
 import itertools
+import random
+import logging
+
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
 from scipy.stats import kendalltau
+logger=logging.getLogger(__name__)
+from .correlation_utils import (
+    real_groups_iter,
+    virtual_combinations_iter
+)
 
 def phi_corr(series1, series2):
     assert all([e in [0, 1] for e in series1])
@@ -52,6 +60,11 @@ def rmse(df, col1, col2, lag=0):
     return coef
 
 def preprocess(df, col1, col2, lag):
+    """
+    Apply a lag to the timeseries in col1 and col2,
+    while keeping only the timepoints that are shared between both    
+    """
+    
     if lag == 0:
         series1=df[col1]
         series2=df[col2]
@@ -97,6 +110,52 @@ def euclidean_distance(df, col1, col2, lag=0, nan=0):
     if np.isnan(distance):
         distance=nan
     return distance, n_points
+
+def psi(df, col1, col2, lag, nan=0):
+    """
+    Pairwise population Synchrony Index
+    https://www.science.org/doi/10.1126/science.adr3339
+    """
+
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    mean_across_animals=np.stack([series1, series2]).mean(axis=0)
+
+    mean_across_animals=mean_across_animals[~np.isnan(mean_across_animals)]
+    coefficient_of_variation=np.std(mean_across_animals) / np.mean(mean_across_animals)
+    return coefficient_of_variation, n_points
+
+def group_psi(df, lag, nan=0):
+    """
+    Population Synchrony Index
+    https://www.science.org/doi/10.1126/science.adr3339
+    """
+    col1, col2=df.columns[:2]
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    series=[series1, series2]
+  
+    for id in df.columns[2:]:
+        _, series_n, n_points=preprocess(df, col1, id, lag)
+        series.append(series_n)
+   
+    mean_across_animals=np.stack(series).mean(axis=0)
+    mean_across_animals=mean_across_animals[~np.isnan(mean_across_animals)]
+    coefficient_of_variation=np.std(mean_across_animals) / np.mean(mean_across_animals)
+    return coefficient_of_variation, n_points
+
+
+def group_psi_unnorm(df, lag, nan=0):
+    col1, col2=df.columns[:2]
+    series1, series2, n_points=preprocess(df, col1, col2, lag)
+    series=[series1, series2]
+  
+    for id in df.columns[2:]:
+        _, series_n, n_points=preprocess(df, col1, id, lag)
+        series.append(series_n)
+   
+    mean_across_animals=np.stack(series).mean(axis=0)
+    mean_across_animals=mean_across_animals[~np.isnan(mean_across_animals)]
+    coeff=np.std(mean_across_animals)
+    return coeff, n_points
 
 
 def cross_correlationv2(df, col1, col2, lag=0, nan=0):
@@ -161,28 +220,85 @@ def mean_squared_difference(df, col1, col2, lag=0, nan=0):
     return msq_diff, n_points
 
 
-def annotator(df, lags, feature="asleep", FUNs={}, auto=False, **kwargs):
+def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, summary_FUN="mean", **kwargs):
 
     assert df.shape[0]>0
     wide_table=df.reset_index().pivot_table(index=['t'], columns='id', values=feature)
-    ids=wide_table.columns.tolist()
+    bool_table=(wide_table==1).astype(int)
+    diff_table=bool_table.diff(axis=0).iloc[1:]
+
+    number_of_animals=df["number_of_animals"].drop_duplicates().tolist()
+    assert len(number_of_animals)==1, f"Different group sizes detected: {number_of_animals}"
+    number_of_animals=number_of_animals[0]
+
+    tables={
+        "mean": wide_table,
+        "P_doze": (diff_table==+1).astype(int),
+        "P_wake": (diff_table==-1).astype(int),
+    }
+    
+    X=tables[summary_FUN]
+    experiment_index=df[["id",  "experiment"]].drop_duplicates().reset_index(drop=True)
+
+
+    ids=X.columns.tolist()
     pairs=list(itertools.combinations(ids, 2))
     if auto:
         for id in ids:
             pairs.append((id, id))
 
     records=[]
+    records_group=[]
     for lag in tqdm(lags, desc="Analyzing lags"):
         for id1, id2 in pairs:
+
+            if id1[:26]==id2[:26]:
+                experiment=experiment_index.loc[experiment_index["id"]==id1, "experiment"].iloc[0]
+                comparison="real"
+            else:
+                experiment="virtual"
+                comparison="virtual"
             for FUN, FUN_name in FUNs.items():
-                val, N=FUN(wide_table, id1, id2, lag=lag, **kwargs)
+                val, N=FUN(X, id1, id2, lag=lag, **kwargs)
+                if np.isnan(val):
+                    logger.debug("%s between %s and %s is na", FUN_name, id1, id2)
                 records.append((
-                    id1, id2, lag, val, FUN_name, N
+                    id1, id2, lag, val, FUN_name, N, experiment, comparison
                 ))
+
+        if number_of_animals>1 and len(group_FUNs)>0:
+            for experiment, ids_per_groups in real_groups_iter(ids):
+                for FUN, FUN_name in group_FUNs.items():
+                    val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
+                    ids_str=";".join(ids_per_groups)
+                    records_group.append((
+                        ids_str, None, lag, val, FUN_name, N, experiment, "real"
+                    ))
+    
+            virtual_combos=list(virtual_combinations_iter(ids))
+            sample_size=min(1000, len(virtual_combos))
+            virtual_combos=random.sample(virtual_combos, sample_size)
+            counter=0
+            for experiment, ids_per_groups in virtual_combos:
+                for FUN, FUN_name in group_FUNs.items():
+                    val, N=FUN(X[ids_per_groups], lag=lag, **kwargs)
+                    ids_str=";".join(ids_per_groups)
+                    records_group.append((
+                        ids_str, None, lag, val, FUN_name, N, f"{experiment}_{counter}", "virtual"
+                    ))
+            
+                counter+=1
 
     df=pd.DataFrame.from_records(
         records,
-        columns=["id1", "id2", "lag", "value", "metric", "N"]
-    )
-    df=df.pivot(index=["id1", "id2", "lag", "N"], columns="metric", values="value").reset_index()
+        columns=["id1", "id2", "lag", "value", "metric", "N", "experiment", "comparison"]
+    ).reset_index()
+    
+    df_group=pd.DataFrame.from_records(
+        records_group,
+        columns=["id1", "id2", "lag", "value", "metric", "N", "experiment", "comparison"]
+    ).reset_index()
+    df["metric_level"]="pairwise"
+    df_group["metric_level"]="population"
+    df=pd.concat([df, df_group], axis=0)
     return df

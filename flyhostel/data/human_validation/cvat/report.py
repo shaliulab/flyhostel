@@ -5,11 +5,14 @@ logger=logging.getLogger(__name__)
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from flyhostel.data.pose.constants import chunksize
-from flyhostel.data.human_validation.cvat.utils import load_tracking_data, load_machine_data, get_number_of_animals, get_basedir, get_dbfile
+from flyhostel.utils import (
+    get_pixels_per_mm,
+    get_number_of_animals,
+    get_basedir,
+    get_chunksize
+)
 
-
-def qc1(roi0, ident):
+def qc1(roi0, ident, chunksize):
     """
     Check all fragments have blobs that are always or never crossing
     """
@@ -48,9 +51,9 @@ def qc2(lid_fragment_index):
 
     return impure_fragments
 
-def make_report(out, folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals):
+def make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize):
 
-    fragment_crossing_fraction=qc1(roi0_annotations, identity_annotations)
+    fragment_crossing_fraction=qc1(roi0_annotations, identity_annotations, chunksize)
     fragment_crossing_fraction.to_csv(
         os.path.join(folder, "fragment_crossing_fraction.csv")
     )
@@ -95,29 +98,67 @@ def make_report(out, folder, identity_tracks, roi0_annotations, identity_annotat
         )
     )
 
-    jump_report(out, folder, number_of_animals)
 
+def jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm):
+    
+    MAX_DIST_IN_ONE_FRAME_MM=1
+    MAX_DIST_IN_ONE_FRAME=pixels_per_mm*MAX_DIST_IN_ONE_FRAME_MM
 
-def jump_report(out, folder, number_of_animals):
     dist_df=[]
     for identity in range(1, number_of_animals+1):
         out_fly=out.loc[out["identity"]==identity]
         
+        # x and y are in pixels
         distance=np.sqrt((np.diff(out_fly[["x","y"]], axis=0)**2).sum(axis=1))
-
-        dist_df.append(
-            pd.DataFrame({
-                "distance": np.concatenate([[0], distance]),
-                "local_identity": out_fly["local_identity"], "identity": identity,
-                "x": out_fly["x"], "y": out_fly["y"],
-                "frame_number": out_fly["frame_number"]})
+        df=pd.DataFrame({
+            "distance": distance,
+            "identity": identity,
+            "local_identity": out_fly["local_identity"].iloc[:-1],
+            "x": out_fly["x"].iloc[:-1],
+            "y": out_fly["y"].iloc[:-1],
+            "frame_number": out_fly["frame_number"].iloc[:-1]}
         )
+        diff=df["frame_number"].diff()
+
+        if not (diff==1).all():
+            logger.error("Tracks missing for identity in frames %s: %s", identity, df["frame_number"].loc[diff!=1].tolist())
+            logger.error("Tracks missing for identity with gaps of %s: %s frames", identity, diff[diff!=1].tolist())
+        dist_df.append(df)
 
     dist_df=pd.concat(dist_df, axis=0)
-    dist_df.sort_values(["distance", "identity"], ascending=[False, True], inplace=True)
+    dist_df.sort_values(["distance", "local_identity"], ascending=[False, True], inplace=True)
     dist_df["frame_idx"]=dist_df["frame_number"]%chunksize
     dist_df["chunk"]=dist_df["frame_number"]//chunksize
-    dist_df.loc[dist_df["distance"]>20].to_csv(
+    
+    index=dist_df.loc[dist_df["distance"]>MAX_DIST_IN_ONE_FRAME, ["frame_number", "local_identity"]]
+    indexm1=index.copy()
+    indexp1=index.copy()
+
+    indexm1["frame_number"]-=1
+    indexp1["frame_number"]+=1
+     
+    index=pd.concat([
+        indexm1, index, indexp1
+    ], axis=0)\
+        .drop_duplicates(["frame_number", "local_identity"])
+
+    
+    na_dist=dist_df["distance"].isna()
+    if na_dist.any():
+        logger.warning(dist_df.loc[na_dist])
+
+    dist_df.loc[~dist_df["x"].isna(), "x"]=dist_df.loc[~dist_df["x"].isna(), "x"].astype(int)
+    dist_df.loc[~dist_df["y"].isna(), "y"]=dist_df.loc[~dist_df["y"].isna(), "y"].astype(int)
+    
+    database=dist_df\
+        .merge(index, on=["frame_number", "local_identity"], how="right")\
+        .sort_values(["local_identity", "frame_number"])\
+        .reset_index(drop=True)
+    
+    print(database.duplicated(["frame_number", "local_identity"]).sum())
+
+    
+    database.to_csv(
         os.path.join(
             folder, "jumps_database.csv"
         )
@@ -125,7 +166,7 @@ def jump_report(out, folder, number_of_animals):
 
     for identity in range(1, number_of_animals+1):
         df=dist_df.loc[dist_df["identity"]==identity].sort_values("frame_number")
-        x=df.loc[df["distance"]>20]
+        x=df.loc[df["distance"]>MAX_DIST_IN_ONE_FRAME]
         x=x.iloc[::10]
         plt.plot(x["frame_number"]/chunksize, x["distance"])
         plt.savefig(
@@ -143,4 +184,6 @@ def jump_report_from_outputs(experiment, folder):
     roi_0_val=pd.read_feather(f"{basedir}/flyhostel/validation/ROI_0_VAL.feather")
     identity_val=pd.read_feather(f"{basedir}/flyhostel/validation/IDENTITY_VAL.feather")
     out=roi_0_val.merge(identity_val.drop(["validated"], axis=1, errors="ignore"), on=["frame_number", "in_frame_index"], how="left")
-    jump_report(out, folder, number_of_animals=number_of_animals)
+    chunksize=get_chunksize(experiment)
+    pixels_per_mm=get_pixels_per_mm(experiment)
+    jump_report(out, folder, number_of_animals=number_of_animals, chunksize=chunksize, pixels_per_mm=pixels_per_mm)

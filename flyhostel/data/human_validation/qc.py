@@ -4,214 +4,175 @@ import joblib
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
-from memory_profiler import profile
+# from memory_profiler import profile
+from flyhostel.utils import prepare_batches
+from .constants import BATCH_SIZE, LOGFILE
+from .qcs import (
+    yolov7_qc,
+    all_found_qc,
+    all_id_expected_qc,
+    first_frame_idx_qc,
+    last_frame_idx_qc,
+    inter_qc,
+    INDICES
+)
 
 logger=logging.getLogger(__name__)
-# 0 local_identity
-# 1 identity
-# 2 chunk
-# 3 fragment
-# 4 modified
-# 5 frame_number
-# 6 x
-# 7 y
 
-identity_idx=0
-chunk_idx=2
-fragment_idx=3
-modified_idx=4
-frame_number_idx=5
-tests=["yolov7_qc", "all_found_qc", "all_id_expected_qc", "first_frame_idx_qc", "inter_qc"]
-
-from flyhostel.data.pose.constants import chunksize
-
-def intra_qc(window, number_of_animals):
-    """
-    Return True if all of these conditions are met, and False otherwise
-        All local identities are non zero
-        modified is set to 0 (meaning YOLOv7 has not processed the frame)
-        The number of detected animals matches the expected number of animals
-    """
-    return yolov7_qc(window) and all_found_qc(window, number_of_animals) and all_id_expected_qc(window, number_of_animals) and nms_qc(window)
-
-def nms_qc(window):
-    """
-    Return True if two objects have the same centroid (non maximal suppresion failure)
-    """
-
-    x_y=window[:, 6:7]
-    u, c = np.unique(x_y, return_counts=True, axis=0)
-    duplicates=np.sum(c > 1)
-    return not duplicates
-
-def yolov7_qc(window):
-    """
-    Return True if YOLOv7 did not process any frame in the group
-    """
-    return (window[:, modified_idx]==0).all()
-
-
-def all_found_qc(window, number_of_animals):
-    """
-    Return True if the number of found objects in all frames of the group
-    matches the number of animals
-    """
-    return window.shape[0]==number_of_animals
-
-
-def all_id_expected_qc(window, number_of_animals, idx=identity_idx):
-    labels = labels=[i for i in range(1, number_of_animals+1)]
-    return (sorted(window[:, idx])==labels)
-
-
-def inter_qc(window_before, window, window_after):
-    """
-    Return False if the fragment identifiers in the two windows are not the same
-    or if the next window is in another chunk 
-    """
-
-    is_different = not set(window[:, fragment_idx]).issubset(window_before[:, fragment_idx])
-    if window_after is None:
-        is_end_of_chunk=False
-    else:
-        is_end_of_chunk = window[0, chunk_idx] < window_after[0, chunk_idx]
-
-    return not is_different and not is_end_of_chunk
-
-
-# @profile
-def all_qc_batch(all_kwargs):
+def all_qc_batch(all_windows, **kwargs):
     out=[]
-    while len(all_kwargs)>0:
-        kwargs=all_kwargs.pop(0)
-        out.append(all_qc(**kwargs))
-        del kwargs
+    while len(all_windows)>0:
+        consecutive_windows=all_windows.pop(0)
+        out.append(unisex_qc(**consecutive_windows, **kwargs))
 
-    qc=pd.DataFrame.from_records(out, columns=["chunk", "frame_number"] + tests)
-
+    qc=pd.DataFrame(out)
     return qc
 
 
-def first_frame_idx_qc(window):
-    return window[0, frame_number_idx] % chunksize != 0
+def unisex_qc(i, number_of_animals, behavior_window, chunksize, window_before=None, logfile=None):
+    """
+    For every group of windows, verify:
 
-
-# @profile
-def all_qc(i, number_of_animals, behavior_window, window_before=None, window_after=None, logfile=None):
-
-    frame_number=int(behavior_window[0, frame_number_idx])
-    chunk=int(behavior_window[0, chunk_idx])
+        * That yolov7 was not used (potential AI mistake) in behavior_window
+        * That all animals are found in behavior_window
+        * That behavior_window is not in the first or last frame of a chunk
+        * That there was no fragment change (potential errors) between the three windows
+    """
+    frame_number=int(behavior_window[0, INDICES["frame_number"]])
 
     yolov7_pass=yolov7_qc(behavior_window)
     all_found_pass=all_found_qc(behavior_window, number_of_animals)
     all_id_expected_pass=all_id_expected_qc(behavior_window, number_of_animals)
-    first_frame_idx_pass=first_frame_idx_qc(behavior_window)
+    first_frame_idx_pass=first_frame_idx_qc(behavior_window, chunksize)
+    last_frame_idx_pass=last_frame_idx_qc(behavior_window, chunksize)
 
     if i == 0:
         inter_qc_pass=True
     else:
-        inter_qc_pass=inter_qc(window_before=window_before, window=behavior_window, window_after=window_after)
+        inter_qc_pass=inter_qc(window_before=window_before, window=behavior_window)
 
     if i % 50000 == 0 and logfile is not None:
         with open(logfile, "w") as handle:
             handle.write(f"Last window: {i}\nLast frame number {frame_number}\n")
 
-    return (chunk, frame_number, yolov7_pass, all_found_pass, all_id_expected_pass, first_frame_idx_pass, inter_qc_pass)
+    qc = (
+        # require yolov7 is not used
+        yolov7_pass and
+        # require all flies are found / segmented (even if the identity is not assigned)
+        all_found_pass and
+        # require fragments dont change
+        inter_qc_pass and
+        # require it is not first frame in chunk unless all animals have an identity
+        (first_frame_idx_pass or all_id_expected_pass) and
+        # require it is not last frame in chunk unless all animals have an identity
+        (first_frame_idx_pass or all_id_expected_pass)
+    )
+
+    result={
+        "frame_number": frame_number,
+        "yolov7_qc": yolov7_pass,
+        "all_found_qc": all_found_pass,
+        "all_id_expected_qc": all_id_expected_pass,
+        "first_frame_idx_qc": first_frame_idx_pass,
+        "last_frame_idx_qc": last_frame_idx_pass,
+        "inter_qc": inter_qc_pass,
+        "qc": qc
+    }
+
+    return result
 
 
-def analyze_video(df, number_of_animals, n_jobs=1):
-    """
-    Quality control of idtrackerai+yolov7 results
-
-    Arguments
-
-        df (pd.DataFrame): One row per animal and bin, with columns
-            chunk
-            frame_number
-            identity
-            fragment
-    """
-
-    logger.debug("Sorting data chronologically")
-    df=df.sort_values(["chunk", "frame_number"])
-    logger.debug("Setting index of data")
+def generate_consecutive_windows(df):
 
     n_windows=df[["chunk", "frame_number"]].drop_duplicates().shape[0]
-    all_windows=df[["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]].groupby([
+    # 0 local_identity
+    # 1 identity
+    # 2 chunk
+    # 3 fragment
+    # 4 modified
+    # 5 frame_number
+    # 6 x
+    # 7 y
+    FEATURES=["local_identity", "identity", "chunk", "fragment", "modified", "frame_number", "x", "y"]
+
+    all_windows=df[FEATURES].groupby([
         "chunk", "frame_number"
     ]).__iter__()
     logger.debug("Generating %s windows", n_windows)
 
-
-    kwargs=[]
+    output=[]
     _, window_after = next(all_windows)
     window_after=window_after.values.astype(np.int32)
     window_group=collections.deque([None, None, window_after])
     has_finished=False
     pb=tqdm(total=n_windows)
-    logfile="qc.log"
     i=0
+
     while not has_finished:
         try:
             _, window_after = next(all_windows)
             window_after=window_after.values.astype(np.int32)
-
             window_group.append(window_after)
         except StopIteration:
             has_finished=True
             window_group.append(None)
 
         window_group.popleft()
-        kwargs.append({
-            "i": i, "number_of_animals": number_of_animals,
-            "logfile": logfile,
+        output.append({
+            "i": i,
             "window_before": window_group[0],
             "behavior_window": window_group[1],
-            "window_after": window_group[2]
+            # "window_after": window_group[2],
         })
         pb.update(1)
         i+=1
+    return output
+    
 
-    batches=[]
+def analyze_experiment(df, number_of_animals, chunksize, n_jobs=1):
+    """
+    Quality control (QC) of segmentation and identification (idtrackerai+yolov7) pipeline
 
-    if n_jobs>=1:
-        n_batches=n_jobs
-    else:
-        n_cpus=joblib.cpu_count()
-        n_batches=n_cpus+n_jobs
+    Arguments
 
-    # batch_size=min(10000, int(round(n_windows/n_batches + 1)))
-    batch_size=20000
-    n_batches=n_windows//batch_size + 1
+        df (pd.DataFrame): One row per animal and bin, with columns
+            local_identity
+            identity
+            chunk
+            fragment
+            modified
+            frame_number
+            x
+            y
+        chunksize (int): Number of frames in a flyhostel chunk
+        For 150 FPS = 45000 in 5 minutes
 
 
-    for j in range(n_batches):
-        batches.append(
-            kwargs[j*batch_size:(j+1)*batch_size]
-        )
-    logger.debug("Running QC using %s jobs in %s batches of size %s. Saving log to %s", n_jobs, len(batches), batch_size, logfile)
+    Works by producing windows of behavior
+    A window consists of rows that come from the same frame
+    This function 
+    """
+
+    logger.debug("Sorting data chronologically")
+    df.sort_values(["chunk", "frame_number"], inplace=True)
+
+
+    consecutive_windows=generate_consecutive_windows(df)
+    batches=prepare_batches(consecutive_windows, BATCH_SIZE, n_jobs=n_jobs)
+    
+    logger.debug("Running QC using %s jobs in %s batches of size %s. Saving log to %s", n_jobs, len(batches), BATCH_SIZE, LOGFILE)
+    # debug
+
     qc=joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(
             all_qc_batch
         )(
-            batches[j]
+            batches[j],
+            number_of_animals=number_of_animals,
+            chunksize=chunksize,
+            logfile=LOGFILE
         )
         for j in range(len(batches))
     )
     qc=pd.concat(qc, axis=0)
-    extra_check=np.bitwise_and(
-        qc["inter_qc"],
-        np.bitwise_or(
-            qc["first_frame_idx_qc"],
-            qc["all_id_expected_qc"]
-        )
-    )
-
-    qc["qc"]=np.bitwise_and(
-        np.bitwise_and(
-            qc["yolov7_qc"],
-            qc["all_found_qc"],
-        ), extra_check
-    )
-
-    return qc, tests
+    return qc

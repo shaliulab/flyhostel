@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
 
 logger = logging.getLogger(__name__)
 time_counter=logging.getLogger("time_counter")
@@ -45,7 +44,7 @@ def simplify_columns(index, pose, id):
     return pose
 
 
-def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_time=None, max_time=None, store_index=None):
+def load_pose_data_compiled(datasetnames, ids, lq_thresh, chunksize, files, stride=1, min_time=None, max_time=None, store_index=None):
     """
     Load dataset TODO
     """
@@ -54,7 +53,6 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
     pose_list=[]
     h5s_pandas=[]
     index_pandas=[]
-    chunksize=CHUNKSIZE
 
     for animal_id, datasetname in enumerate(datasetnames):
         this_animal_files=files[animal_id]
@@ -76,7 +74,11 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
 
         filehandle_raw=h5py.File(h5_file_raw)
         logger.debug("Opening %s", h5_file_filtered)
-        filehandle=h5py.File(h5_file_filtered)
+        try:
+            filehandle=h5py.File(h5_file_filtered)
+        except Exception as error:
+            logger.error("Cannot open %s", h5_file_filtered)
+            raise error
         
         before=time.time()
         first_chunk=int(os.path.basename(filehandle["files"][0].decode()).split(".")[0])
@@ -90,7 +92,11 @@ def load_pose_data_compiled(datasetnames, ids, lq_thresh, files, stride=1, min_t
         last_frame_number_available=filehandle["tracks"].shape[3]+first_frame_number
         if max_time is not None:
             # select the first frame number whose t is greater than max time
-            fn1=store_index.loc[store_index["t"]>max_time, "frame_number"].iloc[0]
+            fn1=store_index.loc[store_index["t"]>max_time, "frame_number"]
+            if len(fn1)==0:
+                fn1=last_frame_number_available
+            else:
+                fn1=fn1.iloc[0]
         else:
             fn1=last_frame_number_available
 

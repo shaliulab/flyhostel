@@ -34,8 +34,7 @@ class UMAPLoader(ABC):
     def load_umap_data(self, identity, min_time=None, max_time=None):
 
         animal = self.experiment + "__" + str(identity).zfill(2)
-        dbfile=get_sqlite_file(animal)
-        chunksize=get_chunksize(dbfile)
+        chunksize=get_chunksize(self.experiment)
 
         mat_file = f"{MMPY_PROJECT}/Projections/{self.experiment}__{str(identity).zfill(2)}-pcaModes_uVals.mat"
         if not os.path.exists(mat_file):

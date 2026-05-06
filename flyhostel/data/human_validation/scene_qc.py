@@ -21,8 +21,15 @@ import cupy as cp
 
 
 from .qc import all_id_expected_qc
+from flyhostel.data.human_validation.utils import load_tracking_data
 from flyhostel.data.interactions.neighbors_gpu import compute_distance_between_all_ids, find_closest_pair
-from flyhostel.data.pose.constants import chunksize
+from flyhostel.utils import (
+    get_basedir,
+    get_dbfile,
+    get_chunksize,
+    get_number_of_animals,
+)
+
 pd.set_option("display.max_rows", 1000)
 logger=logging.getLogger(__name__)
 logging.getLogger("flyhostel.data.interactions.neighbors_gpu").setLevel(logging.WARNING)
@@ -33,10 +40,12 @@ def all_id_expected_qc_scene(scene, number_of_animals):
     return result
 
 
-def scene_qc(scene, number_of_animals):
+def scene_qc(scene, number_of_animals, chunksize):
     """
         Arguments:
-            scene (pd.DataFrame): Dataset of animal positions (centroid_x and centroid_y) over time (frame_number) with identity annotation (id) and fragment annotation (fragment)
+            scene (pd.DataFrame): Dataset of animal positions (centroid_x and centroid_y)
+              over time (frame_number) with identity annotation (id)
+              and fragment annotation (fragment)
             number_of_animals (int)
 
         Returns:
@@ -50,14 +59,19 @@ def scene_qc(scene, number_of_animals):
             between_chunks (bool): If true, the scene spans >2 chunks
             broken (int): Whether all animals are found in all frames (0) or not (1)
             length (int): Number of frames making up the scene
-            maintains_id (int): In scene where only 1 fragment is broken (giving 2 fragments), whether the 2 fragments have the same id or not
+            maintains_id (int): In scene where only 1 fragment is broken (giving 2 fragments),
+                whether the 2 fragments have the same identity or not
             n_failed_fragments (int): Number of fragments that dont span the whole scene,
                 which indicates they are broken due to some challenging behavior of the animal 
     """
-
     all_valid_ids=all_id_expected_qc_scene(scene, number_of_animals)
-    min_distance, (focal_id, partner_id)=min_distance_between_animals_qc(scene)
-    gap_n_frames, gap_distance, between_chunks, maintains_id, n_failed_fragments=fragment_gap_qc(scene)
+    min_distance, _=min_distance_between_animals_qc(scene)
+    try:
+        gap_n_frames, gap_distance, between_chunks, maintains_id, n_failed_fragments=fragment_gap_qc(scene, chunksize=chunksize)
+    except Exception as error:
+        logger.error(error)
+        import ipdb; ipdb.set_trace()
+
     scene_length=len(scene["frame_number"].unique())
     # count how many times each id appears
     counts=scene.value_counts("id")
@@ -65,20 +79,44 @@ def scene_qc(scene, number_of_animals):
         # if all available ids appear in all frames
         if (counts==scene_length).all():
             broken=0
-            max_velocity=max_velocity_qc_ideal(scene, number_of_animals)
+            try:
+                max_velocity=max_velocity_qc_ideal(scene, number_of_animals)
+            except ValueError:
+                # this happens because the scene has length 1 and a velocity can therefore not be computed
+                # Solution -> add one more frame to the scene?
+                # For now just set max_velocity to high
+                max_velocity=cp.inf
+
         else:
             broken=1
             max_velocity=max_velocity_qc_not_ideal(scene)
     except Exception as error:
         print(scene)
         raise error
+
+ 
+    qc_pass=gap_n_frames==0 and gap_distance==0 and (between_chunks==0 or all_valid_ids==0)
+
+    # qc.loc[~(
+    #     (qc["gap_n_frames"]==0) & (qc["gap_distance"]==0)
+    # )  & (
+    #     (qc["between_chunks"]==0) | (qc["all_valid_ids"]==0)
+    # )]
+    
+
         
     return {
         "all_valid_ids": all_valid_ids,
-        "min_distance": min_distance, "max_velocity": max_velocity,
-        "gap_n_frames": gap_n_frames, "gap_distance": gap_distance, "maintains_id": maintains_id,
-        "between_chunks": between_chunks, "broken": broken, "length": scene_length,
+        "min_distance": min_distance,
+        "max_velocity": max_velocity,
+        "gap_n_frames": gap_n_frames,
+        "gap_distance": gap_distance,
+        "maintains_id": maintains_id,
+        "between_chunks": between_chunks,
+        "broken": broken,
+        "length": scene_length,
         "n_failed_fragments": n_failed_fragments,
+        "pass": qc_pass,
     }
 
 def min_distance_between_animals_qc(scene):
@@ -87,24 +125,33 @@ def min_distance_between_animals_qc(scene):
     else:
         nx=np
 
+    scene["id_orig"]=scene["id"]
+    scene["id"]=scene["in_frame_index"].copy().astype(str)
     ids=scene["id"].unique().tolist()
-    distance_matrix=compute_distance_between_all_ids(scene, ids)
-    distance, (i, j) = find_closest_pair(distance_matrix, time_axis=2, partner_axis=1)
-    i=i.tolist()
-    j=j.tolist()
-    k=int(nx.argmin(distance))
-    if nx is np:
-        min_distance=distance_matrix[k, i[k], j[k]].item()
-    elif nx is cp:
-        min_distance=distance_matrix[k, i[k], j[k]].get().item()
+    if len(ids)==1:
+        return nx.inf, (0, 0)
+    else:
+        distance_matrix=compute_distance_between_all_ids(scene, ids=ids, step=1)
+        distance, (i, j) = find_closest_pair(distance_matrix, time_axis=2, partner_axis=1)
+        i=i.tolist()
+        j=j.tolist()
+        # NOTE: what is k?
+        k=int(nx.argmin(distance))
+        if nx is np:
+            min_distance=distance_matrix[k, i[k], j[k]].item()
+        elif nx is cp:
+            min_distance=distance_matrix[k, i[k], j[k]].get().item()
 
-    focal_id=ids[k]
+        focal_id=ids[k]
+        other_ids=ids.copy()
+        other_ids.pop(ids.index(focal_id))
+        try:
+            partner_id=other_ids[i[k]]
+        except Exception as error:
+            logger.error(error)
+            import ipdb; ipdb.set_trace()
 
-    other_ids=ids.copy()
-    other_ids.pop(ids.index(focal_id))
-    partner_id=other_ids[i[k]]
-
-    return min_distance, (focal_id, partner_id)
+        return min_distance, (focal_id, partner_id)
 
 def max_velocity_qc_ideal(scene, number_of_animals):
     """
@@ -140,7 +187,7 @@ def max_velocity_qc_not_ideal(scene):
     return max_distance
 
 
-def fragment_gap_qc(scene):
+def fragment_gap_qc(scene, chunksize):
 
     chunks=scene["frame_number"]//chunksize
     number_of_missing_frames=-1
@@ -173,12 +220,21 @@ def fragment_gap_qc(scene):
     
     failed_fragments=sorted([fragments[i] for i in range(len(fragments)) if not fragment_qc[i][0]])
     if len(failed_fragments)==2:
-        last_observed=scene.loc[scene["fragment"]==failed_fragments[0]].iloc[-1]
-        first_observed=scene.loc[scene["fragment"]==failed_fragments[1]].iloc[0]
+        first_fragment, last_fragment = failed_fragments
+        if np.isnan(first_fragment):
+            last_observed=scene.loc[scene["fragment"].isna()].iloc[-1]
+        else:
+            last_observed=scene.loc[scene["fragment"]==first_fragment].iloc[-1]
+
+        if np.isnan(last_fragment):
+            first_observed=scene.loc[scene["fragment"].isna()].iloc[0]
+        else:
+            first_observed=scene.loc[scene["fragment"]==last_fragment].iloc[0]
+
         number_of_missing_frames=int(first_observed["frame_number"]-last_observed["frame_number"])
         gap_distance=(((last_observed[["centroid_x", "centroid_y"]].values-first_observed[["centroid_x", "centroid_y"]].values)**2).sum()**0.5).item()
-        maintains_id=(last_observed["id"]==first_observed["id"]).item()*1
-    
+        maintains_id=int(last_observed["id"]==first_observed["id"])
+
         return number_of_missing_frames, gap_distance, between_chunks,maintains_id, 2
     elif len(failed_fragments) == 1:
         maintains_id=None
@@ -198,7 +254,7 @@ def fragment_gap_qc(scene):
         gap_distance=math.inf
         return number_of_missing_frames, gap_distance, between_chunks,maintains_id, len(failed_fragments)
 
-def run_qc_of_scene(scene, scene_start, manifest, number_of_animals):
+def run_qc_of_scene(scene, scene_start, manifest, number_of_animals, chunksize):
     output_yaml = os.path.join(os.path.dirname(manifest), os.path.splitext(os.path.basename(manifest))[0] + "_qc.yaml")
     logging.getLogger("flyhostel.data.interactions.neighbors_gpu").setLevel(logging.WARNING)
     if os.path.exists(output_yaml):
@@ -206,7 +262,7 @@ def run_qc_of_scene(scene, scene_start, manifest, number_of_animals):
             result=yaml.load(handle, yaml.SafeLoader)
             
     else:
-        result=scene_qc(scene, number_of_animals)
+        result=scene_qc(scene, number_of_animals, chunksize=chunksize)
         result["scene_start"]=scene_start
         with open(output_yaml, "w") as handle:
             yaml.dump(result, handle, yaml.SafeDumper)
@@ -224,31 +280,46 @@ def run_qc_of_scene_batch(kwargs_all):
     return qc
 
 def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
-    tracking_data=pd.read_feather(f"{folder}/{experiment}_tracking_data.feather")
+    """
+    Entrypoint of auto-annotate-qc
     
+    """
+
+    number_of_animals=get_number_of_animals(experiment)
+    chunksize = get_chunksize(experiment)
+
+    tracking_data=load_tracking_data(
+        experiment,
+        folder=folder,
+        min_frame_number=None,
+        max_frame_number=None,
+        n_jobs=1,
+        cache=True
+    )
+
+    tracking_data["id"]=experiment[:26] + "|" + tracking_data["identity"].astype(str).str.zfill(2)
     manifests=sorted(glob.glob(f"{folder}/movies/{experiment}*jsonl"))
     if sample_size is not None:
         manifests=manifests[:sample_size]
 
-    number_of_animals=int(experiment.split("_")[1].rstrip("X"))
-
     kwargs=[]
     manifests_todo=[]
     for manifest in tqdm(manifests):
-        output_yaml = os.path.join(os.path.dirname(manifest), os.path.splitext(os.path.basename(manifest))[0] + "_qc.yaml")
+        key=os.path.join(os.path.dirname(manifest), os.path.splitext(os.path.basename(manifest))[0])
+        output_yaml = key + "_qc.yaml"
         if os.path.exists(output_yaml):
             continue
         
-        scene_start=int(os.path.splitext(manifest)[0].split("_")[-1])
-        chunk=scene_start//chunksize
-        scene_length=len(os.listdir(f"{folder}/movies/{experiment}_{str(chunk).zfill(6)}_{str(scene_start).zfill(10)}"))
+        row=pd.read_csv(key + ".csv")
+        scene_start=int(row["frame_number"])
+        scene_length=int(row["nframes"])
 
         scene=tracking_data.loc[
-            (tracking_data["frame_number"] >= scene_start) & (tracking_data["frame_number"] < scene_start+scene_length),
-            ["local_identity", "frame_number", "x","y", "fragment"]
+            (tracking_data["frame_number"] >= scene_start) & (tracking_data["frame_number"] <= scene_start+scene_length),
+            ["local_identity", "frame_number", "x","y", "in_frame_index", "fragment"]
         ]
-        scene.columns=["id", "frame_number", "centroid_x", "centroid_y", "fragment"]
-        kwargs.append({"scene": scene, "scene_start": scene_start, "manifest": manifest, "number_of_animals": number_of_animals})
+        scene.columns=["id", "frame_number", "centroid_x", "centroid_y", "in_frame_index", "fragment"]
+        kwargs.append({"scene": scene, "scene_start": scene_start, "manifest": manifest, "number_of_animals": number_of_animals, "chunksize": chunksize})
         manifests_todo.append(manifest)
 
     if len(manifests_todo) > 0:

@@ -170,15 +170,19 @@ class MetadataExporter(ABC):
         print(f"Downloading metadata to {path}")
         return 0
     
-    def update_ethoscope_metadata(self, dbfile):
+    def update_ethoscope_metadata(self, dbfile, columns=[]):
         metadata_file=tempfile.NamedTemporaryFile(suffix=".csv", prefix=self._basedir.replace(os.path.sep, "_"))
         self.download_metadata(metadata_file.name)
 
         if os.path.exists(metadata_file.name):
             with open(metadata_file.name, "r", encoding="utf8") as filehandle:
                 ethoscope_metadata_str = filehandle.read()
-            
-            print(pd.read_csv(metadata_file, index_col=0))
+        
+            df=pd.read_csv(metadata_file, index_col=0)
+
+            if columns:
+                df = df[columns]
+            print(df)
         
             with sqlite3.connect(dbfile, check_same_thread=False) as conn:
                 conn.execute(

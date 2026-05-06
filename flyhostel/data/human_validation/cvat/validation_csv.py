@@ -1,0 +1,148 @@
+import logging
+from tqdm.auto import tqdm
+import pandas as pd
+import numpy as np
+logger=logging.getLogger(__name__)
+
+def apply_validation_csv_file(new_data, machine_data, validation_csv, chunksize, replace=None):
+    extra_rows=[]
+    #columns
+    # frame_number  in_frame_index  local_identity  validated  fragment           x           y  modified class_name  chunk
+
+    manual_validation=pd.read_csv(validation_csv, comment="#")
+    if replace is not None:
+        manual_validation=manual_validation.loc[manual_validation["replace"]==replace]
+
+    for _, manual_validation in tqdm(manual_validation.iterrows(), desc="Applying manual validation", total=manual_validation.shape[0]):
+        frame_number=manual_validation["frame_number"]
+        chunk=frame_number//chunksize
+        fragment=manual_validation["fragment"]
+        replace_row=manual_validation["replace"]
+        local_identity=manual_validation["local_identity"]
+
+        if replace_row:
+            if manual_validation.get("by_identity", True):
+                extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["local_identity"]==local_identity))]
+                extra_data["fragment"]=np.nan
+
+            else:
+                if np.isnan(manual_validation.get("first_frame_number", np.nan)):
+                    extra_data=new_data.loc[((new_data["frame_number"]==frame_number)&(new_data["fragment"]==fragment))].copy()
+                    if extra_data.shape[0]==0:
+                        logger.warning("Ignoring line in validation.csv")
+                        logger.warning(manual_validation)
+                       
+                else:
+                    frame_numbers=np.arange(manual_validation["first_frame_number"], manual_validation["last_frame_number"]+1)
+                    if np.isnan(fragment):
+                        extra_data=pd.DataFrame({"frame_number": frame_numbers})
+                        extra_data["fragment"]=np.nan
+                        extra_data["chunk"]=chunk
+                        extra_data["x"]=manual_validation["x"]
+                        extra_data["y"]=manual_validation["y"]
+                        extra_data["local_identity"]=local_identity
+                        extra_data["is_a_crossing"]=False
+                        extra_data["validated"]=1
+                        extra_data["in_frame_index"]=np.nan
+                        extra_data["modified"]=1
+                        extra_data["class_name"]="undefined"  
+                        extra_data["frame_validated"]=False
+                        index=((new_data["frame_number"].isin(frame_numbers))&(new_data["local_identity"]==local_identity))
+                        nrows_removed=index.sum()
+                        print(f"Removing {nrows_removed} rows")
+                        new_data=new_data.loc[~index]
+                        extra_rows.append(extra_data)
+                        continue
+
+                    else:
+                        # Build a clear boolean mask for the rows of interest
+                        is_same_fragment_and_frame = (
+                            new_data["frame_number"].isin(frame_numbers)
+                            & (new_data["fragment"] == fragment)
+                        )
+
+                        # Rows matching the condition
+                        extra_data = new_data.loc[is_same_fragment_and_frame].copy()
+                        # All the other rows
+                        # new_data = new_data.loc[~is_same_fragment_and_frame].copy()
+
+
+            extra_data["class_name"]="undefined"
+            extra_data["in_frame_index"]=np.nan
+            nrows=new_data.shape[0]
+ 
+            foo=new_data.merge(extra_data[[]], left_index=True, right_index=True, how="outer", indicator=True)
+            new_data=foo.loc[foo["_merge"]=="left_only"].drop("_merge", axis=1)
+            new_nrows=new_data.shape[0]
+            # assert nrows-new_nrows==extra_data.shape[0]
+            logger.info("Modified %s rows of dataset", extra_data.shape[0])
+            del foo
+
+            extra_data["local_identity"]=local_identity
+            extra_data["is_a_crossing"]=False
+            extra_data["validated"]=1
+            extra_data["frame_validated"]=False
+            extra_rows.append(extra_data)
+
+        # dont replace_row
+        else:
+            extra_data=machine_data.loc[(machine_data["chunk"]==chunk)]
+            if np.isnan(manual_validation.get("first_frame_number", np.nan)):
+                frame_numbers=[frame_number]
+            else:
+                frame_numbers=np.arange(manual_validation["first_frame_number"], manual_validation["last_frame_number"]+1)
+            
+            for frame_number in frame_numbers:
+                
+                if extra_rows:
+                    extra_data_temp=pd.concat(extra_rows, axis=0).reset_index(drop=True)
+                else:
+                    extra_data_temp=None
+
+                if np.isnan(fragment):
+                    frame_ref_data=extra_data.loc[extra_data["frame_number"]==frame_number]
+                    chunk_ref_data=extra_data.loc[extra_data["frame_number"]//chunksize==frame_number//chunksize]
+                    if extra_data_temp is not None:
+                        extra_data_temp_ref=extra_data_temp.loc[extra_data_temp["frame_number"]//chunksize==frame_number//chunksize]
+                    else:
+                        extra_data_temp_ref=None
+
+                    max_fragment=chunk_ref_data["fragment"].max()
+                    max_in_frame_index=frame_ref_data["in_frame_index"].max()
+                    if extra_data_temp_ref is not None and extra_data_temp_ref.shape[0]>0:
+                        max_fragment=max(max_fragment, extra_data_temp_ref["fragment"].max())
+                        max_in_frame_index=max(max_in_frame_index, extra_data_temp_ref.loc[extra_data_temp_ref["frame_number"]==frame_number]["in_frame_index"].max())
+
+                    extra_data=pd.DataFrame({
+                        "frame_number": [frame_number],
+                        "in_frame_index": [max_in_frame_index+1],
+                        "fragment": [max_fragment+1],
+                        "modified": [1],
+                        "class_name": ["undefined"],
+                        "chunk": [chunk]
+                    })
+                else:
+                    extra_data=extra_data.loc[(extra_data["fragment"]==fragment)]
+
+                extra_data["x"]=manual_validation["x"]
+                extra_data["y"]=manual_validation["y"]
+
+                extra_data["local_identity"]=local_identity
+                extra_data["is_a_crossing"]=False
+                extra_data["validated"]=1
+                extra_data["frame_validated"]=False
+                extra_rows.append(extra_data)
+
+
+    new_data.reset_index(drop=True, inplace=True)
+    
+    if extra_rows:
+        extra_data=pd.concat(extra_rows, axis=0).reset_index(drop=True)
+        new_data=pd.concat([
+            extra_data[new_data.columns],
+            new_data,
+        ], axis=0).reset_index(drop=True).sort_values(["frame_number", "validated", "local_identity"], ascending=[True, False, True])
+
+    new_data=new_data.loc[~((new_data["local_identity"].isna()) & (new_data["validated"]>0))]
+
+    return new_data

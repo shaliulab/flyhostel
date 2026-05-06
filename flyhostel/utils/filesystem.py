@@ -1,8 +1,9 @@
 from abc import ABC
+import sqlite3
 import glob
 import os.path
 import logging
-
+from flyhostel.utils import get_dbfile
 logger=logging.getLogger(__name__)
 
 class FilesystemInterface(ABC):
@@ -13,9 +14,25 @@ class FilesystemInterface(ABC):
 
 
     def load_dbfile(self):
-        dbfiles=glob.glob(self.basedir + "/FlyHostel*.db")
-        assert len(dbfiles) == 1, f"{len(dbfiles)} dbfiles found in {self.basedir}: {' '.join(dbfiles)}"
-        return dbfiles[0]
+        dbfile=get_dbfile(self.basedir)
+        self.assert_file_integrity(dbfile)
+
+        return dbfile
+    
+
+    @staticmethod
+    def assert_file_integrity(dbfile):
+
+        try: 
+            with sqlite3.connect(dbfile) as connection:
+                cursor=connection.cursor()
+                cursor.execute("SELECT * FROM METADATA;")
+                cursor.fetchall()
+            
+        except sqlite3.DatabaseError as error:
+            logger.error("Cant read %s", dbfile)
+            raise error
+
 
 
     def load_datasetnames(self):

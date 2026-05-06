@@ -1,3 +1,6 @@
+import pickle
+import os
+import subprocess
 import queue
 import tempfile
 import shutil
@@ -15,15 +18,36 @@ from tqdm.auto import tqdm
 import multiprocessing
 
 logger=logging.getLogger(__name__)
-from flyhostel.utils import get_dbfile
-from flyhostel.data.pose.constants import chunksize as CHUNKSIZE
+from flyhostel.utils import (
+    get_chunksize,
+    get_framerate,
+    get_dbfile,
+    get_local_identity,
+    get_single_animal_video,
+    get_local_identities,
+)
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
-from flyhostel.data.pose.constants import framerate as FRAMERATE
 from ethoscopy.flyhostel import load_centroids
 sleap_integration=logging.getLogger("sleap_integration")
 
-import os
-import subprocess
+
+import os.path
+import glob
+from pathlib import Path
+from typing import Dict, Iterable, Union, Optional
+
+# SuggestionFrame exists in many 1.3.x builds; if not, we’ll just skip suggestions.
+try:
+    from sleap.io.dataset import Labels, LabeledFrame
+    from sleap.instance import Instance, PredictedInstance, Point
+    from sleap.io.video import Video
+
+    from sleap.gui.suggestions import SuggestionFrame  # type: ignore
+except Exception:
+    SuggestionFrame = None
+
+
+
 
 def concatenate_videos(video_list, output_path):
     # Create a temporary text file to list the videos
@@ -82,6 +106,7 @@ def annotate_data(input_video_path, output_video_path, df, column="text"):
     input_video_path (str): Path to existing video
     output_video_path (str): Path to new video with annotation
     df (pd.DataFrame): One row per frame in the input video, with a column that contains what should be annotated
+    column (str): Name of the column with the annotation. "text' by default
     """
 
     # Capture the input video
@@ -146,19 +171,129 @@ def annotate_data(input_video_path, output_video_path, df, column="text"):
 
 
 
+def load_pose_dataset(
+        basedir, identities, frame_number, seconds,
+        single_animal=False, pose_name="raw", bodyparts=BODYPARTS, downsample=1
+    ):
+
+    experiment="_".join(basedir.split('/')[-3:])
+    number_of_animals=int(experiment.split("_")[1].replace("X",""))
+    framerate=get_framerate(experiment)
+    chunksize=get_chunksize(experiment)
+    frame_number1=int(frame_number+seconds*framerate)
+    chunk=frame_number//chunksize
+
+    dbfile=get_dbfile(basedir)
+    datasets=[]
+    table = get_local_identities(dbfile, frame_numbers=[frame_number])
+    for identity in identities:
+        if number_of_animals==1:
+            local_identity=0
+        else:
+            local_identity=get_local_identity(dbfile, chunk, identity)
+        if single_animal:
+            video_file=get_single_animal_video(basedir, frame_number, table, identity, chunksize)
+            # video_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.mp4"
+        else:
+            video_file=f"{basedir}/{str(chunk).zfill(6)}.mp4"
+
+        animal=f"{experiment}__{str(identity).zfill(2)}"
+        
+        #csv_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.csv"
+        #if os.path.exists(csv_file):
+        #    centroids=pd.read_csv(csv_file)[["frame_number", "x", "y"]]
+        #else:
+        #logger.debug("%s not found", csv_file)
+        min_frame_number=chunk*chunksize
+        max_frame_number=(chunk+1)*chunksize                
+        centroids=load_centroids(dbfile, identity, min_frame_number, max_frame_number, roi_0_table="ROI_0_VAL", identity_table="IDENTITY_VAL")
+
+        first_video=sorted(glob.glob(f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/*mp4"))[0]
+        first_fn=int(os.path.splitext(os.path.basename(first_video))[0])*chunksize
+        f0=frame_number-first_fn
+        f1=frame_number1-first_fn
+        
+        analysis_file=f"{basedir}/motionmapper/{str(identity).zfill(2)}/pose_{pose_name}/{animal}/{animal}.h5"
+        with h5py.File(analysis_file, "r", locking=True) as f:
+            pose=f["tracks"][0, :, :, f0:f1]
+            bodyparts_available=[e.decode() for e in f["node_names"]]
+            n_dims=pose.shape[0]
+        
+        bodyparts=list(set(bodyparts).intersection(set(bodyparts_available)))
+        keep_bps=[i for i, bp in enumerate(bodyparts_available) if bp in bodyparts]
+        pose=pose[:, keep_bps, ...]
+
+        dimensions=["x","y","z"][:n_dims]
+        features_by_dimension={
+            d: [bp + "_" + d for bp in bodyparts]
+            for d in dimensions
+        }
+        bodyparts_nd=list(itertools.chain(*[[features_by_dimension[d][i] for d in dimensions] for i in range(len(bodyparts))]))
+        pose_df=pd.DataFrame(pose.T.reshape((f1-f0, -1)))
+        pose_df.columns=bodyparts_nd
+        pose_df["frame_number"]=np.arange(frame_number, frame_number1)
+        pose_df["frame_idx"]=pose_df["frame_number"]%chunksize
+        pose_df["identity"]=identity
+        index=pose_df[["frame_number"]].copy()
+        index["video"]=video_file
+        index["identity"]=identity
+        pose_df=pose_df.loc[pose_df["frame_number"]%downsample==0]
+        pose_df=pose_df.merge(centroids, how="left", on="frame_number")
+        
+        for d in dimensions:
+            assert pose_df[d].isna().mean()==0, f"Missing data for {d} coordinate of identity {identity}"
+            if not single_animal:
+                for feature in features_by_dimension[d]:
+                    pose_df[feature]+=pose_df[d]-50
+
+        datasets.append((pose_df, index))
+    
+    dataset=pd.concat([pose_df for pose_df, _ in datasets], axis=0)
+    index=pd.concat([index for _, index in datasets], axis=0)
+
+    return dataset, index
+
 try:
     from sleap.io.dataset import Labels
     from sleap.io.video import Video
     from sleap.instance import LabeledFrame, Instance, PredictedInstance, Track
     from sleap.io.visuals import resize_images, VideoMarkerThread
     from sleap.io.visuals import save_labeled_video
+    from sleap.gui.color import ColorManager
     cwd=os.getcwd()
     ref_labels_file="/Users/FlySleepLab_Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/labels_train.slp"
     os.chdir(os.path.dirname(ref_labels_file))
     skeleton=Labels.load_file(ref_labels_file).skeleton
     os.chdir(cwd)
 
-    
+
+    def get_color_manager(identities, colors):
+        """
+        Assign to the ith identity the ith color
+
+        Arguments:
+        --------------
+            * identities (list): List of integers which refer to an identity
+            * colors (list): List of 3-long tuples with the RGB code for the color of an identity
+        """
+        assert len(identities)==len(colors)
+        temp_file="~/sleap.png"
+        video=Video.from_filename(temp_file)
+        lf=LabeledFrame(video=video, frame_idx=0)
+       
+        tracks_l=[
+            Track(name=f"Track-{ident}")
+            for ident in identities
+        ]
+        tracks_d={identities[i]: tracks_l[i] for i in range(len(tracks_l))}
+        
+        labels=Labels(tracks=tracks_l, labeled_frames=[lf])
+        color_manager=ColorManager(labels=labels)
+        #RGB
+        color_manager._color_map=colors
+        return color_manager, tracks_d
+        
+
     def numpy(instance, bodyparts):
         
         """
@@ -213,8 +348,10 @@ try:
                 if instance_series_identity.shape[0]==0:
                     logger.warning("No data found for identity %s in frame %s", identity, frame_number)
                     continue
-                base_instance_numpy=numpy(instance_series_identity, bodyparts=[node.name for node in skeleton.nodes])
 
+                columns=set([bp.replace("_x", "").replace("_y", "") for bp in instance_series_identity.columns])
+                bodyparts=list(set([node.name for node in skeleton.nodes]).intersection(columns))
+                base_instance_numpy=numpy(instance_series_identity, bodyparts=bodyparts)
 
                 if predictions:
                     PredictedInstance.from_numpy( 
@@ -237,7 +374,7 @@ try:
         return labeled_frames
 
 
-    def draw_frame(pose, index, identity, frame_number, chunksize=CHUNKSIZE, pb=True, tracks=None):
+    def draw_frame(pose, index, identity, frame_number, chunksize, pb=True, tracks=None):
         """
         Just draw one frame, to be called by the user
         """
@@ -270,7 +407,7 @@ try:
         return imgs[0]
 
 
-    def draw_video(pose, index, identities, frame_numbers, chunksize=CHUNKSIZE, output_filename=None, pb=True, tracks=None, **kwargs):
+    def draw_video(pose, index, identities, frame_numbers, chunksize, output_filename=None, pb=True, tracks=None, **kwargs):
         """
         pose (pd.DataFrame): coordinates of body parts relative to the top left corner of a square around the fly.
             Needs to contain columns bp_x and bp_y for each bodypart, id (str), identity (int), frame_number.
@@ -321,7 +458,10 @@ try:
         )
 
 
-    def draw_video_row(loader, identity, i, row, output, chunksize=45000, fps=15):
+    def draw_video_row(loader, identity, i, row, output, chunksize, fps=15):
+        """
+        Draw the pose of the fly in a video
+        """
         index=loader.index_pandas[identity-1]
         os.makedirs(output, exist_ok=True)
 
@@ -355,93 +495,38 @@ try:
                 print(error)
 
 
-    def get_local_identity(dbfile, chunk, identity):
-        table_name="CONCATENATION_VAL"
-
-        with sqlite3.connect(dbfile) as conn:
-            cursor=conn.cursor()
-            cmd=f"SELECT local_identity FROM {table_name} WHERE identity = {identity} AND chunk = {chunk};"
-            print(cmd)
-            cursor.execute(cmd)
-            local_identity=int(cursor.fetchone()[0])
-            return local_identity
-            
     def make_pose_video_multi_fly(
-            basedir, identities, frame_number, seconds, bodyparts, downsample, pose_name="raw", fps=None, prefix=None, palette="custom",
-            data=None, single_animal=False, output_folder=".", extension=".mp4", **kwargs,
+            basedir, identities, frame_number, seconds, bodyparts, downsample,
+            pose_name="raw", fps=None, prefix=None,
+            colors=None, palette="custom",
+            data=None, single_animal=False,
+            scale=4,
+            output_folder=".", extension=".mp4", **kwargs,
         ):
         """
         Draw pose of an animal in the original video using a single job
         Please see NOTE in make_pose_video_multi_fly_mp if you update the signature 
         
         """
-       
-        frame_number1=int(frame_number+seconds*FRAMERATE)
-        chunk=frame_number//CHUNKSIZE
+        if colors is not None:
+            color_manager, tracks=get_color_manager(identities, colors)
+        else:
+            color_manager=None
+            tracks=None
+
+        dataset, index=load_pose_dataset(
+            basedir, identities, frame_number, seconds,
+            pose_name=pose_name, bodyparts=bodyparts, single_animal=single_animal,
+            downsample=downsample
+        )
+
         experiment="_".join(basedir.split('/')[-3:])
-        number_of_animals=int(experiment.split("_")[1].replace("X",""))
 
-        dbfile=get_dbfile(basedir)
-        datasets=[]
-        for identity in identities:
-            if number_of_animals==1:
-                local_identity=0
-            else:
-                local_identity=get_local_identity(dbfile, chunk, identity)
-            if single_animal:
-                video_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.mp4"
-            else:
-                video_file=f"{basedir}/{str(chunk).zfill(6)}.mp4"
+        chunksize=get_chunksize(experiment)
+        framerate=get_framerate(experiment)
 
-            animal=f"{experiment}__{str(identity).zfill(2)}"
-            
-            #csv_file=f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/{str(chunk).zfill(6)}.csv"
-            #if os.path.exists(csv_file):
-            #    centroids=pd.read_csv(csv_file)[["frame_number", "x", "y"]]
-            #else:
-            #logger.debug("%s not found", csv_file)
-            min_frame_number=chunk*CHUNKSIZE
-            max_frame_number=(chunk+1)*CHUNKSIZE                
-            centroids=load_centroids(dbfile, identity, min_frame_number, max_frame_number, roi_0_table="ROI_0_VAL", identity_table="IDENTITY_VAL")
+        chunk=frame_number//chunksize
 
-            first_video=sorted(glob.glob(f"{basedir}/flyhostel/single_animal/{str(local_identity).zfill(3)}/*mp4"))[0]
-            first_fn=int(os.path.splitext(os.path.basename(first_video))[0])*CHUNKSIZE
-            f0=frame_number-first_fn
-            f1=frame_number1-first_fn
-            
-            analysis_file=f"{basedir}/motionmapper/{str(identity).zfill(2)}/pose_{pose_name}/{animal}/{animal}.h5"
-            with h5py.File(analysis_file, "r", locking=True) as f:
-                pose=f["tracks"][0, :, :, f0:f1]
-                bodyparts=[e.decode() for e in f["node_names"]]
-                n_dims=pose.shape[0]
-
-            dimensions=["x","y","z"][:n_dims]
-            features_by_dimension={
-                d: [bp + "_" + d for bp in bodyparts]
-                for d in dimensions
-            }
-            bodyparts_nd=list(itertools.chain(*[[features_by_dimension[d][i] for d in dimensions] for i in range(len(bodyparts))]))
-            pose_df=pd.DataFrame(pose.T.reshape((f1-f0, -1)))
-            pose_df.columns=bodyparts_nd
-            pose_df["frame_number"]=np.arange(frame_number, frame_number1)
-            pose_df["frame_idx"]=pose_df["frame_number"]%CHUNKSIZE
-            pose_df["identity"]=identity
-            index=pose_df[["frame_number"]].copy()
-            index["video"]=video_file
-            index["identity"]=identity
-            pose_df=pose_df.loc[pose_df["frame_number"]%downsample==0]
-            pose_df=pose_df.merge(centroids, how="left", on="frame_number")
-            
-            for d in dimensions:
-                assert pose_df[d].isna().mean()==0, f"Missing data for {d} coordinate of identity {identity}"
-                if not single_animal:
-                    for feature in features_by_dimension[d]:
-                        pose_df[feature]+=pose_df[d]-50
-
-            datasets.append((pose_df, index))
-        
-        dataset=pd.concat([pose_df for pose_df, _ in datasets], axis=0)
-        index=pd.concat([index for _, index in datasets], axis=0)
         if prefix is None:
             prefix=""
         elif not prefix.endswith("_"):
@@ -452,14 +537,14 @@ try:
             output_folder=tempfile.TemporaryDirectory().name
             print(f"Saving video to {output_folder}")
 
-        
+
         if len(identities)==1:
             output_filename=os.path.join(output_folder, f"{prefix}{experiment}__{identities[0]}__{str(chunk).zfill(6)}_{frame_number}{extension}")
         else:
             output_filename=os.path.join(output_folder, f"{prefix}{experiment}__{str(chunk).zfill(6)}_{frame_number}{extension}")
 
         if fps is None:
-            fps=max(int(FRAMERATE/downsample/3), 1)
+            fps=max(int(framerate/downsample/3), 1)
 
         frame_numbers=np.array(sorted(np.unique(dataset["frame_number"].values)))
         draw_video(
@@ -470,8 +555,10 @@ try:
             fps=fps,
             marker_size=.6,
             distinctly_color="instances",
-            scale=4,
-            **kwargs,
+            scale=scale,
+            color_manager=color_manager,
+            tracks=tracks,
+            **kwargs
         )
 
 
@@ -497,14 +584,14 @@ try:
         return make_pose_video_multi_fly(basedir, identities, fn0, block_seconds, *args, **kwargs)
 
 
-    def make_pose_video_multi_fly_mp(basedir, identities, frame_number, seconds, n_jobs=1, block_seconds=1, data=None, output_folder=".", **kwargs):
+    def make_pose_video_multi_fly_mp(basedir, identities, frame_number, seconds, framerate=None, n_jobs=1, block_seconds=1, data=None, output_folder=".", **kwargs):
         """
         Generate a video showing the pose predicted by the flyhostel pipeline
         """
+
+        assert framerate is not None
         block_starts=[frame_number]
-        block_frames=block_seconds*FRAMERATE
-        
-        
+        block_frames=block_seconds*framerate
         os.makedirs(output_folder, exist_ok=True)
         
 
@@ -582,3 +669,189 @@ except Exception as error:
     draw_video_row=None
     make_pose_video_multi_fly=None
 
+
+
+def _load_skeleton_from_labels(labels_path: Union[str, Path], skeleton_name: Optional[str] = None):
+    """Load a Skeleton (or the first available) from a SLEAP labels file."""
+    labels_src = Labels.load_file(str(labels_path))
+
+    # 1. Try plural API (common).
+    skels = getattr(labels_src, "skeletons", None)
+    if skels is None or len(skels) == 0:
+        # 2. Fallback to single skeleton attribute (older projects sometimes had this).
+        skl = getattr(labels_src, "skeleton", None)
+        skels = [skl] if skl is not None else []
+
+    if not skels:
+        raise ValueError(f"No skeletons found in {labels_path!s}.")
+
+    if skeleton_name is None:
+        return skels[0]
+
+    for s in skels:
+        if getattr(s, "name", None) == skeleton_name:
+            return s
+    raise ValueError(f"Skeleton named {skeleton_name!r} not found in {labels_path!s}.")
+
+
+
+def match_skeleton(instance, skeletons):
+    for i, skeleton in enumerate(skeletons):
+        if instance.skeleton.matches(skeleton):
+            instance.skeleton=skeleton
+            instance._nodes=skeleton.nodes
+            # print(f"Matching skeleton {i}")
+            break
+    
+    return instance
+
+def match_skeleton_all(lf, skeletons, check=True):
+    for instance in lf.instances:
+        instance=match_skeleton(instance, skeletons)
+        if check:
+            assert instance.skeleton in skeletons
+    
+    return lf
+
+import time
+def make_slp_with_frames_for_labeling(
+    video_to_frames: Dict[Union[str, Path], Iterable[int]],
+    out_path: Union[str, Path],
+    *,
+    strict: bool = False,                  # raise on OOB frames if True
+    skeleton_from: Optional[Union[str, Path]] = None,  # path to .slp/.pkg.slp (recommended)
+    skeleton_name: Optional[str] = None,   # pick a skeleton by name, else first one,
+    ref_labels: Optional = None,
+    save_suggestions: bool = False,
+) -> Path:
+    """
+    Create a SLEAP 1.3.3 .slp that:
+      - links videos,
+      - seeds empty LabeledFrames at requested indices,
+      - populates Suggested frames (when SuggestionFrame is available),
+      - copies a Skeleton from an existing labels file (training project/package).
+    """
+    out_path = Path(out_path)
+
+    # 1) Videos
+    videos: list[Video] = []
+    vmap: dict[Path, Video] = {}
+    for vpath in video_to_frames.keys():
+        p = Path(vpath)
+        if ref_labels is None:
+            vid = Video.from_filename(str(p))
+            all_skeletons=[]
+        elif isinstance(ref_labels, Labels):
+            vid = [video for video in ref_labels.videos if video.backend.filename == p]
+            all_skeletons=ref_labels.skeletons
+            # all_skeletons=ref_labels.skeletons
+        elif isinstance(ref_labels, dict):
+            vid = ref_labels[str(p)].videos[0]
+            all_skeletons=list(itertools.chain(*[label.skeletons for label in ref_labels.values()]))
+            all_skeletons_unique=all_skeletons[:1]
+            for skeleton in all_skeletons[1:]:
+                matches=0
+                for skel in all_skeletons_unique:
+                    if skel.matches(skeleton):
+                        matches=1
+                if matches==0:
+                    all_skeletons_unique.append(skeleton)
+            all_skeletons=all_skeletons_unique
+            del all_skeletons_unique
+
+        else:
+            raise ValueError("Invalid ref_labels")
+
+
+        videos.append(vid)
+        vmap[p.resolve()] = vid
+
+    # 2) Labels container
+    labels = Labels(skeletons=all_skeletons)
+    labels.videos = videos
+    labels.labeled_frames = []
+
+    # 3) (Optional) import skeleton from an existing labels file (recommended: the training .pkg.slp)
+    if skeleton_from is not None:
+        skel = _load_skeleton_from_labels(skeleton_from, skeleton_name=skeleton_name)
+        # Attach in a 1.3.3-friendly way
+        labels.skeletons = [skel]
+        # Some builds also keep a convenience 'skeleton' attribute:
+        try:
+            labels.skeleton = skel  # harmless if absent
+        except Exception:
+            pass
+
+    # 4) Suggestions list (if available)
+    suggestions = [] if SuggestionFrame is not None and save_suggestions else None
+
+    # 5) Seed frames
+    latencies=[]
+    for vpath, frames in tqdm(video_to_frames.items(), desc="Crossing query with cache"):
+        p = Path(vpath).resolve()
+        vid = vmap[p]
+
+        n_total = vid.shape[0] if vid.shape is not None else None
+        unique_frames = sorted(set(int(f) for f in frames))
+
+        for f in unique_frames:
+            if f < 0 or (n_total is not None and f >= n_total):
+                msg = f"[WARN] Skipping out-of-range frame {f} for {p} (total={n_total})."
+                if strict:
+                    raise ValueError(msg)
+                else:
+                    print(msg)
+                    continue
+
+            # Empty LabeledFrame ready for labeling
+            if ref_labels is None:
+                lf=LabeledFrame(video=vid, frame_idx=f, instances=[])
+            elif isinstance(ref_labels, Labels):
+                lf=ref_labels.get(vid, f)
+                lf=match_skeleton_all(lf, labels.skeletons)
+
+
+            elif isinstance(ref_labels, dict):
+                before=time.time()
+                lf=ref_labels[str(p)].get(vid, f)
+                after=time.time()
+                lf=match_skeleton_all(lf, labels.skeletons)
+                latencies.append(after-before)
+                if len(latencies)==100:
+                    # print(f"Average latency: {np.mean(latencies)}")
+                    latencies=[]
+
+            else:
+                raise ValueError("Invalid ref_labels")
+
+            labels.labeled_frames.append(lf)
+
+            # Suggested tab entry (if supported in your 1.3.3 build)
+            if suggestions is not None:
+                suggestions.append(SuggestionFrame(video=vid, frame_idx=f))
+
+    if suggestions is not None:
+        labels.suggestions = suggestions
+
+    for video in tqdm(labels.videos, desc="Resolving video paths"):
+        resolved_path = [
+            path for path in video_to_frames.keys()
+            if path.endswith(video.backend.filename)
+        ]
+        if len(resolved_path)!=1:
+            raise ValueError(
+                f"""{video.backend.filename} could not be resolved
+                """
+            )
+        else:
+            resolved_path=resolved_path[0]
+        video.backend.filename = resolved_path
+
+    try:
+        # 6) Save (links only)
+        labels.save(str(out_path))
+        print(f"Saving to --> {str(out_path)}")
+        return out_path
+    except RuntimeError as error:
+        print(error)
+        print(f"Could not save {str(out_path)}")
