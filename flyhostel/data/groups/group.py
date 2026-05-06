@@ -23,9 +23,7 @@ from flyhostel.utils.utils import (
 )
 
 from flyhostel.data.human_validation.cvat.cvat_integration import (
-    get_tasks_for_project,
-    get_project_id_from_name,
-    download_task_annotations_to_zip
+    download_annotations_from_cvat
 )
 
 logger=logging.getLogger(__name__)
@@ -34,6 +32,7 @@ time_counter=logging.getLogger("time_counter")
 # flag to optionally create a cache.pkl file
 # which contains the result of load_centroid_data
 DEBUG=False
+
 
 class FlyHostelGroup(InteractionDetector):
 
@@ -317,6 +316,12 @@ class FlyHostelGroup(InteractionDetector):
     
 
     def backup(self, path, chunks=None, dry_run=False, debug=False):
+        """
+        
+        Arguments:
+            path (str): Path where the FlyHostelX/XX/YYYY-MM_DD_HH-MM-SS/ will be recreated
+            
+        """
 
         assert self.group_is_real and self.group_is_complete
         subpath=dunder_to_slash(self.experiment)
@@ -404,9 +409,4 @@ class FlyHostelGroup(InteractionDetector):
 
 
     def download_annotations_from_cvat(self, path):
-        tasks=sorted(get_tasks_for_project(get_project_id_from_name(self.experiment, errors="raise")))
-        zip_files=[]
-
-        for task in tqdm(tasks, desc="Downloading CVAT annotations to .zip"):
-            zip_files.append(download_task_annotations_to_zip(task, path = path, redownload=True))
-        return zip_files
+        return download_annotations_from_cvat(self.experiment, path)
