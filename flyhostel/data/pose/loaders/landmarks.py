@@ -13,30 +13,37 @@ class LandmarksLoader:
     basedir=None
     dt=None
     landmarks=None
+    landmarks_all=None
+    
 
-    def load_landmarks(self):
+    def load_landmarks(self, errors="ignore"):
         dbfile=get_dbfile(self.basedir)
         with sqlite3.connect(dbfile) as conn:
             self.landmarks=pd.read_sql(sql="SELECT * FROM LANDMARKS;", con=conn)
             roi_map=pd.read_sql(sql="SELECT * FROM ROI_MAP;", con=conn)
 
         roi_size=max(roi_map["w"].item(), roi_map["h"].item())
-        landmarks_norm=[]
-        for _, landmark in self.landmarks.iterrows():
+        index=[]
+        specification=[]
+        for idx, landmark in self.landmarks.iterrows():
             if landmark["shape"]=="food":
                 landmark_norm=self.normalize_food_landmark(landmark.copy(), roi_size=roi_size)
-            
+                specification.append(landmark_norm["specification"])
+                index.append(idx)
+
             elif landmark["shape"]=="notch":
                 landmark_norm=self.normalize_notch_landmark(landmark.copy(), roi_size=roi_size)
-            
-            else:
+                specification.append(landmark_norm["specification"])
+                index.append(idx)
+ 
+            elif errors=="raise":
                 raise ValueError(f"Landmark {landmark['shape']} not supported")
-                
+            elif errors=="ignore":
+                logger.warning("Landmark %s not supported", landmark['shape'])
             
-            landmarks_norm.append(landmark_norm)
-
-        landmarks_norm=pd.concat(landmarks_norm, axis=0)
-        self.landmarks["specification_norm"]=landmarks_norm["specification"].values
+        self.landmarks_all=self.landmarks.copy()
+        self.landmarks=self.landmarks.loc[index]
+        self.landmarks["specification_norm"]=specification
 
     @property
     def number_of_food_blobs(self):
