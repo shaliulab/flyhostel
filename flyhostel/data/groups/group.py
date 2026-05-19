@@ -23,7 +23,8 @@ from flyhostel.utils.utils import (
 )
 
 from flyhostel.data.human_validation.cvat.cvat_integration import (
-    download_annotations_from_cvat
+    download_annotations_from_cvat,
+    experiment_is_validated,
 )
 
 logger=logging.getLogger(__name__)
@@ -355,7 +356,7 @@ class FlyHostelGroup(InteractionDetector):
 
         validation_folder=os.path.join(self.basedir, ".", "flyhostel", "validation")
         
-        if not os.path.exists(validation_folder) and self.number_of_animals > 1:
+        if not os.path.exists(validation_folder) and experiment_is_validated(self.experiment):
             print(f"mkdir {validation_folder}")
             os.makedirs(validation_folder)
 
@@ -364,7 +365,7 @@ class FlyHostelGroup(InteractionDetector):
             files=[metadata_file]
         else:
             validation_files=[]
-            if self.number_of_animals > 1:
+            if experiment_is_validated(self.experiment):
                 try:
                     validation_files=self.download_annotations_from_cvat(validation_folder)
                 except Exception as error:
@@ -376,9 +377,18 @@ class FlyHostelGroup(InteractionDetector):
             validation_csvs=[
                 # specifies local_identity of each blob
                 os.path.join(validation_folder, "validation.csv"),
+
+                
                 # if the identity breaks because an overlap between flies in different chunks
                 # is not possible because the chunk has a lag too high (some recording glitch)
                 # specifies which two local_identity in consecutive chunks are the same fly
+                # Format:
+                # chunk,local_identity,local_identity_after
+                # 83,3,1
+                # 83,1,2
+                # 83,2,3
+                # 85,1,2
+                # 85,2,3
                 os.path.join(validation_folder, "validation_lags.csv"),
             ]
             for file in validation_csvs:

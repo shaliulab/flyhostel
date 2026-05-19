@@ -5,6 +5,9 @@ import sqlite3
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.pose.loaders.concatenation import load_concatenation_table
 from flyhostel.utils import get_number_of_animals
+from flyhostel.data.human_validation.cvat.cvat_integration import (
+    experiment_is_validated,
+)
 
 def get_parser():
 
@@ -43,10 +46,10 @@ def main():
     metadata=loader.get_simple_metadata().iloc[0]
 
     if concatenation_table_name is None:
-        if metadata["number_of_animals"]==1:
-            concatenation_table_name="CONCATENATION"
-        else:
+        if experiment_is_validated(experiment):
             concatenation_table_name="CONCATENATION_VAL"
+        else:
+            concatenation_table_name="CONCATENATION"
 
     with sqlite3.connect(f'file:{flyhostel_db}?mode=ro', uri=True) as conn:
         cur=conn.cursor()

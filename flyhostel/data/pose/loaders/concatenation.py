@@ -5,7 +5,9 @@ import os.path
 import sqlite3
 import numpy as np
 import pandas as pd
-
+from flyhostel.data.human_validation.cvat.cvat_integration import (
+    experiment_is_validated,
+)
 from flyhostel.utils import get_dbfile
 logger=logging.getLogger(__name__)
 
@@ -50,14 +52,15 @@ class ConcatenationLoader(ABC):
     
     basedir=None
     number_of_animals=None
+    experiment=None
     identity=None
 
     def load_concatenation_table(self):
 
-        if self.number_of_animals==1:
-            conc_tab="CONCATENATION"
-        else:
+        if experiment_is_validated(self.experiment):
             conc_tab="CONCATENATION_VAL"
+        else:
+            conc_tab="CONCATENATION"
         
         dbfile = get_dbfile(self.basedir)
         table=None

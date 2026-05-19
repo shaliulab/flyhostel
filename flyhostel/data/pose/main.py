@@ -53,7 +53,9 @@ from flyhostel.utils import (
     load_meta_info,
     load_metadata,
 )
-
+from flyhostel.data.human_validation.cvat.cvat_integration import (
+    experiment_is_validated,
+)
 
 
 # keep only interactions where the distance between animals is max mm_max mm
@@ -197,22 +199,23 @@ class FlyHostelLoader(
         self.number_of_animals=int(self.metadata["number_of_animals"].iloc[0])
 
         if identity_table is None:
-            if self.number_of_animals==1:
-                self.identity_table="IDENTITY"
-            else:
-                self.identity_table="IDENTITY_VAL"
+            self.identity_table="IDENTITY"
+            if self.is_validated:
+                self.identity_table+="_VAL"
         else:
             self.identity_table=identity_table
 
         if roi_0_table is None:
-            if self.number_of_animals==1:
-                self.roi_0_table="ROI_0"
-            else:
-                self.roi_0_table="ROI_0_VAL"
+            self.roi_0_table="ROI_0"
+            if self.is_validated:
+                self.roi_0_table+="_VAL"
         else:
             self.roi_0_table=roi_0_table
 
 
+    @property
+    def is_validated(self):
+        return experiment_is_validated(self.experiment)
 
 
     def __repr__(self):

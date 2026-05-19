@@ -11,8 +11,12 @@ from flyhostel.utils import (
 from flyhostel.data.human_validation.set_0_identity import set_0_identity_to_negative
 from flyhostel.utils.utils import (
     get_first_frame,
-    get_last_frame
-) 
+    get_last_frame,
+    get_experiment_identifier
+)
+from flyhostel.data.human_validation.cvat.cvat_integration import (
+    experiment_is_validated,
+)
 
 logger=logging.getLogger()
 TRACKING_FIELDS=["modified", "fragment", "x", "y"]
@@ -34,11 +38,10 @@ def check_if_validated(dbfile):
         else:
             return ""
 
-def get_identity(number_of_animals, dbfile, local_identity, chunk):
-    if number_of_animals==1:
-        identity="0"
-        validated=True
-    else:
+def get_identity(dbfile, local_identity, chunk):
+    experiment=get_experiment_identifier(os.path.dirname(dbfile))
+
+    if experiment_is_validated(experiment):
         if "_VAL" == check_if_validated(dbfile):
             validated=True
             concatenation_table="CONCATENATION_VAL"
@@ -49,6 +52,10 @@ def get_identity(number_of_animals, dbfile, local_identity, chunk):
         with sqlite3.connect(dbfile) as conn:
             sql=f"SELECT identity FROM {concatenation_table} WHERE chunk = {chunk} AND local_identity = {local_identity};"
             identity=str(pd.read_sql(con=conn, sql=sql).iloc[0].item())
+    else:
+        identity="0"
+        validated=True
+
     return identity, validated
 
 

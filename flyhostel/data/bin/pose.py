@@ -9,7 +9,9 @@ import os.path
 import joblib
 from flyhostel.data.pose.export import pipeline, parse_number_of_animals
 from flyhostel.data.pose.loaders.concatenation import load_concatenation_table
-
+from flyhostel.data.human_validation.cvat.cvat_integration import (
+    experiment_is_validated,
+)
 
 def main():
     """
@@ -63,10 +65,10 @@ def main():
     with sqlite3.connect(dbfile) as conn:
         cur=conn.cursor()
         number_of_animals=parse_number_of_animals(cur)
-        if number_of_animals==1:
-            concatenation_table="CONCATENATION"
-        else:
+        if experiment_is_validated(experiment_name):
             concatenation_table="CONCATENATION_VAL"
+        else:
+            concatenation_table="CONCATENATION"
 
         concatenation=load_concatenation_table(cur, basedir, concatenation_table=concatenation_table)
         
