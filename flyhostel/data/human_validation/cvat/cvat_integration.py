@@ -83,6 +83,12 @@ def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
     return zip_file
 
 
+def experiment_is_validated(experiment):
+    project_id=get_project_id_from_name(experiment, errors="ignore")
+    return project_id is not None
+
+
+
 def download_annotations_from_cvat(experiment, path, tasks=None):
     if tasks is None:
         tasks=sorted(get_tasks_for_project(get_project_id_from_name(experiment, errors="raise")))
@@ -156,8 +162,13 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
         tokens=os.path.splitext(os.path.basename(image_filename))[0].split("_")
 
         if image_format=="v1":
-            block=int(tokens[-1])
-            frame_number0=int(tokens[-2])
+            try:
+                block=int(tokens[-1])
+                frame_number0=int(tokens[-2])
+            except Exception as error:
+                print("Detected filenames dont conform to v1 format. Did you forget to pass --multisex?")
+                raise error
+            
         else:
             block=None
             frame_number0=int(tokens[0])
@@ -505,7 +516,7 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                 if selection_method=="contour":
                     match_idx, n=select_by_contour(human_contour, candidates, debug=debug, frame=frame)
                     if match_idx is None:
-                        logger.warning("Could not select by contour in frame %s", frame_number)
+                        logger.debug("Could not select by contour in frame %s", frame_number)
 
                 # annotation overlaps
                 if match_idx is not None:

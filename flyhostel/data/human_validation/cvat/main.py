@@ -28,6 +28,7 @@ from flyhostel.data.human_validation.cvat.identity import annotate_identity
 from flyhostel.data.human_validation.cvat.sqlite3 import write_validated_identity, write_validated_roi0, write_validated_concatenation
 from flyhostel.data.human_validation.cvat.report import make_report, jump_report
 from flyhostel.data.human_validation.cvat.validation_csv import apply_validation_csv_file
+from .courtship import prepare_data_for_identity_annnotation_with_courtship
 logger=logging.getLogger(__name__)
 
 try:
@@ -55,12 +56,11 @@ def select_frame_interval(data, frames_from_annotation, first_frame_number, last
     assert ~np.isnan(first_frame_number)
     assert ~np.isnan(last_frame_number)
     return first_frame_number, last_frame_number
-    
 
 
-
-
-def integrate_data(experiment, tasks,
+def integrate_data(
+        experiment,
+        tasks,
         redownload=REDOWNLOAD_FROM_CVAT,
         number_of_rows=1,
         number_of_cols=1,
@@ -261,7 +261,7 @@ def integrate_data(experiment, tasks,
         "identity_annotations": identity_annotations
     }
 
-    return updated_data, machine_data, report_data
+    return updated_data, machine_data, report_data, (first_frame_number, last_frame_number)
 
 
 
@@ -325,13 +325,32 @@ def manual_validations(experiment, updated_data, machine_data, first_frame_numbe
 
     make_report(folder, new_data=new_data, number_of_animals=number_of_animals, chunksize=chunksize, **report_data)
 
-    new_data=new_data.loc[
-        (new_data["frame_number"]>=first_frame_number) &
-        (new_data["frame_number"]<=last_frame_number)
-    ]
+    if first_frame_number is not None:
+        new_data=new_data.loc[(new_data["frame_number"]>=first_frame_number)]
+    if last_frame_number is not None:
+        new_data=new_data.loc[(new_data["frame_number"]<=last_frame_number)]
+        
 
     return new_data
 
+
+def read_annotated_table(path, first_frame_number, last_frame_number, chunksize):
+    if os.path.exists(path):
+        annotated_table=pd.read_csv(path)
+        if "chunk_after" not in annotated_table:
+            annotated_table["chunk_after"]=annotated_table["chunk"]+1
+            
+        annotated_table=annotated_table.loc[
+            (annotated_table["chunk"]>=first_frame_number//chunksize) &
+            (annotated_table["chunk"]<=last_frame_number//chunksize)
+        ]
+        if annotated_table.shape[0]==0:
+            logger.warning("Ignoring annotated table!")
+            annotated_table=None
+    else:
+        annotated_table=None
+    
+    return annotated_table
 
 def integrate_human_annotations(
         experiment,
@@ -340,6 +359,7 @@ def integrate_human_annotations(
         last_frame_number=None,
         tasks=None,
         multisex = False,
+        redownload=REDOWNLOAD_FROM_CVAT,
         **kwargs
     ):
     """
@@ -385,8 +405,10 @@ def integrate_human_annotations(
 
     if multisex:
         image_format="v2"
+        images_subfolder="images_intervals"
     else:
         image_format="v1"
+        images_subfolder=None
 
 
     if tasks is None:
@@ -394,26 +416,18 @@ def integrate_human_annotations(
     number_of_animals=get_number_of_animals(experiment)
     chunksize=get_chunksize(experiment)
 
-    updated_data, machine_data, report_data=integrate_data(experiment, tasks=tasks, first_frame_number=first_frame_number, last_frame_number=last_frame_number, image_format=image_format, **kwargs)
+    updated_data, machine_data, report_data, (first_frame_number, last_frame_number)=integrate_data(
+        experiment, tasks=tasks, first_frame_number=first_frame_number,
+        last_frame_number=last_frame_number, image_format=image_format,
+        redownload=redownload,
+        **kwargs)
+    
     new_data=manual_validations(experiment, updated_data, machine_data, first_frame_number=first_frame_number, last_frame_number=last_frame_number, **report_data, folder=folder)
 
     # required when a fly does not overlap between 2 chunks due to a lag to high between chunks
     annotated_table_file=os.path.join(folder, "validation_lags.csv")
-    if os.path.exists(annotated_table_file):
-        annotated_table=pd.read_csv(annotated_table_file)
-        annotated_table=annotated_table.loc[
-            (annotated_table["chunk"]>=first_frame_number//chunksize) &
-            (annotated_table["chunk"]<=last_frame_number//chunksize)
-        ]
-        if annotated_table.shape[0]==0:
-            logger.warning("Ignoring annotated table!")
-            annotated_table=None
-    else:
-        annotated_table=None
-
-
+    annotated_table=read_annotated_table(annotated_table_file, first_frame_number, last_frame_number, chunksize)
     new_data.to_feather(f"{folder}/new_data.feather")
-
 
     try:
         out_file=os.path.join(folder, f"{experiment}_without_identity.feather")
@@ -424,10 +438,15 @@ def integrate_human_annotations(
         
         new_data.reset_index(drop=True).to_feather(out_file)
 
-        new_data=new_data.loc[~new_data["local_identity"].isna()]
-        new_data["local_identity"]=new_data["local_identity"].astype(int)
+        new_data["local_identity"]=[np.nan if np.isnan(x) else int(x) for x in new_data["local_identity"]]
         new_data["is_a_crossing"]=new_data["is_a_crossing"].astype(bool)
 
+        if multisex:
+            new_data, all_intervals_ok_labels=prepare_data_for_identity_annnotation_with_courtship(experiment, new_data, download=redownload)
+        else:
+            all_intervals_ok_labels={}
+     
+        new_data=new_data.loc[~new_data["local_identity"].isna()]
         safe_cudf(new_data)
         try:
             new_data_cudf=cudf.DataFrame(new_data)
@@ -436,7 +455,16 @@ def integrate_human_annotations(
             import ipdb; ipdb.set_trace()
             raise error
         
-        out=annotate_identity(new_data_cudf, number_of_animals, chunksize, annotated_table=annotated_table)
+        
+        out=annotate_identity(
+            new_data_cudf,
+            number_of_animals,
+            chunksize,
+            annotated_table=annotated_table,
+            all_intervals_ok_labels=all_intervals_ok_labels,
+            verbose=False
+        )
+    
     except Exception as error:
         raise error
 
@@ -447,7 +475,7 @@ def integrate_human_annotations(
 
     # reports
     pixels_per_mm=get_pixels_per_mm(experiment)
-    jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm)
+    jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm, images_subfolder=images_subfolder)
     df_identity=out[["frame_number", "in_frame_index", "local_identity", "identity", "validated"]].reset_index(drop=True)
 
     groupby=df_identity.groupby("local_identity")

@@ -1,5 +1,7 @@
+import yaml
 import os.path
 import logging
+import glob
 logger=logging.getLogger(__name__)
 
 import numpy as np
@@ -99,10 +101,34 @@ def make_report(folder, identity_tracks, roi0_annotations, identity_annotations,
     )
 
 
-def jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm):
+def jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm, images_subfolder=None):
     
     MAX_DIST_IN_ONE_FRAME_MM=1
     MAX_DIST_IN_ONE_FRAME=pixels_per_mm*MAX_DIST_IN_ONE_FRAME_MM
+    max_diff=1
+        
+
+    if images_subfolder is not None:
+        files=glob.glob(f"{folder}/{images_subfolder}/*png")
+        tokens=[os.path.basename(file).split("_") for file in files]
+        records=[(int(token[0]), "_".join(token[1:]).split(".")[0]) for token in tokens]
+        frames_index=pd.DataFrame.from_records(records, columns=["frame_number", "tag"]).sort_values("frame_number")
+        diff=frames_index["frame_number"].diff().tolist()[1:]
+        diff.append(np.nan)
+        frames_index["until_next"]=diff
+        frames_index["seen"]=True  
+        frames_index.loc[
+            (frames_index["tag"] == "checkpoint") |
+            ((frames_index["tag"].shift(-1) == "checkpoint") & (frames_index["tag"] == "start")) |
+            ((frames_index["tag"].shift() == "checkpoint") & (frames_index["tag"] == "end")),
+            "keep"
+        ]=True
+
+
+        with open(f"{folder}/{images_subfolder}/metadata.yaml", "r") as handle:
+            metadata=yaml.load(handle, yaml.SafeLoader)
+            max_diff=metadata["max_diff"]
+
 
     dist_df=[]
     for identity in range(1, number_of_animals+1):
@@ -118,11 +144,30 @@ def jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm):
             "y": out_fly["y"].iloc[:-1],
             "frame_number": out_fly["frame_number"].iloc[:-1]}
         )
-        diff=df["frame_number"].diff()
+        if images_subfolder is not None:
+            df=df.merge(frames_index, on="frame_number", how="left").sort_values("frame_number")
+            df.loc[df["seen"].isna(), "seen"]=False
+            df.loc[df["keep"].isna(), "keep"]=False
+            df_backup=df.copy()
+            df=df.loc[(df["keep"]==True)]
 
-        if not (diff==1).all():
-            logger.error("Tracks missing for identity in frames %s: %s", identity, df["frame_number"].loc[diff!=1].tolist())
-            logger.error("Tracks missing for identity with gaps of %s: %s frames", identity, diff[diff!=1].tolist())
+        diff=np.concatenate([
+            df["frame_number"].diff().iloc[1:].tolist(),
+            [np.nan]
+        ]).astype(np.int64)
+
+
+        if not (diff==max_diff).all():
+            if images_subfolder is None:
+                selector=(diff>max_diff)
+            else:
+                selector=(diff>max_diff) & (df["tag"]!="end")
+
+            frames=df["frame_number"].loc[selector].tolist()
+            gaps=diff[selector].tolist()
+
+            logger.error("Tracks missing for identity in frames %s: %s", identity, frames)
+            logger.error("Tracks missing for identity with gaps of %s: %s frames", identity, gaps)
         dist_df.append(df)
 
     dist_df=pd.concat(dist_df, axis=0)
