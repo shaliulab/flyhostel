@@ -23,45 +23,133 @@ def parse_frame_number(x):
     return int(x.split("_")[0])
 
 
-def detect_continuous_bouts(annotations, label, isi, framerate):
-    label_id=list(filter(lambda x: x["name"]==label, annotations["categories"]))[0]["id"]
-    label_events=list(filter(lambda x: x["category_id"]==label_id, annotations["annotations"]))
-    label_events_images=[x["image_id"] for x in label_events]
-    label_events_fn=[parse_frame_number(x["file_name"]) for x in annotations["images"] if x["id"] in label_events_images]
+# def detect_continuous_bouts(annotations, label, isi, framerate):
+#     label_id=list(filter(lambda x: x["name"]==label, annotations["categories"]))[0]["id"]
+#     label_events=list(filter(lambda x: x["category_id"]==label_id, annotations["annotations"]))
+#     label_events_images=[x["image_id"] for x in label_events]
+#     label_events_fn=[parse_frame_number(x["file_name"]) for x in annotations["images"] if x["id"] in label_events_images]
     
-    t_diff = np.diff(label_events_fn)
+#     t_diff = np.diff(label_events_fn)
     
-    max_t_between=isi*framerate
+#     max_t_between=isi*framerate
     
-    new_bouts = t_diff > max_t_between
-    new_bouts = np.concatenate([[True], new_bouts])
-    new_bouts_idx = np.where(new_bouts)[0]
+#     new_bouts = t_diff > max_t_between
+#     new_bouts = np.concatenate([[True], new_bouts])
+#     new_bouts_idx = np.where(new_bouts)[0]
     
-    frame_number_start = np.array(label_events_fn)[new_bouts_idx]
+#     frame_number_start = np.array(label_events_fn)[new_bouts_idx]
     
-    end_bouts_idx=new_bouts_idx[1:]
-    end_bouts_idx-=1
-    end_bouts_idx=np.concatenate([end_bouts_idx, [len(new_bouts)-1]])
-    frame_number_end = np.array(label_events_fn)[end_bouts_idx]
+#     end_bouts_idx=new_bouts_idx[1:]
+#     end_bouts_idx-=1
+#     end_bouts_idx=np.concatenate([end_bouts_idx, [len(new_bouts)-1]])
+#     frame_number_end = np.array(label_events_fn)[end_bouts_idx]
 
-    assert len(frame_number_start) == len(frame_number_end)
-    intervals = list(zip(frame_number_start, frame_number_end))
-    return intervals
+#     assert len(frame_number_start) == len(frame_number_end)
+#     intervals = list(zip(frame_number_start, frame_number_end))
+#     return intervals
 
 
+# def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True):
+#     """
+#     Group annotated events of a given category into temporally continuous bouts,
+#     optionally interpolating bbox coordinates at every integer frame within each bout.
+
+#     Two events belong to the same bout if their frame_number distance is at most
+#     `isi * framerate` frames.
+
+#     Parameters
+#     ----------
+#     annotations : dict
+#         COCO-style annotations dict with `categories`, `annotations`, `images`.
+#     label : str
+#         Category name to filter on.
+#     isi : float
+#         Maximum inter-event interval in seconds.
+#     framerate : float
+#         Frames per second.
+#     interpolate : bool
+#         If True (default), fill in every integer frame between the first and
+#         last annotated frame of each bout, with bbox coords linearly
+#         interpolated. If False, return only the original annotated frames.
+
+#     Returns
+#     -------
+#     pd.DataFrame
+#         Columns: interval_id, frame_number, x1, y1, x2, y2, is_annotated.
+#         `is_annotated` is True for rows from the original annotations,
+#         False for interpolated rows. Sorted by (interval_id, frame_number).
+#     """
+#     cols = ["interval_id", "frame_number", "x1", "y1", "x2", "y2", "is_annotated"]
+
+#     # Resolve label name -> category id
+#     matching = [c for c in annotations["categories"] if c["name"] == label]
+#     if not matching:
+#         raise ValueError(f"Label {label!r} not found in annotations[categories].")
+#     label_id = matching[0]["id"]
+
+#     # image_id -> frame_number lookup
+#     fn_by_image_id = {
+#         img["id"]: parse_frame_number(img["file_name"])
+#         for img in annotations["images"]
+#     }
+
+#     # Collect (frame_number, x1, y1, x2, y2) per matching annotation
+#     records = []
+#     for ann in annotations["annotations"]:
+#         if ann["category_id"] != label_id:
+#             continue
+#         if ann["image_id"] not in fn_by_image_id:
+#             continue
+#         x, y, w, h = ann["bbox"]
+#         records.append({
+#             "frame_number": fn_by_image_id[ann["image_id"]],
+#             "x1": x,
+#             "y1": y,
+#             "x2": x + w,
+#             "y2": y + h,
+#         })
+
+#     if not records:
+#         return pd.DataFrame(columns=cols)
+
+#     df = pd.DataFrame(records).sort_values("frame_number").reset_index(drop=True)
+
+#     # Bout segmentation
+#     max_gap = isi * framerate
+#     gaps = df["frame_number"].diff()
+#     new_bout = (gaps > max_gap) | gaps.isna()
+#     df["interval_id"] = new_bout.cumsum().astype(int)
+#     df["is_annotated"] = True
+
+#     if not interpolate:
+#         return df[cols]
+
+#     # Per-bout interpolation: for each bout, build a dense frame_number range
+#     # spanning its first to last annotated frame, then linearly interpolate.
+#     pieces = []
+#     for interval_id, bout in df.groupby("interval_id", sort=True):
+#         pieces.append(_interpolate_bout(bout, interval_id))
+#     out = pd.concat(pieces, ignore_index=True)
+#     return out[cols]
 
 def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True):
     """
     Group annotated events of a given category into temporally continuous bouts,
-    optionally interpolating bbox coordinates at every integer frame within each bout.
+    one bout per CVAT track. Optionally interpolates bbox coordinates at every
+    integer frame within each bout.
 
-    Two events belong to the same bout if their frame_number distance is at most
-    `isi * framerate` frames.
+    Annotations are first split by `track_id` (the CVAT track functionality
+    propagates the same rectangle across frames under one track_id), so two
+    rectangles in the same frame belonging to different tracks always produce
+    distinct bouts. Within a single track, two annotations belong to the same
+    bout if their frame_number distance is at most `isi * framerate` frames;
+    a longer gap starts a new bout.
 
     Parameters
     ----------
     annotations : dict
         COCO-style annotations dict with `categories`, `annotations`, `images`.
+        Each annotation must carry a top-level `track_id`.
     label : str
         Category name to filter on.
     isi : float
@@ -76,11 +164,12 @@ def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True
     Returns
     -------
     pd.DataFrame
-        Columns: interval_id, frame_number, x1, y1, x2, y2, is_annotated.
+        Columns: interval_id, track_id, frame_number, x1, y1, x2, y2, is_annotated.
         `is_annotated` is True for rows from the original annotations,
         False for interpolated rows. Sorted by (interval_id, frame_number).
     """
-    cols = ["interval_id", "frame_number", "x1", "y1", "x2", "y2", "is_annotated"]
+    cols = ["interval_id", "track_id", "frame_number",
+            "x1", "y1", "x2", "y2", "is_annotated"]
 
     # Resolve label name -> category id
     matching = [c for c in annotations["categories"] if c["name"] == label]
@@ -94,7 +183,7 @@ def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True
         for img in annotations["images"]
     }
 
-    # Collect (frame_number, x1, y1, x2, y2) per matching annotation
+    # Collect one record per matching annotation, including its track_id.
     records = []
     for ann in annotations["annotations"]:
         if ann["category_id"] != label_id:
@@ -102,8 +191,10 @@ def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True
         if ann["image_id"] not in fn_by_image_id:
             continue
         x, y, w, h = ann["bbox"]
+
         records.append({
             "frame_number": fn_by_image_id[ann["image_id"]],
+            "track_id": ann["attributes"].get("track_id", -1),
             "x1": x,
             "y1": y,
             "x2": x + w,
@@ -113,31 +204,52 @@ def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True
     if not records:
         return pd.DataFrame(columns=cols)
 
-    df = pd.DataFrame(records).sort_values("frame_number").reset_index(drop=True)
+    # Sort by (track_id, frame_number) so the per-track gap diff below is
+    # meaningful. We use a stable sort so equal frame_numbers within a track
+    # keep their original order.
+    df = (
+        pd.DataFrame(records)
+        .sort_values(["track_id", "frame_number"], kind="mergesort")
+        .reset_index(drop=True)
+    )
 
-    # Bout segmentation
+    # Bout segmentation, applied within each track:
+    #   - a gap > isi*framerate frames from the previous annotation in the
+    #     same track starts a new bout
+    #   - the first annotation in each track also starts a new bout (its gap
+    #     is computed against the previous track and so is meaningless; we
+    #     mark it explicitly)
     max_gap = isi * framerate
-    gaps = df["frame_number"].diff()
-    new_bout = (gaps > max_gap) | gaps.isna()
+    gaps_within_track = df.groupby("track_id")["frame_number"].diff()
+    track_changed = df["track_id"] != df["track_id"].shift()
+    new_bout = track_changed | (gaps_within_track > max_gap)
     df["interval_id"] = new_bout.cumsum().astype(int)
     df["is_annotated"] = True
 
     if not interpolate:
         return df[cols]
 
-    # Per-bout interpolation: for each bout, build a dense frame_number range
-    # spanning its first to last annotated frame, then linearly interpolate.
+    # Per-bout interpolation: dense frame_number range from first to last
+    # annotated frame of the bout, with bbox coords linearly interpolated.
+    # track_id is constant within a bout (by construction above), so
+    # _interpolate_bout can carry it through from the input rows.
     pieces = []
     for interval_id, bout in df.groupby("interval_id", sort=True):
         pieces.append(_interpolate_bout(bout, interval_id))
     out = pd.concat(pieces, ignore_index=True)
+
     return out[cols]
 
-
 def _interpolate_bout(bout: pd.DataFrame, interval_id: int) -> pd.DataFrame:
-    """Linearly interpolate bbox coords at every integer frame in [first, last]."""
+    """Linearly interpolate bbox coords at every integer frame in [first, last].
+
+    track_id is constant within a bout (bouts are segmented per-track upstream),
+    so we read it once from the input and stamp it onto every output row,
+    including the interpolated ones.
+    """
     first = int(bout["frame_number"].iloc[0])
     last = int(bout["frame_number"].iloc[-1])
+    track_id = bout["track_id"].iloc[0]
 
     if first == last:
         # Single-frame bout: nothing to interpolate
@@ -158,9 +270,9 @@ def _interpolate_bout(bout: pd.DataFrame, interval_id: int) -> pd.DataFrame:
 
     out = dense.reset_index()
     out["interval_id"] = interval_id
+    out["track_id"] = track_id
     out["is_annotated"] = out["frame_number"].isin(annotated.index)
     return out
-    
 
 def mark_courtship(new_data: pd.DataFrame,
                    intervals: pd.DataFrame,
@@ -216,7 +328,7 @@ def mark_courtship(new_data: pd.DataFrame,
     out=out.merge(courtship_index, on="frame_number", how="outer")
 
     return out.drop(columns="_row_id")
-    
+
 def mark_ok_labels(annotations, intervals, chunksize):
     """
     For every courtship bout (frames where the male is mounting the female)
@@ -224,8 +336,8 @@ def mark_ok_labels(annotations, intervals, chunksize):
 
     Returns x (dict): x[interval_id][chunk]
     """
-    intervals_index=intervals.groupby("interval_id").agg({"frame_number": [np.min, np.max]}).reset_index()
-    intervals_index.columns=["interval_id", "min", "max"]   
+    intervals_index=intervals.groupby(["interval_id", "track_id"]).agg({"frame_number": [np.min, np.max]}).reset_index()
+    intervals_index.columns=["interval_id", "track_id", "min", "max"]   
     intervals_index["chunk"]=intervals_index["min"]//chunksize
     categories_index={x["id"]: x["name"] for x in annotations["categories"]}
     id_fn_index={x["id"]: int(x["file_name"].split("_")[0]) for x in annotations["images"]}
@@ -235,10 +347,10 @@ def mark_ok_labels(annotations, intervals, chunksize):
         labels={}
         interval_start=intervals_index.iloc[interval_id]["min"]
         interval_end=intervals_index.iloc[interval_id]["max"]
+        
 
         for ann in annotations["annotations"]:
             fn=id_fn_index[ann["image_id"]]
-            coordinates=[]
 
             if fn >= interval_start and fn <= interval_end:
                 cat_id=ann["category_id"]
@@ -246,10 +358,6 @@ def mark_ok_labels(annotations, intervals, chunksize):
                 try:
                     cat=int(cat)
                 except ValueError:
-                    if cat == "COURTSHIP":
-                        import ipdb; ipdb.set_trace()
-                        x, y, w, h=None, None, None, None
-                        coordinates.append((x, y, w, h))
                     continue
                 
                 # if cat_id == 3: print(fn, fn//chunksize, fn%chunksize)
@@ -262,7 +370,6 @@ def mark_ok_labels(annotations, intervals, chunksize):
         all_intervals_ok_labels[interval_id]={
             "labels_per_chunk": labels,
             "interval": (interval_start, interval_end),
-            "coordinates": coordinates,
         }
     return all_intervals_ok_labels
 
@@ -306,13 +413,19 @@ def load_intervals(experiment, annotations=None, tasks=None):
 # I dont want to keep brief restorations of identities that belong to flies engaged in courtship mounting
 # until the flies finally separate
 
-def discard_courtship_identities(data, all_intervals_ok_labels, chunksize, local_identities=None):
+def discard_courtship_identities(data, all_intervals_ok_labels, intervals, chunksize, local_identities=None):
     
     rows=[]
+
+    tracks_index=intervals[["interval_id", "track_id"]].drop_duplicates()
 
 
     for interval_id in all_intervals_ok_labels:
         interval_start, interval_end = all_intervals_ok_labels[interval_id]["interval"]
+        track_id = tracks_index.query("interval_id == @interval_id")["track_id"].item()
+
+
+
         for chunk in all_intervals_ok_labels[interval_id]["labels_per_chunk"]:
             ok_labels =all_intervals_ok_labels[interval_id]["labels_per_chunk"][chunk]
 
@@ -338,8 +451,11 @@ def discard_courtship_identities(data, all_intervals_ok_labels, chunksize, local
                     else:
                         continue
 
-    import ipdb; ipdb.set_trace()
-
+    # TODO Update this so rows contains the new data points
+    # corresponding to flies engaged in courtship at the corresponding frames
+    # You may want to just have interval_id, frame_number, local_identity, x and y
+    # and have the rest of columns be added later outside of discard_courtship_identities,
+    # in the call to prepare_data_for_identity_annnotation_with_courtship
 
     if rows:
         data=pd.concat([
@@ -425,7 +541,7 @@ def remove_courtship_identities_from_local_identity_table(lid_table, all_interva
 
     return lid_table
 
-
+# Public
 
 def prepare_data_for_identity_annnotation_with_courtship(experiment, data, download=True):
     chunksize=get_chunksize(experiment)
@@ -438,7 +554,11 @@ def prepare_data_for_identity_annnotation_with_courtship(experiment, data, downl
 
     data=mark_courtship(data, intervals)
     all_intervals_ok_labels=mark_ok_labels(annotations, intervals, chunksize)
-    data=discard_courtship_identities(data, all_intervals_ok_labels, chunksize=chunksize, local_identities=local_identities)
+    data=discard_courtship_identities(
+        data, all_intervals_ok_labels, intervals=intervals,
+        chunksize=chunksize,
+        local_identities=local_identities
+    )
     
     data=annotate_validated_fragments(data)
     assert (data.loc[data["validated_fragment"]==True, "local_identity"]==data.loc[data["validated_fragment"]==True, "fragment_identity"]).all()
