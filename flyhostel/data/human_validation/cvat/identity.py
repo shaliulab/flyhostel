@@ -93,18 +93,18 @@ def ensure_continuity_of_table(table):
 
 
     for local_identity in all_chunks:
-        test1=(np.diff(all_chunks[local_identity])==1).all()
+        chunks_are_strictly_consecutive=(np.diff(all_chunks[local_identity])==1).all()
         length=len(np.diff(all_chunks[local_identity]))
 
-        test2=length==number_of_chunks
+        matches_expected_number_of_chunks=length==number_of_chunks
 
-        if not test1:
+        if not chunks_are_strictly_consecutive:
             print("Is validation_lags.csv correct?")
             print(local_identity_chain)
             print(all_chunks[local_identity])
             
             raise Exception(f"local_identity {local_identity} -> {all_chunks[local_identity]}")
-        if not test2:
+        if not matches_expected_number_of_chunks:
             print("Is validation_lags.csv correct?")
             print(local_identity_chain)
             print(all_chunks[local_identity])
@@ -187,6 +187,7 @@ def make_identity_table(lid_table, annotated_table, chunks, verbose=False, debug
         if dups.any():
             if verbose:
                 for _, row in identity_table.loc[dups].iterrows():
+                    print("Duplicated")
                     print(identity_table.loc[
                         (identity_table["chunk_after"]==row["chunk_after"]) & (identity_table["local_identity_after"]==row["local_identity_after"])
                     ])
