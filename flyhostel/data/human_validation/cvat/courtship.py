@@ -1,5 +1,7 @@
 import os.path
+import math
 import subprocess
+import logging
 import json
 import shutil
 import numpy as np
@@ -11,126 +13,24 @@ from flyhostel.utils import (
     get_chunksize,
     get_framerate,
     get_resolution,
+)
 
+
+from .api import (
+    get_tasks_for_project,
+    get_project_id_from_name,
 )
 
 from flyhostel.data.human_validation.cvat.cvat_integration import (
-    download_annotations_from_cvat
+    get_zipfile_for_task
 )
-INTERVAL_BETWEEN_CHECKPOINTS_IN_SECONDS=1
+INTERVAL_BETWEEN_CHECKPOINTS_IN_SECONDS = 1
+
+logger=logging.getLogger(__name__)
 
 def parse_frame_number(x):
     return int(x.split("_")[0])
 
-
-# def detect_continuous_bouts(annotations, label, isi, framerate):
-#     label_id=list(filter(lambda x: x["name"]==label, annotations["categories"]))[0]["id"]
-#     label_events=list(filter(lambda x: x["category_id"]==label_id, annotations["annotations"]))
-#     label_events_images=[x["image_id"] for x in label_events]
-#     label_events_fn=[parse_frame_number(x["file_name"]) for x in annotations["images"] if x["id"] in label_events_images]
-    
-#     t_diff = np.diff(label_events_fn)
-    
-#     max_t_between=isi*framerate
-    
-#     new_bouts = t_diff > max_t_between
-#     new_bouts = np.concatenate([[True], new_bouts])
-#     new_bouts_idx = np.where(new_bouts)[0]
-    
-#     frame_number_start = np.array(label_events_fn)[new_bouts_idx]
-    
-#     end_bouts_idx=new_bouts_idx[1:]
-#     end_bouts_idx-=1
-#     end_bouts_idx=np.concatenate([end_bouts_idx, [len(new_bouts)-1]])
-#     frame_number_end = np.array(label_events_fn)[end_bouts_idx]
-
-#     assert len(frame_number_start) == len(frame_number_end)
-#     intervals = list(zip(frame_number_start, frame_number_end))
-#     return intervals
-
-
-# def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True):
-#     """
-#     Group annotated events of a given category into temporally continuous bouts,
-#     optionally interpolating bbox coordinates at every integer frame within each bout.
-
-#     Two events belong to the same bout if their frame_number distance is at most
-#     `isi * framerate` frames.
-
-#     Parameters
-#     ----------
-#     annotations : dict
-#         COCO-style annotations dict with `categories`, `annotations`, `images`.
-#     label : str
-#         Category name to filter on.
-#     isi : float
-#         Maximum inter-event interval in seconds.
-#     framerate : float
-#         Frames per second.
-#     interpolate : bool
-#         If True (default), fill in every integer frame between the first and
-#         last annotated frame of each bout, with bbox coords linearly
-#         interpolated. If False, return only the original annotated frames.
-
-#     Returns
-#     -------
-#     pd.DataFrame
-#         Columns: interval_id, frame_number, x1, y1, x2, y2, is_annotated.
-#         `is_annotated` is True for rows from the original annotations,
-#         False for interpolated rows. Sorted by (interval_id, frame_number).
-#     """
-#     cols = ["interval_id", "frame_number", "x1", "y1", "x2", "y2", "is_annotated"]
-
-#     # Resolve label name -> category id
-#     matching = [c for c in annotations["categories"] if c["name"] == label]
-#     if not matching:
-#         raise ValueError(f"Label {label!r} not found in annotations[categories].")
-#     label_id = matching[0]["id"]
-
-#     # image_id -> frame_number lookup
-#     fn_by_image_id = {
-#         img["id"]: parse_frame_number(img["file_name"])
-#         for img in annotations["images"]
-#     }
-
-#     # Collect (frame_number, x1, y1, x2, y2) per matching annotation
-#     records = []
-#     for ann in annotations["annotations"]:
-#         if ann["category_id"] != label_id:
-#             continue
-#         if ann["image_id"] not in fn_by_image_id:
-#             continue
-#         x, y, w, h = ann["bbox"]
-#         records.append({
-#             "frame_number": fn_by_image_id[ann["image_id"]],
-#             "x1": x,
-#             "y1": y,
-#             "x2": x + w,
-#             "y2": y + h,
-#         })
-
-#     if not records:
-#         return pd.DataFrame(columns=cols)
-
-#     df = pd.DataFrame(records).sort_values("frame_number").reset_index(drop=True)
-
-#     # Bout segmentation
-#     max_gap = isi * framerate
-#     gaps = df["frame_number"].diff()
-#     new_bout = (gaps > max_gap) | gaps.isna()
-#     df["interval_id"] = new_bout.cumsum().astype(int)
-#     df["is_annotated"] = True
-
-#     if not interpolate:
-#         return df[cols]
-
-#     # Per-bout interpolation: for each bout, build a dense frame_number range
-#     # spanning its first to last annotated frame, then linearly interpolate.
-#     pieces = []
-#     for interval_id, bout in df.groupby("interval_id", sort=True):
-#         pieces.append(_interpolate_bout(bout, interval_id))
-#     out = pd.concat(pieces, ignore_index=True)
-#     return out[cols]
 
 def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True):
     """
@@ -144,46 +44,20 @@ def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True
     distinct bouts. Within a single track, two annotations belong to the same
     bout if their frame_number distance is at most `isi * framerate` frames;
     a longer gap starts a new bout.
-
-    Parameters
-    ----------
-    annotations : dict
-        COCO-style annotations dict with `categories`, `annotations`, `images`.
-        Each annotation must carry a top-level `track_id`.
-    label : str
-        Category name to filter on.
-    isi : float
-        Maximum inter-event interval in seconds.
-    framerate : float
-        Frames per second.
-    interpolate : bool
-        If True (default), fill in every integer frame between the first and
-        last annotated frame of each bout, with bbox coords linearly
-        interpolated. If False, return only the original annotated frames.
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: interval_id, track_id, frame_number, x1, y1, x2, y2, is_annotated.
-        `is_annotated` is True for rows from the original annotations,
-        False for interpolated rows. Sorted by (interval_id, frame_number).
     """
     cols = ["interval_id", "track_id", "frame_number",
             "x1", "y1", "x2", "y2", "is_annotated"]
 
-    # Resolve label name -> category id
     matching = [c for c in annotations["categories"] if c["name"] == label]
     if not matching:
         raise ValueError(f"Label {label!r} not found in annotations[categories].")
     label_id = matching[0]["id"]
 
-    # image_id -> frame_number lookup
     fn_by_image_id = {
         img["id"]: parse_frame_number(img["file_name"])
         for img in annotations["images"]
     }
 
-    # Collect one record per matching annotation, including its track_id.
     records = []
     for ann in annotations["annotations"]:
         if ann["category_id"] != label_id:
@@ -191,7 +65,6 @@ def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True
         if ann["image_id"] not in fn_by_image_id:
             continue
         x, y, w, h = ann["bbox"]
-
         records.append({
             "frame_number": fn_by_image_id[ann["image_id"]],
             "track_id": ann["attributes"].get("track_id", -1),
@@ -204,21 +77,12 @@ def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True
     if not records:
         return pd.DataFrame(columns=cols)
 
-    # Sort by (track_id, frame_number) so the per-track gap diff below is
-    # meaningful. We use a stable sort so equal frame_numbers within a track
-    # keep their original order.
     df = (
         pd.DataFrame(records)
         .sort_values(["track_id", "frame_number"], kind="mergesort")
         .reset_index(drop=True)
     )
 
-    # Bout segmentation, applied within each track:
-    #   - a gap > isi*framerate frames from the previous annotation in the
-    #     same track starts a new bout
-    #   - the first annotation in each track also starts a new bout (its gap
-    #     is computed against the previous track and so is meaningless; we
-    #     mark it explicitly)
     max_gap = isi * framerate
     gaps_within_track = df.groupby("track_id")["frame_number"].diff()
     track_changed = df["track_id"] != df["track_id"].shift()
@@ -229,10 +93,6 @@ def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True
     if not interpolate:
         return df[cols]
 
-    # Per-bout interpolation: dense frame_number range from first to last
-    # annotated frame of the bout, with bbox coords linearly interpolated.
-    # track_id is constant within a bout (by construction above), so
-    # _interpolate_bout can carry it through from the input rows.
     pieces = []
     for interval_id, bout in df.groupby("interval_id", sort=True):
         pieces.append(_interpolate_bout(bout, interval_id))
@@ -240,30 +100,19 @@ def detect_continuous_bouts(annotations, label, isi, framerate, interpolate=True
 
     return out[cols]
 
-def _interpolate_bout(bout: pd.DataFrame, interval_id: int) -> pd.DataFrame:
-    """Linearly interpolate bbox coords at every integer frame in [first, last].
 
-    track_id is constant within a bout (bouts are segmented per-track upstream),
-    so we read it once from the input and stamp it onto every output row,
-    including the interpolated ones.
-    """
+def _interpolate_bout(bout: pd.DataFrame, interval_id: int) -> pd.DataFrame:
+    """Linearly interpolate bbox coords at every integer frame in [first, last]."""
     first = int(bout["frame_number"].iloc[0])
     last = int(bout["frame_number"].iloc[-1])
     track_id = bout["track_id"].iloc[0]
 
     if first == last:
-        # Single-frame bout: nothing to interpolate
         return bout.copy()
 
-    # Index the annotated rows by frame_number
     annotated = bout.set_index("frame_number")[["x1", "y1", "x2", "y2"]]
-
-    # Reindex to every integer frame in the span, introducing NaNs for new rows
     full_range = pd.RangeIndex(first, last + 1, name="frame_number")
     dense = annotated.reindex(full_range)
-
-    # Linear interpolation: integer frame_number index is evenly spaced
-    # (one unit per frame), which is exactly what we want.
     dense[["x1", "y1", "x2", "y2"]] = dense[["x1", "y1", "x2", "y2"]].interpolate(
         method="linear", limit_direction="both"
     )
@@ -274,39 +123,21 @@ def _interpolate_bout(bout: pd.DataFrame, interval_id: int) -> pd.DataFrame:
     out["is_annotated"] = out["frame_number"].isin(annotated.index)
     return out
 
+
 def mark_courtship(new_data: pd.DataFrame,
                    intervals: pd.DataFrame,
                    x_col: str = "x",
                    y_col: str = "y",
                    frame_col: str = "frame_number") -> pd.DataFrame:
     """
-    Add a boolean `courtship` column to `new_data`.
-
-    A row is marked True iff there exists a bbox in `intervals` at the same
-    frame_number such that (x, y) falls inside [x1, x2] x [y1, y2] (inclusive).
-
-    Parameters
-    ----------
-    new_data : DataFrame with at least `frame_number`, x_col, y_col columns.
-    intervals : DataFrame with `frame_number`, x1, y1, x2, y2 columns
-        (the per-frame output of detect_continuous_bouts with interpolate=True).
-    x_col, y_col, frame_col : optional column-name overrides.
-
-    Returns
-    -------
-    pd.DataFrame
-        A copy of new_data with one new boolean column `courtship`.
+    Add a boolean `courtship` column to `new_data`. A row is True iff there
+    exists a bbox in `intervals` at the same frame_number such that (x, y)
+    falls inside [x1, x2] x [y1, y2] (inclusive).
     """
     out = new_data.copy()
-
-    # Stable row id so we can collapse multiple bbox matches back to per-row.
     out = out.reset_index(drop=False).rename(columns={"index": "_row_id"})
 
     boxes = intervals[[frame_col, "x1", "y1", "x2", "y2"]]
-
-    # Inner-merge on frame_number: only frames that exist in `intervals`
-    # produce candidate rows. Rows in new_data with no matching frame
-    # naturally drop out and will be marked False.
     candidates = out.merge(boxes, on=frame_col, how="inner")
 
     inside = (
@@ -316,254 +147,702 @@ def mark_courtship(new_data: pd.DataFrame,
         & (candidates[y_col] <= candidates["y2"])
     )
 
-    # Row ids that had at least one bbox containing the point
     matched_ids = set(candidates.loc[inside, "_row_id"])
-
     out["courtship"] = out["_row_id"].isin(matched_ids)
 
-    out=out.merge(intervals[["frame_number", "is_annotated", "interval_id"]], on="frame_number", how="left")
-    out.loc[out["is_annotated"].isna(), "is_annotated"]=True
+    out = out.merge(
+        intervals[["frame_number", "is_annotated", "interval_id"]],
+        on="frame_number", how="left",
+    )
+    out.loc[out["is_annotated"].isna(), "is_annotated"] = True
 
-    courtship_index=out.groupby("frame_number").agg({"courtship": np.any}).reset_index().rename({"courtship": "has_courtship"}, axis=1)
-    out=out.merge(courtship_index, on="frame_number", how="outer")
-
+    courtship_index = (
+        out.groupby("frame_number")
+        .agg({"courtship": np.any})
+        .reset_index()
+        .rename({"courtship": "has_courtship"}, axis=1)
+    )
+    out = out.merge(courtship_index, on="frame_number", how="outer")
     return out.drop(columns="_row_id")
+
 
 def mark_ok_labels(annotations, intervals, chunksize):
     """
-    For every courtship bout (frames where the male is mounting the female)
-    and chunk, stores a set of the local identities that are not involved in the courtship
+    For every courtship bout and chunk, store the set of local identities
+    that are NOT involved in the courtship (i.e. flies that should remain
+    distinguishable in that chunk).
 
-    Returns x (dict): x[interval_id][chunk]
+    Returns: {interval_id: {"interval": (start, end),
+                            "labels_per_chunk": {chunk: {ok_label, ...}}}}
+
+    The dict is keyed by the actual interval_id value from `intervals`, not
+    by row position — so callers should look up by interval_id, never by
+    position-in-iteration.
     """
-    intervals_index=intervals.groupby(["interval_id", "track_id"]).agg({"frame_number": [np.min, np.max]}).reset_index()
-    intervals_index.columns=["interval_id", "track_id", "min", "max"]   
-    intervals_index["chunk"]=intervals_index["min"]//chunksize
-    categories_index={x["id"]: x["name"] for x in annotations["categories"]}
-    id_fn_index={x["id"]: int(x["file_name"].split("_")[0]) for x in annotations["images"]}
+    intervals_index = (
+        intervals.groupby(["interval_id", "track_id"])
+        .agg({"frame_number": [np.min, np.max]})
+        .reset_index()
+    )
+    intervals_index.columns = ["interval_id", "track_id", "min", "max"]
+    intervals_index["chunk"] = intervals_index["min"] // chunksize
 
-    all_intervals_ok_labels={}
-    for interval_id in range(intervals_index.shape[0]):
-        labels={}
-        interval_start=intervals_index.iloc[interval_id]["min"]
-        interval_end=intervals_index.iloc[interval_id]["max"]
-        
+    categories_index = {x["id"]: x["name"] for x in annotations["categories"]}
+    id_fn_index = {
+        x["id"]: int(x["file_name"].split("_")[0])
+        for x in annotations["images"]
+    }
 
+    all_intervals_ok_labels = {}
+    # Iterate as rows, using the actual interval_id value — not the row index.
+    for _, row in intervals_index.iterrows():
+        interval_id = int(row["interval_id"])
+        interval_start = int(row["min"])
+        interval_end = int(row["max"])
+
+        labels = {}
         for ann in annotations["annotations"]:
-            fn=id_fn_index[ann["image_id"]]
+            fn = id_fn_index[ann["image_id"]]
+            if not (interval_start <= fn <= interval_end):
+                continue
 
-            if fn >= interval_start and fn <= interval_end:
-                cat_id=ann["category_id"]
-                cat=categories_index[cat_id]
-                try:
-                    cat=int(cat)
-                except ValueError:
-                    continue
-                
-                # if cat_id == 3: print(fn, fn//chunksize, fn%chunksize)
-                chunk=fn//chunksize
-                if chunk not in labels:
-                    labels[chunk]=set([cat])
-                else:
-                    labels[chunk].add(cat)
-        
-        all_intervals_ok_labels[interval_id]={
+            cat = categories_index[ann["category_id"]]
+            try:
+                cat = int(cat)
+            except ValueError:
+                continue
+
+            chunk = fn // chunksize
+            labels.setdefault(chunk, set()).add(cat)
+
+        all_intervals_ok_labels[interval_id] = {
             "labels_per_chunk": labels,
             "interval": (interval_start, interval_end),
         }
     return all_intervals_ok_labels
 
+def get_annotations(tasks=None, first_frame_number=None, last_frame_number=None):
+    """
+    Download and parse COCO annotations for the given CVAT tasks, optionally
+    restricting to a frame-number window inferred from image file names.
 
-def get_annotations(experiment, tasks=None, download=True):
+    Image file names follow `FRAME_NUMBER_*.png`, so the frame number is the
+    integer prefix of the file name. When `first_frame_number` and/or
+    `last_frame_number` is provided, only images whose frame number falls in
+    [first_frame_number, last_frame_number) survive; annotations referencing
+    other images are dropped.
 
-    if download:
-        if os.path.exists("annotations"):
-            shutil.rmtree("annotations")
-    
-        zip_files=download_annotations_from_cvat(experiment, ".", tasks=tasks)
-        for zip_file in zip_files:
-            process=subprocess.Popen(["unzip",  zip_file])
-            process.communicate()
+    Bounds use [start, end) — `last_frame_number` is exclusive — to match the
+    convention used elsewhere in this module (e.g. cross_machine_human).
+    Pass `last_frame_number=None` (or `math.inf`) for an open upper bound.
+    """
+    if os.path.exists("annotations"):
+        shutil.rmtree("annotations")
+
+    zip_files = [get_zipfile_for_task(".", task) for task in tasks]
+    for zip_file in zip_files:
+        process = subprocess.Popen(["unzip", zip_file])
+        process.communicate()
 
     with open("annotations/instances_default.json", "r") as handle:
-        annotations=json.load(handle)
+        annotations = json.load(handle)
 
+    if first_frame_number is None and last_frame_number is None:
+        return annotations
+
+    lo = -math.inf if first_frame_number is None else first_frame_number
+    hi = math.inf if last_frame_number is None else last_frame_number
+
+    # Keep only images whose frame number is in [lo, hi), then drop
+    # annotations that referenced dropped images.
+    kept_images = [
+        img for img in annotations["images"]
+        if lo <= parse_frame_number(img["file_name"]) < hi
+    ]
+    kept_image_ids = {img["id"] for img in kept_images}
+
+    annotations["images"] = kept_images
+    annotations["annotations"] = [
+        ann for ann in annotations["annotations"]
+        if ann["image_id"] in kept_image_ids
+    ]
     return annotations
-        
+
+
 def load_intervals(experiment, annotations=None, tasks=None):
     assert annotations is not None or tasks is not None
-
     if annotations is None:
-        annotations=get_annotations(experiment, tasks=tasks)
+        annotations = get_annotations(tasks=tasks)
 
-
-    original_width, original_height=get_resolution(experiment)
-    framerate=get_framerate(experiment)
+    original_width, original_height = get_resolution(experiment)
+    framerate = get_framerate(experiment)
 
     intervals = detect_continuous_bouts(annotations, "COURTSHIP", 1, framerate)
-    mult_x, mult_y = original_width / annotations["images"][0]["width"], original_height / annotations["images"][0]["height"]
-    intervals["x1"]*=mult_x
-    intervals["y1"]*=mult_y
-    intervals["x2"]*=mult_x
-    intervals["y2"]*=mult_y
+    mult_x = original_width / annotations["images"][0]["width"]
+    mult_y = original_height / annotations["images"][0]["height"]
+    intervals["x1"] *= mult_x
+    intervals["y1"] *= mult_y
+    intervals["x2"] *= mult_x
+    intervals["y2"] *= mult_y
     return intervals
 
 
-# Discard integer identities that spuriously appear during the courtship bout
-# I dont want to keep brief restorations of identities that belong to flies engaged in courtship mounting
-# until the flies finally separate
+def replace_courtship_identities(data, all_intervals_ok_labels,
+                                 all_intervals_engaged_labels,
+                                 intervals, chunksize):
+    """
+    For each courtship bout, ensure that every engaged local_identity has a
+    row at every frame of the bout, with (x, y) set to the bbox centroid.
 
-def discard_courtship_identities(data, all_intervals_ok_labels, intervals, chunksize, local_identities=None):
-    
-    rows=[]
+    Engaged local_identity values come from `all_intervals_engaged_labels`,
+    which is populated by mark_engaged_labels + _bin_engaged_to_chunks from
+    explicit per-chunk engagement markers in the annotation. These local_ids
+    live in the same namespace as data["local_identity"] (per-chunk machine
+    ids), so the synthetic rows can claim them legitimately.
 
-    tracks_index=intervals[["interval_id", "track_id"]].drop_duplicates()
+    `all_intervals_ok_labels` is unused now (kept for signature compatibility
+    with downstream callers; remove once they're migrated).
 
+    Rows touched are flagged synthetic_courtship=True so that
+    remove_blobs_associated_to_courtship spares them.
+    """
+    centroids = (
+        intervals.assign(
+            cx=(intervals["x1"] + intervals["x2"]) / 2,
+            cy=(intervals["y1"] + intervals["y2"]) / 2,
+        )
+        .set_index(["interval_id", "frame_number"])[["cx", "cy"]]
+    )
 
-    for interval_id in all_intervals_ok_labels:
-        interval_start, interval_end = all_intervals_ok_labels[interval_id]["interval"]
-        track_id = tracks_index.query("interval_id == @interval_id")["track_id"].item()
+    if "synthetic_courtship" not in data.columns:
+        data = data.copy()
+        data["synthetic_courtship"] = False
 
+    new_rows = []
 
+    for interval_id, info in all_intervals_engaged_labels.items():
+        engaged_per_chunk = info["engaged_per_chunk"]
+        # Pull interval frame range from centroids index for this interval_id.
+        # (Cheaper than another lookup; the index is already built.)
+        try:
+            frames_in_interval = centroids.loc[interval_id].index
+        except KeyError:
+            continue
+        interval_start = int(frames_in_interval.min())
+        interval_end = int(frames_in_interval.max())
 
-        for chunk in all_intervals_ok_labels[interval_id]["labels_per_chunk"]:
-            ok_labels =all_intervals_ok_labels[interval_id]["labels_per_chunk"][chunk]
+        for chunk, engaged_ids in engaged_per_chunk.items():
+            # (1) Reassign coords on existing rows whose local_identity is
+            # an engaged one in this chunk.
+            mask = (
+                (data["interval_id"] == interval_id)
+                & (data["frame_number"] >= interval_start)
+                & (data["frame_number"] <= interval_end)
+                & ((data["frame_number"] // chunksize) == chunk)
+                & (data["local_identity"].isin(engaged_ids))
+            )
+            if mask.any():
+                idx = pd.MultiIndex.from_arrays([
+                    data.loc[mask, "interval_id"],
+                    data.loc[mask, "frame_number"],
+                ])
+                coords = centroids.reindex(idx)
+                data.loc[mask, "x"] = coords["cx"].to_numpy()
+                data.loc[mask, "y"] = coords["cy"].to_numpy()
+                data.loc[mask, "synthetic_courtship"] = True
 
-            data=data.loc[
-                ~(
-                    (data["interval_id"]==interval_id) & \
-                    (data["frame_number"]>=interval_start) & \
-                    (data["frame_number"]<=interval_end) & \
-                    (~data["local_identity"].isin(ok_labels))
-                )
-            ]
-            if local_identities is not None:
-                courtship_identities = [identity for identity in local_identities if identity not in ok_labels]
-                for frame_number in tqdm(range(interval_start, interval_end)):
-                    if frame_number//chunksize == chunk:
-                        for local_identity in courtship_identities:
-                            row = pd.Series({
-                                "interval_id": interval_id,
-                                "frame_number": frame_number,
-                                "local_identity": local_identity,
-                            })
-                            rows.append(row)
-                    else:
+            # (2) Insert rows for engaged local_ids absent from this chunk.
+            chunk_start = max(interval_start, chunk * chunksize)
+            chunk_end = min(interval_end, (chunk + 1) * chunksize - 1)
+            if chunk_start > chunk_end:
+                continue
+
+            present_in_chunk = (
+                data.loc[
+                    (data["interval_id"] == interval_id)
+                    & (data["frame_number"].between(chunk_start, chunk_end)),
+                    ["frame_number", "local_identity"],
+                ]
+                .groupby("frame_number")["local_identity"]
+                .apply(set)
+                .to_dict()
+            )
+
+            for frame_number in range(chunk_start, chunk_end + 1):
+                key = (interval_id, frame_number)
+                if key not in centroids.index:
+                    continue
+                cx = centroids.loc[key, "cx"]
+                cy = centroids.loc[key, "cy"]
+                already = present_in_chunk.get(frame_number, set())
+                for li in engaged_ids:
+                    if li in already:
                         continue
+                    new_rows.append({
+                        "interval_id": interval_id,
+                        "frame_number": int(frame_number),
+                        "chunk": int(chunk),
+                        "local_identity": li,
+                        "x": cx,
+                        "y": cy,
+                        "synthetic_courtship": True,
+                        "courtship": True,
+                        "has_courtship": True,
+                        "is_a_crossing": True,
+                        "class_name": "courtship",
+                        "frame_validated": True,
+                        "fragment": np.nan,
+                        "is_annotated": False,
+                    })
 
-    # TODO Update this so rows contains the new data points
-    # corresponding to flies engaged in courtship at the corresponding frames
-    # You may want to just have interval_id, frame_number, local_identity, x and y
-    # and have the rest of columns be added later outside of discard_courtship_identities,
-    # in the call to prepare_data_for_identity_annnotation_with_courtship
+    if new_rows:
+        data = pd.concat(
+            [data, pd.DataFrame(new_rows)],
+            axis=0, ignore_index=True,
+        )
 
-    if rows:
-        data=pd.concat([
-            data,
-            rows
-        ], axis=0).sort_values("frame_number")
-
-    return data
-
+    return data.sort_values(["frame_number", "local_identity"]).reset_index(drop=True)
 
 
 def annotate_validated_fragments(data):
     """
-    Blobs occuring in frames with courtship that belong to normal flies will be protected even if not manually annotated
-    as long as they belong to a fragment which is annotated in some other frame
+    Blobs in courtship frames that belong to non-courting flies are protected
+    even if not manually annotated, as long as they belong to a fragment that
+    is annotated in some other frame.
     """
-    fragment_index=data.loc[data["validated"]>0].groupby(["chunk", "fragment", "local_identity"]).size().reset_index(name="count")
+    fragment_index = (
+        data.loc[data["validated"] > 0]
+        .groupby(["chunk", "fragment", "local_identity"])
+        .size()
+        .reset_index(name="count")
+    )
     assert not fragment_index.duplicated(["chunk", "fragment", "local_identity"]).any()
-    fragment_index["validated_fragment"]=True
+    fragment_index["validated_fragment"] = True
     fragment_index.rename({"local_identity": "fragment_identity"}, axis=1, inplace=True)
-    data=data.merge(fragment_index, on=["chunk", "fragment"], how="left")
-    data.loc[data["validated_fragment"].isna(), "validated_fragment"]=False
+    data = data.merge(fragment_index, on=["chunk", "fragment"], how="left")
+    data.loc[data["validated_fragment"].isna(), "validated_fragment"] = False
     return data
 
 
 
 def remove_blobs_associated_to_courtship(data):
     """
-    Removes blobs that are either
-    1) a crossing blob produced by a courtship event
-    2) not crossing blobs that belong to flies engaged in an ongoing courtship heavy contact
-        which happen to be distinguishable (for a few frames at a time only) 
+    Remove blobs that are either
+      1) a crossing blob produced by a courtship event, or
+      2) non-crossing blobs from flies in an ongoing courtship heavy-contact
+         that happen to be briefly distinguishable.
+
+    Synthetic-centroid rows produced by replace_courtship_identities are
+    spared regardless: they represent the (assumed) positions of courting
+    flies and are the whole reason we kept identity information through
+    the bout.
     """
-
     fragment_ok = (
-        # if the fragment has at least 1 blob I have annotated
-        (data["validated_fragment"]==True) |
-        # if the blob has no fragment i.e. it is a singleton
-        # = a blob that cannot be placed in a fragment and is a length 1 fragment
-        data["fragment"].isna()
+        (data["validated_fragment"] == True)
+        | data["fragment"].isna()  # singleton, can't be placed in a fragment
     )
+    # Treat missing synthetic_courtship as False so the column is optional.
+    synthetic = data.get("synthetic_courtship", pd.Series(False, index=data.index))
+    synthetic = synthetic.fillna(False).astype(bool)
 
-    selector= ~(data["courtship"]) & (fragment_ok | (~data["has_courtship"]))
-    
-    data.loc[np.bitwise_not(selector)].to_csv("courtship_discarded.csv")
+    selector = synthetic | (~(data["courtship"]) & (fragment_ok | (~data["has_courtship"])))
 
-    data=data.loc[selector]
-
-    return data
+    data.loc[~selector].to_csv("courtship_discarded.csv")
+    return data.loc[selector]
 
 
 def remove_courtship_identities_from_local_identity_table(lid_table, all_intervals_ok_labels, chunksize):
     """
-    If a good blob has a local_identity associated with courtship in the same chunk,
-    ignore it regarding the propagation of identities between chunks, since by definition,
-    the fly is not properly segmented in at least the beginning or the end of the chunk
-    (possibly both if the courtship takes the whole chunk, which can happen because 1 chunk = 5 minutes)
+    If a good blob has a local_identity associated with courtship in the same
+    chunk, ignore it for identity propagation between chunks: the fly isn't
+    properly segmented in at least one end of the chunk (possibly both, since
+    a 5-minute chunk can be entirely covered by one bout).
     """
-
     for interval_id in all_intervals_ok_labels:
-
-        interval_start, interval_end=all_intervals_ok_labels[interval_id]["interval"]
-
-
-        if interval_start//chunksize==interval_end//chunksize:
+        interval_start, interval_end = all_intervals_ok_labels[interval_id]["interval"]
+        if interval_start // chunksize == interval_end // chunksize:
             continue
 
-        for i, chunk in enumerate(all_intervals_ok_labels[interval_id]["labels_per_chunk"]):
-            ok_labels=all_intervals_ok_labels[interval_id]["labels_per_chunk"][chunk]
-    
-            if i==0:    
-                lid_table=lid_table.loc[
-                    ~((lid_table["chunk"]==chunk) & (lid_table["position"]=="last") & (~lid_table["local_identity"].isin(ok_labels)))
-                ]
-            elif i==len(all_intervals_ok_labels[interval_id]["labels_per_chunk"])-1:
-                lid_table=lid_table.loc[
-                    ~((lid_table["chunk"]==chunk) & (lid_table["position"]=="first") & (~lid_table["local_identity"].isin(ok_labels)))
-                ]
+        chunks_in_interval = list(all_intervals_ok_labels[interval_id]["labels_per_chunk"])
+        for i, chunk in enumerate(chunks_in_interval):
+            ok_labels = all_intervals_ok_labels[interval_id]["labels_per_chunk"][chunk]
+            same_chunk = lid_table["chunk"] == chunk
+            wrong_label = ~lid_table["local_identity"].isin(ok_labels)
+
+            if i == 0:
+                drop = same_chunk & (lid_table["position"] == "last") & wrong_label
+            elif i == len(chunks_in_interval) - 1:
+                drop = same_chunk & (lid_table["position"] == "first") & wrong_label
             else:
-                lid_table=lid_table.loc[
-                    ~((lid_table["chunk"]==chunk)  & (~lid_table["local_identity"].isin(ok_labels)))
-                ]
+                drop = same_chunk & wrong_label
+            lid_table = lid_table.loc[~drop]
 
     return lid_table
 
-# Public
 
-def prepare_data_for_identity_annnotation_with_courtship(experiment, data, download=True):
-    chunksize=get_chunksize(experiment)
-    number_of_animals=get_number_of_animals(experiment)
-    local_identities=list(range(1, number_of_animals+1))
+def mark_engaged_labels(annotations, intervals):
+    """
+    Parse engagement markers — small rectangles fully contained inside a
+    COURTSHIP rectangle at the same frame — to determine which local_identity
+    values in each chunk are engaged in each bout.
 
-    annotations=get_annotations(experiment, tasks=None, download=download)
-    
-    intervals=load_intervals(experiment, annotations=annotations)
+    Each marker is a regular integer-labeled rectangle ("1", "2", "3", ...)
+    whose bbox is fully enclosed by a COURTSHIP rectangle's bbox at the same
+    frame. Containment is checked per frame; markers that aren't fully
+    inside any COURTSHIP rectangle are ignored (they're regular checkpoint
+    annotations).
 
-    data=mark_courtship(data, intervals)
-    all_intervals_ok_labels=mark_ok_labels(annotations, intervals, chunksize)
-    data=discard_courtship_identities(
-        data, all_intervals_ok_labels, intervals=intervals,
-        chunksize=chunksize,
-        local_identities=local_identities
+    Two markers per (interval_id, chunk) are expected (two engaged flies);
+    if a different count appears, the function logs a warning but still
+    returns what it found.
+
+    Parameters
+    ----------
+    annotations : dict (COCO-style)
+    intervals : DataFrame from detect_continuous_bouts (one row per integer
+        frame in each bout, with x1, y1, x2, y2 of the COURTSHIP rectangle).
+
+    Returns
+    -------
+    dict[interval_id -> dict["engaged_per_chunk" -> dict[chunk -> set[int]]]]
+    """
+    # Per-frame index of every COURTSHIP rectangle (in raw CVAT pixel space —
+    # the same space the marker bboxes are in, *before* the resolution rescale
+    # in load_intervals). We need raw-space bboxes for containment.
+    # Easiest: re-derive from annotations rather than reusing rescaled intervals.
+
+    categories_index = {c["id"]: c["name"] for c in annotations["categories"]}
+    fn_by_image_id = {
+        img["id"]: parse_frame_number(img["file_name"])
+        for img in annotations["images"]
+    }
+    # Reverse lookup: track_id -> interval_id (for the parent COURTSHIP track).
+    # We need this so that when a marker is contained in a COURTSHIP at some
+    # frame, we know which bout interval_id to attribute it to.
+    courtship_cat_id = next(
+        c["id"] for c in annotations["categories"] if c["name"] == "COURTSHIP"
     )
+
+    # Build a per-frame list of (track_id, x1, y1, x2, y2) for COURTSHIPs
+    courtship_by_frame = {}  # frame_number -> list of (track_id, x1,y1,x2,y2)
+    courtship_track_to_interval = {}  # track_id -> interval_id (resolved later)
+    for ann in annotations["annotations"]:
+        if ann["category_id"] != courtship_cat_id:
+            continue
+        if ann["image_id"] not in fn_by_image_id:
+            continue
+        fn = fn_by_image_id[ann["image_id"]]
+        x, y, w, h = ann["bbox"]
+        track_id = ann["attributes"].get("track_id", -1)
+        courtship_by_frame.setdefault(fn, []).append(
+            (track_id, x, y, x + w, y + h)
+        )
+
+    # Map each COURTSHIP track_id to its interval_id by looking at intervals.
+    # `intervals` has one row per (interval_id, track_id) — we built it that way.
+    for _, row in intervals[["interval_id", "track_id"]].drop_duplicates().iterrows():
+        courtship_track_to_interval[row["track_id"]] = int(row["interval_id"])
+
+    # Walk every annotation. If it's an integer-labeled rectangle whose bbox is
+    # fully contained in some COURTSHIP at the same frame, record it as an
+    # engagement marker for that bout's chunk.
+    engaged = {}  # interval_id -> {"engaged_per_chunk": {chunk: {local_id, ...}}}
+
+    for ann in annotations["annotations"]:
+        if ann["category_id"] == courtship_cat_id:
+            continue
+        if ann["image_id"] not in fn_by_image_id:
+            continue
+        cat = categories_index[ann["category_id"]]
+        try:
+            local_id = int(cat)
+        except ValueError:
+            continue
+
+        fn = fn_by_image_id[ann["image_id"]]
+        if fn not in courtship_by_frame:
+            continue
+
+        x, y, w, h = ann["bbox"]
+        ax1, ay1, ax2, ay2 = x, y, x + w, y + h
+
+        # Containment check: this marker fully inside any COURTSHIP at this frame?
+        parent_interval_id = None
+        for (track_id, cx1, cy1, cx2, cy2) in courtship_by_frame[fn]:
+            if cx1 <= ax1 and cy1 <= ay1 and ax2 <= cx2 and ay2 <= cy2:
+                parent_interval_id = courtship_track_to_interval.get(track_id)
+                break  # first containing COURTSHIP wins; overlaps are rare
+        if parent_interval_id is None:
+            continue  # regular checkpoint annotation, not an engagement marker
+
+        # Note: chunksize isn't available here — we'll attribute the marker to
+        # its frame's chunk in the caller, who knows chunksize. For now, store
+        # by frame_number; the caller bins to chunk.
+        slot = engaged.setdefault(parent_interval_id, {})
+        slot.setdefault(fn, set()).add(local_id)
+
+    return engaged
+
+
+def _bin_engaged_to_chunks(engaged_by_frame, chunksize):
+    """
+    Convert {interval_id: {frame_number: {local_id, ...}}} (output of
+    mark_engaged_labels) into {interval_id: {"engaged_per_chunk": {chunk:
+    {local_id, ...}}}}, unioning markers across frames within the same chunk.
+
+    Also warns when a chunk has a marker count other than the expected 2
+    engaged flies — too few suggests a missing marker, too many suggests a
+    typo or a marker that should not have been attributed.
+    """
+    out = {}
+    for interval_id, frame_to_ids in engaged_by_frame.items():
+        per_chunk = {}
+        for fn, ids in frame_to_ids.items():
+            chunk = fn // chunksize
+            per_chunk.setdefault(chunk, set()).update(ids)
+        for chunk, ids in per_chunk.items():
+            if len(ids) != 2:
+                logger.warning(
+                    "Interval %s, chunk %s: expected 2 engagement markers, got %d (%s)",
+                    interval_id, chunk, len(ids), sorted(ids),
+                )
+        out[interval_id] = {"engaged_per_chunk": per_chunk}
+    return out
+
+
+
+class EngagementMarkerError(ValueError):
+    """Raised when a courtship bout is missing required engagement markers."""
+
+
+def parse_engagement_markers(annotations, intervals, chunksize,
+                             expected_per_chunk=2, tolerance=0.0):
+    """
+    Parse engagement markers and validate that every (interval_id, chunk)
+    in every bout has the expected number of markers.
+
+    An engagement marker is an integer-labeled rectangle whose bbox is fully
+    contained in a COURTSHIP rectangle at the same raw-annotated frame.
+    Containment requires:
+        courtship_x1 - tol <= marker_x1
+        courtship_y1 - tol <= marker_y1
+        marker_x2 <= courtship_x2 + tol
+        marker_y2 <= courtship_y2 + tol
+    Partial overlaps don't count.
+
+    Parameters
+    ----------
+    annotations : dict (COCO-style)
+    intervals : DataFrame from detect_continuous_bouts. Used only to map
+        track_id -> interval_id.
+    chunksize : int
+    expected_per_chunk : int, default 2
+        Number of engaged flies per bout per chunk. Fewer or more markers
+        in any (interval_id, chunk) → raises EngagementMarkerError.
+    tolerance : float, default 0.0
+        Slack on the containment check, in CVAT-export pixels. Set to a
+        small positive value (e.g. 0.5) if annotators draw markers flush
+        with COURTSHIP edges and floating-point export causes false
+        rejections.
+
+    Returns
+    -------
+    dict[interval_id -> dict["engaged_per_chunk" -> dict[chunk -> set[int]]]]
+        Same shape used by replace_courtship_identities.
+
+    Raises
+    ------
+    EngagementMarkerError
+        If any (interval_id, chunk) lacks the expected number of markers, or
+        if a COURTSHIP track has no raw-annotated frame with markers at all.
+        Error message lists every offending (interval_id, chunk) so the
+        annotator can fix them in one pass.
+
+        Also raises EngagementMarkerError if any chunk that a bout spans (per
+            `intervals`) has no raw COURTSHIP keyframe at all. CVAT interpolation
+            between keyframes doesn't count: the annotator must place at least one
+            keyframe per (bout, chunk) so markers can attach to it.
+    """
     
-    data=annotate_validated_fragments(data)
-    assert (data.loc[data["validated_fragment"]==True, "local_identity"]==data.loc[data["validated_fragment"]==True, "fragment_identity"]).all()
-       
-    courtship_data=data.loc[(data["courtship"] & data["is_annotated"])]
-    data=remove_blobs_associated_to_courtship(data)
+    categories_index = {c["id"]: c["name"] for c in annotations["categories"]}
+    fn_by_image_id = {
+        img["id"]: parse_frame_number(img["file_name"])
+        for img in annotations["images"]
+    }
+
+    courtship_match = [c for c in annotations["categories"] if c["name"] == "COURTSHIP"]
+    if not courtship_match:
+        return {}  # no COURTSHIP category → no bouts → nothing to validate
+    courtship_cat_id = courtship_match[0]["id"]
+
+    # Build per-frame list of raw COURTSHIP bboxes with their track_id.
+    courtship_by_frame = {}  # frame_number -> [(track_id, x1,y1,x2,y2), ...]
+    for ann in annotations["annotations"]:
+        if ann["category_id"] != courtship_cat_id:
+            continue
+        if ann["image_id"] not in fn_by_image_id:
+            continue
+        fn = fn_by_image_id[ann["image_id"]]
+        x, y, w, h = ann["bbox"]
+        track_id = ann["attributes"].get("track_id", -1)
+        courtship_by_frame.setdefault(fn, []).append(
+            (track_id, x, y, x + w, y + h)
+        )
+
+    # track_id -> interval_id, for attributing markers to bouts.
+    courtship_track_to_interval = {
+        int(row["track_id"]): int(row["interval_id"])
+        for _, row in intervals[["interval_id", "track_id"]].drop_duplicates().iterrows()
+    }
+
+    # For early-fail validation we also need: which (interval_id, chunk) pairs
+    # are *expected* to have markers? Any chunk that contains at least one
+    # raw-annotated COURTSHIP frame for the bout's track.
+    expected_keys = set()  # {(interval_id, chunk), ...}
+    for fn, courtships in courtship_by_frame.items():
+        chunk = fn // chunksize
+        for (track_id, *_) in courtships:
+            iid = courtship_track_to_interval.get(int(track_id))
+            if iid is not None:
+                expected_keys.add((iid, chunk))
+
+    # Walk all annotations, identify markers by containment.
+    # Per (interval_id, chunk), accumulate marker labels AND track the set
+    # of raw-annotated frames at which markers were found (for the "real
+    # frame, not interpolated" requirement).
+    by_chunk = {}  # (interval_id, chunk) -> set of local_ids
+    marker_frames = {}  # (interval_id, chunk) -> set of frame_numbers
+
+    for ann in annotations["annotations"]:
+        if ann["category_id"] == courtship_cat_id:
+            continue
+        if ann["image_id"] not in fn_by_image_id:
+            continue
+        cat = categories_index[ann["category_id"]]
+        try:
+            local_id = int(cat)
+        except ValueError:
+            continue
+
+        fn = fn_by_image_id[ann["image_id"]]
+        if fn not in courtship_by_frame:
+            continue  # not at a raw COURTSHIP frame; cannot be a marker
+
+        x, y, w, h = ann["bbox"]
+        ax1, ay1, ax2, ay2 = x, y, x + w, y + h
+
+        parent_iid = None
+        for (track_id, cx1, cy1, cx2, cy2) in courtship_by_frame[fn]:
+            if (cx1 - tolerance <= ax1
+                    and cy1 - tolerance <= ay1
+                    and ax2 <= cx2 + tolerance
+                    and ay2 <= cy2 + tolerance):
+                parent_iid = courtship_track_to_interval.get(int(track_id))
+                break
+        if parent_iid is None:
+            continue  # checkpoint annotation outside any COURTSHIP
+
+        chunk = fn // chunksize
+        key = (parent_iid, chunk)
+        by_chunk.setdefault(key, set()).add(local_id)
+        marker_frames.setdefault(key, set()).add(fn)
+
+    # --- Validate: which chunks does each bout actually span? --------------
+    # `intervals` is dense (one row per integer frame), so its (interval_id,
+    # frame_number // chunksize) pairs give the full spanned chunks per bout.
+    spanned = (
+        intervals
+        .assign(chunk=intervals["frame_number"] // chunksize)
+        .groupby("interval_id")["chunk"]
+        .apply(lambda s: set(s.unique().tolist()))
+        .to_dict()
+    )  # {interval_id: {chunk, ...}}
+
+    errors = []
+
+    # Chunks the bout spans that have NO raw COURTSHIP keyframe at all.
+    # These can't be in expected_keys (which is keyed off raw keyframes), so
+    # they'd silently skip validation under the previous logic.
+    chunks_seen_per_interval = {}  # {iid: {chunks with raw keyframes}}
+    for (iid, chunk) in expected_keys:
+        chunks_seen_per_interval.setdefault(iid, set()).add(chunk)
+
+    for iid, spanned_chunks in spanned.items():
+        seen = chunks_seen_per_interval.get(iid, set())
+        missing_keyframes = spanned_chunks - seen
+        if missing_keyframes:
+            errors.append(
+                f"  interval_id={iid}: no raw COURTSHIP keyframe in "
+                f"chunk(s) {sorted(missing_keyframes)} — CVAT interpolation "
+                f"is not enough. Add a keyframe in each, then place "
+                f"{expected_per_chunk} engagement markers inside it."
+            )
+
+    # Per (interval_id, chunk) marker-count validation (unchanged).
+    for key in sorted(expected_keys):
+        iid, chunk = key
+        markers = by_chunk.get(key, set())
+        if not markers:
+            errors.append(
+                f"  interval_id={iid}, chunk={chunk}: no engagement markers "
+                f"(expected {expected_per_chunk})"
+            )
+            continue
+        if len(markers) != expected_per_chunk:
+            errors.append(
+                f"  interval_id={iid}, chunk={chunk}: found {len(markers)} "
+                f"marker(s) {sorted(markers)} at frames "
+                f"{sorted(marker_frames[key])} (expected {expected_per_chunk})"
+            )
+
+    # (Whole-track-missing check can now go away — the spanned-vs-seen
+    # check above subsumes it, with a more useful error message.)
+
+    if errors:
+        raise EngagementMarkerError(
+            "Engagement marker validation failed:\n" + "\n".join(errors)
+        )
+
+    # --- Pack output (unchanged) ------------------------------------------
+    out = {}
+    for (iid, chunk), labels in by_chunk.items():
+        out.setdefault(iid, {"engaged_per_chunk": {}})["engaged_per_chunk"][chunk] = labels
+    return out
+
+
+
+def prepare_data_for_identity_annnotation_with_courtship(experiment, data, first_frame_number=None, last_frame_number=None):
+    chunksize = get_chunksize(experiment)
+
+    tasks = sorted(get_tasks_for_project(
+        get_project_id_from_name(experiment, errors="raise")
+    ))
+    annotations = get_annotations(tasks=tasks, first_frame_number=first_frame_number, last_frame_number=last_frame_number)
+    intervals = load_intervals(experiment, annotations=annotations)
+
+    # Validate engagement markers BEFORE any expensive work. If the annotator
+    # forgot markers for any (bout, chunk), we want to fail loud and fast so
+    # they can fix the annotation rather than discover broken tracks later.
+    all_intervals_engaged_labels = parse_engagement_markers(
+        annotations, intervals, chunksize,
+    )
+
+    data = mark_courtship(data, intervals)
+    all_intervals_ok_labels = mark_ok_labels(annotations, intervals, chunksize)
+
+    data = replace_courtship_identities(
+        data,
+        all_intervals_ok_labels=all_intervals_ok_labels,
+        all_intervals_engaged_labels=all_intervals_engaged_labels,
+        intervals=intervals,
+        chunksize=chunksize,
+    )
+
+    data = annotate_validated_fragments(data)
+    assert (
+        data.loc[data["validated_fragment"] == True, "local_identity"]
+        == data.loc[data["validated_fragment"] == True, "fragment_identity"]
+    ).all()
+    data = remove_blobs_associated_to_courtship(data)
 
     return data, all_intervals_ok_labels
