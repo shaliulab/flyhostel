@@ -4,7 +4,6 @@ import joblib
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
-# from memory_profiler import profile
 from flyhostel.utils import prepare_batches
 from .constants import BATCH_SIZE, LOGFILE
 from .qcs import (

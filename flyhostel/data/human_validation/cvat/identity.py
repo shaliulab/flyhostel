@@ -110,101 +110,195 @@ def ensure_continuity_of_table(table):
             print(all_chunks[local_identity])
             raise Exception(f"local_identity len({local_identity})!={number_of_chunks} ({length})")
 
-def make_identity_table(lid_table, annotated_table, chunks, verbose=False, debug=False):
+
+def match_animals_between_chunks_by_distance(before, after, local_identity_before, chunk,
+                                             log=None, candidate_lids=None):
     """
+    Match `local_identity_before` to whichever local_identity in `after`
+    minimizes Euclidean distance.
 
-    Details:
-        lid_table format
-
-        Two rows per fly and chunk, one for the start and one for the end of the chunk
-        Contains the x / y coordinates of the fly and its local_identity
-        This is used to find which local_identity does the fly get in the next chunk, which
-        gets stored in the column local_identity_after of the output table.
-        Propagate identities uses that info to then "propagate" the same identity for the same fly through chunks
-
-        NOTE: If the fly is involved in courtship during a chunk, the entries for the fly in that chunk are removed
-        If the courtship starts in the chunk, the position "last" is removed
-        If the courtship ends in the chunk, the position "first" is removed
-
-        identity_table format
-        One row per fly and chunk
-
+    `candidate_lids` (optional): restrict the search to this list. Useful for
+    excluding engaged flies' centroid positions (which collapse all distances
+    to zero) and for excluding targets already paired earlier in the same
+    chunk transition.
     """
-    identity_table=[]
-    for chunk in tqdm(chunks[:-1]):
-        used_local_identity_after=set([])
+    animal = before.loc[before["local_identity"] == local_identity_before]
+    min_distance = math.inf
+    selected_lid = None
 
-        before = lid_table.loc[
-            (lid_table["chunk"]==chunk) & (lid_table["position"]=="last")
-        ]
-        after = lid_table.loc[
-            (lid_table["chunk"]==chunk+1) & (lid_table["position"]=="first")
-        ]
-        
-        lids=before["local_identity"]
-        if isinstance(lids, cudf.Series):
-            lids=lids.to_pandas()
-        lids=lids.unique().tolist()
-        with open("identity_table.log", "w") as log:
-            for local_identity in lids:
-                local_identity_after, min_distance=match_animals_between_chunks_by_distance(before, after, local_identity, chunk, log)
-                if local_identity_after in used_local_identity_after:
-                    logger.warning("%s already used in chunk %s", local_identity_after, chunk)
-                    log.write(f"{local_identity_after} already used in chunk {chunk}\n")
-                    print(before, after)
+    if candidate_lids is None:
+        lids_series = after["local_identity"]
+        if isinstance(lids_series, cudf.Series):
+            lids_series = lids_series.to_pandas()
+        lids = lids_series.unique().tolist()
+    else:
+        lids = list(candidate_lids)
+
+    for lid_after in lids:
+        next_animal = after.loc[after["local_identity"] == lid_after]
+        if next_animal.shape[0] > 1:
+            raise ValueError(
+                f"{next_animal.shape[0]} animals found with local identity "
+                f"{lid_after} in chunk {chunk+1}"
+            )
+        elif next_animal.shape[0] == 0:
+            raise ValueError(
+                f"0 animals found with local identity {lid_after} in chunk {chunk+1}"
+            )
+
+        distance = euclidean_distance(
+            animal[["x", "y"]].values,
+            next_animal[["x", "y"]].values,
+        ).item()
+        if distance < min_distance:
+            min_distance = distance
+            selected_lid = lid_after
+
+    if log is not None:
+        log.write(f"{chunk} - {local_identity_before} -> {chunk+1} - {selected_lid}\n")
+
+    return selected_lid, min_distance
+
+
+def make_identity_table(lid_table, annotated_table, chunks,
+                        all_intervals_engaged_labels=None,
+                        verbose=False, debug=False):
+    """
+    Build the chunk-to-chunk identity chain.
+
+    When `all_intervals_engaged_labels` is provided, courtship-engaged local
+    identities at chunk boundaries spanned by a bout are paired directly
+    (sorted-with-sorted, per bout) rather than distance-matched — because all
+    engaged flies sit at the bbox centroid and distance is uninformative.
+
+    lid_table format: two rows per fly and chunk (position=first|last) with
+    x, y, local_identity. identity_table format: one row per fly per chunk
+    transition, with local_identity_after.
+    """
+    identity_table = []
+
+    # Open the log ONCE for the whole pass. The previous version opened it
+    # inside the per-chunk loop with mode "w", truncating it every iteration.
+    with open("identity_table.log", "w") as log:
+        for chunk in tqdm(chunks[:-1]):
+            next_chunk = chunk + 1
+
+            before = lid_table.loc[
+                (lid_table["chunk"] == chunk) & (lid_table["position"] == "last")
+            ]
+            after = lid_table.loc[
+                (lid_table["chunk"] == next_chunk) & (lid_table["position"] == "first")
+            ]
+
+            used = set()
+            handled_before = set()
+
+            # --- Phase 1: pair engaged-engaged across the boundary, per bout.
+            # If a bout spans (chunk, next_chunk), engaged local_ids on both
+            # sides are at the centroid and indistinguishable. We pair them
+            # sorted-with-sorted within each bout, never across bouts.
+            if all_intervals_engaged_labels:
+                chunk_key = int(chunk)
+                next_chunk_key = int(next_chunk)
+                for interval_id, info in all_intervals_engaged_labels.items():
+                    engaged_N = info["engaged_per_chunk"].get(chunk_key)
+                    engaged_Np1 = info["engaged_per_chunk"].get(next_chunk_key)
+                    if not (engaged_N and engaged_Np1):
+                        continue
+                    for src, tgt in zip(sorted(engaged_N), sorted(engaged_Np1)):
+                        identity_table.append((int(chunk), src, tgt, 0.0))
+                        used.add(tgt)
+                        handled_before.add(src)
+                        log.write(
+                            f"{chunk} - {src} -> {next_chunk} - {tgt} "
+                            f"(engaged pair, interval_id={interval_id})\n"
+                        )
+
+            # --- Phase 2: distance-match the rest, excluding already-used
+            # targets from the candidate pool.
+            lids_before_series = before["local_identity"]
+            if isinstance(lids_before_series, cudf.Series):
+                lids_before_series = lids_before_series.to_pandas()
+            lids_before = lids_before_series.unique().tolist()
+
+            after_lids_series = after["local_identity"]
+            if isinstance(after_lids_series, cudf.Series):
+                after_lids_series = after_lids_series.to_pandas()
+            all_after_lids = after_lids_series.unique().tolist()
+
+            for local_identity in lids_before:
+                if local_identity in handled_before:
+                    continue
+
+                candidate_lids = [lid for lid in all_after_lids if lid not in used]
+                if not candidate_lids:
+                    log.write(
+                        f"{chunk} - {local_identity} -> no remaining candidates\n"
+                    )
+                    continue
+
+                local_identity_after, min_distance = (
+                    match_animals_between_chunks_by_distance(
+                        before, after, local_identity, chunk, log,
+                        candidate_lids=candidate_lids,
+                    )
+                )
+
+                if local_identity_after in used:
+                    # Shouldn't trigger now that candidates exclude `used`,
+                    # but keep the warning as a safety net.
+                    logger.warning("%s already used in chunk %s",
+                                   local_identity_after, chunk)
+                    log.write(
+                        f"{local_identity_after} already used in chunk {chunk}\n"
+                    )
+                    if verbose:
+                        print(before, after)
                     if debug:
                         import ipdb; ipdb.set_trace()
                 else:
-                    used_local_identity_after.add(local_identity_after)
-                
+                    used.add(local_identity_after)
+
                 if verbose:
                     print(f"chunk {chunk} - {local_identity} > {local_identity_after}")
-                identity_table.append((chunk.item(), local_identity, local_identity_after, min_distance))
+                identity_table.append(
+                    (int(chunk), local_identity, local_identity_after, min_distance)
+                )
 
-    identity_table=pd.DataFrame.from_records(identity_table, columns=["chunk", "local_identity", "local_identity_after", "distance"])
-    identity_table["chunk"]=identity_table["chunk"].astype(int)
-    identity_table["is_inferred"]=False
-    identity_table["chunk_after"]=identity_table["chunk"]+1
+    identity_table = pd.DataFrame.from_records(
+        identity_table,
+        columns=["chunk", "local_identity", "local_identity_after", "distance"],
+    )
+    identity_table["chunk"] = identity_table["chunk"].astype(int)
+    identity_table["is_inferred"] = False
+    identity_table["chunk_after"] = identity_table["chunk"] + 1
+    identity_table["priority"] = 2
 
-
-    identity_table["priority"]=2
-
-    
     if annotated_table is not None:
-        annotated_table["distance"]=np.nan
-        annotated_table["is_inferred"]=False
-        annotated_table["priority"]=np.inf
+        annotated_table["distance"] = np.nan
+        annotated_table["is_inferred"] = False
+        annotated_table["priority"] = np.inf
 
-        identity_table=pd.concat([
-            # so that annotations take preference
-            annotated_table,
-            identity_table
-        ], axis=0)\
-            .sort_values(["priority", "chunk", "local_identity"], ascending=True)
-        
+        identity_table = pd.concat(
+            [annotated_table, identity_table], axis=0,
+        ).sort_values(["priority", "chunk", "local_identity"], ascending=True)
 
-        dups=identity_table.duplicated(["chunk_after", "local_identity_after"])
+        dups = identity_table.duplicated(["chunk_after", "local_identity_after"])
         if dups.any():
             if verbose:
                 for _, row in identity_table.loc[dups].iterrows():
                     print("Duplicated")
                     print(identity_table.loc[
-                        (identity_table["chunk_after"]==row["chunk_after"]) & (identity_table["local_identity_after"]==row["local_identity_after"])
+                        (identity_table["chunk_after"] == row["chunk_after"])
+                        & (identity_table["local_identity_after"] == row["local_identity_after"])
                     ])
-            identity_table=identity_table.loc[~dups]
-            
+            identity_table = identity_table.loc[~dups]
 
         identity_table.sort_values(["chunk", "local_identity"], inplace=True)
 
-
-    dups=identity_table.duplicated(["chunk_after", "local_identity_after"])
-
     identity_table.to_csv("identity_table.csv")
-
     ensure_continuity_of_table(identity_table)
-
-    return identity_table
-
+    return identity_table    
 
 def make_local_identity_table(data, chunksize):
     xf=establish_dataframe_framework(data)
@@ -222,7 +316,9 @@ def make_local_identity_table(data, chunksize):
     lid_table["frame_idx"]=lid_table["frame_number"]%chunksize
     return lid_table
             
-def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated_table=None, verbose=True, **kwargs):
+def annotate_identity(data, number_of_animals, chunksize, debug=False,
+                     annotated_table=None, verbose=True,
+                     all_intervals_engaged_labels=None, **kwargs):
     """
     Generate the identity track for each animal in a dataset
 
@@ -255,9 +351,16 @@ def annotate_identity(data, number_of_animals, chunksize, debug=False, annotated
     chunks=sorted(lid_table["chunk"].unique())
 
     
-    lid_table=remove_courtship_identities_from_local_identity_table(lid_table, chunksize=chunksize, **kwargs)
+    lid_table = remove_courtship_identities_from_local_identity_table(
+        lid_table, chunksize=chunksize, **kwargs,
+    )
     lid_table.to_csv("local_identity_table.csv")
-    identity_table=make_identity_table(lid_table, annotated_table, chunks, verbose=verbose, debug=debug)
+
+    identity_table = make_identity_table(
+        lid_table, annotated_table, chunks,
+        all_intervals_engaged_labels=all_intervals_engaged_labels,
+        verbose=verbose, debug=debug,
+    )
 
     counts=identity_table.value_counts(["chunk", "local_identity_after", "chunk_after"]).reset_index(name="count")
     error_df=counts.query("count>1")

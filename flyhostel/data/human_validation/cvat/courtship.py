@@ -810,19 +810,15 @@ def parse_engagement_markers(annotations, intervals, chunksize,
     return out
 
 
-
-def prepare_data_for_identity_annnotation_with_courtship(experiment, data, first_frame_number=None, last_frame_number=None):
+def prepare_data_for_identity_annnotation_with_courtship(experiment, data):
     chunksize = get_chunksize(experiment)
 
     tasks = sorted(get_tasks_for_project(
         get_project_id_from_name(experiment, errors="raise")
     ))
-    annotations = get_annotations(tasks=tasks, first_frame_number=first_frame_number, last_frame_number=last_frame_number)
+    annotations = get_annotations(tasks=tasks)
     intervals = load_intervals(experiment, annotations=annotations)
 
-    # Validate engagement markers BEFORE any expensive work. If the annotator
-    # forgot markers for any (bout, chunk), we want to fail loud and fast so
-    # they can fix the annotation rather than discover broken tracks later.
     all_intervals_engaged_labels = parse_engagement_markers(
         annotations, intervals, chunksize,
     )
@@ -845,4 +841,4 @@ def prepare_data_for_identity_annnotation_with_courtship(experiment, data, first
     ).all()
     data = remove_blobs_associated_to_courtship(data)
 
-    return data, all_intervals_ok_labels
+    return data, all_intervals_ok_labels, all_intervals_engaged_labels

@@ -1,7 +1,10 @@
+import time
 import os.path
 import traceback
 import logging
+import copy
 import math
+from joblib import Memory
 
 import numpy as np
 import cudf
@@ -20,8 +23,9 @@ from flyhostel.data.human_validation.cvat.cvat_integration import (
     get_tasks_for_project,
     get_project_id_from_name,
     get_annotations,
-    cross_machine_human
+    get_task_mtime
 )
+from flyhostel.data.human_validation.cvat.cross_machine_human import cross_machine_human
 from flyhostel.data.human_validation.cvat.utils import load_machine_data, get_dbfile, assign_in_frame_indices
 from flyhostel.data.human_validation.cvat.fragments import make_identity_singletons, make_identity_tracks
 from flyhostel.data.human_validation.cvat.identity import annotate_identity
@@ -37,6 +41,7 @@ except:
     raise ImportError(f"cudf is broken. Maybe a compatibility problem between this version of cudf {cudf.__version__} and the CUDA driver version")
 
 REDOWNLOAD_FROM_CVAT=True
+MEMORY = Memory("/tmp/joblib_cache", verbose=0)
 
 
 def select_frame_interval(data, frames_from_annotation, first_frame_number, last_frame_number):
@@ -58,27 +63,72 @@ def select_frame_interval(data, frames_from_annotation, first_frame_number, last
     return first_frame_number, last_frame_number
 
 
-def integrate_data(
-        experiment,
-        tasks,
-        redownload=REDOWNLOAD_FROM_CVAT,
-        number_of_rows=1,
-        number_of_cols=1,
-        frames_from_annotation=False,
-        reference_hour=13,
-        first_frame_number=None,
-        last_frame_number=None,
-        image_format="v1"
-    ):
+@MEMORY.cache
+def _load_data_cached(
+    experiment,
+    tasks,
+    redownload=REDOWNLOAD_FROM_CVAT,
+    number_of_rows=1,
+    number_of_cols=1,
+    frames_from_annotation=False,
+    reference_hour=13,
+    first_frame_number=None,
+    last_frame_number=None,
+    image_format="v1",
+    mtime=0,
+):
+    return load_data(
+        experiment=experiment,
+        tasks=tasks,
+        redownload=redownload,
+        number_of_rows=number_of_rows,
+        number_of_cols=number_of_cols,
+        frames_from_annotation=frames_from_annotation,
+        reference_hour=reference_hour,
+        first_frame_number=first_frame_number,
+        last_frame_number=last_frame_number,
+        image_format=image_format,
+        mtime=mtime,
+    )
 
+
+def load_data_cached(*args, **kwargs):
+    """
+    Safe wrapper around the persistent cache.
+
+    Prevents downstream mutation of cached objects.
+    """
+    return copy.deepcopy(
+        _load_data_cached(*args, **kwargs)
+    )
+
+
+def load_data(
+    experiment,
+    tasks,
+    redownload=REDOWNLOAD_FROM_CVAT,
+    number_of_rows=1,
+    number_of_cols=1,
+    frames_from_annotation=False,
+    reference_hour=13,
+    first_frame_number=None,
+    last_frame_number=None,
+    image_format="v1",
+    mtime=0,
+):
     basedir=get_basedir(experiment)
     number_of_animals=get_number_of_animals(experiment)
     chunksize=get_chunksize(experiment)
 
 
-    annotations_df, contours=get_annotations(experiment, basedir, tasks, redownload=redownload, number_of_rows=number_of_rows, number_of_cols=number_of_cols, image_format=image_format)
+    annotations_df, contours, mtime=get_annotations(
+        experiment, basedir, tasks,
+        redownload=redownload,
+        number_of_rows=number_of_rows,
+        number_of_cols=number_of_cols,
+        image_format=image_format
+    )
     annotations_df["chunk"]=annotations_df["frame_number"]//chunksize
-
 
     first_frame_number, last_frame_number=select_frame_interval(annotations_df, frames_from_annotation, first_frame_number, last_frame_number)
 
@@ -100,11 +150,51 @@ def integrate_data(
         where_statement+=f" AND frame_number < {last_frame_number}"
 
     identity_machine, roi_0_machine=load_machine_data(basedir, where=where_statement)
-
     identity_annotations, roi0_annotations, _=cross_machine_human(
-        basedir, identity_machine, roi_0_machine, annotations_df, contours, number_of_animals,
-        first_frame_number=first_frame_number, last_frame_number=last_frame_number
+        basedir, identity_machine, roi_0_machine,
+        annotations_df,
+        contours, number_of_animals,
+        first_frame_number=first_frame_number,
+        last_frame_number=last_frame_number
     )
+
+    return (identity_machine, roi_0_machine), (identity_annotations, roi0_annotations), annotations_df
+
+
+def integrate_data(
+        experiment,
+        tasks,
+        first_frame_number=None,
+        last_frame_number=None,
+        use_cache=False,
+        **kwargs,
+    ):
+
+    
+    mtime = max([get_task_mtime(task) for task in tasks])
+    print(f"Last updated: {mtime.isoformat()}")
+
+
+    chunksize=get_chunksize(experiment)
+    if use_cache:
+        (identity_machine, roi_0_machine), (identity_annotations, roi0_annotations), annotations_df=load_data_cached(
+            experiment,
+            tasks,
+            first_frame_number=first_frame_number,
+            last_frame_number=last_frame_number,
+            mtime=mtime,
+            **kwargs
+        )
+
+    else:
+        (identity_machine, roi_0_machine), (identity_annotations, roi0_annotations), annotations_df=load_data(
+            experiment,
+            tasks,
+            first_frame_number=first_frame_number,
+            last_frame_number=last_frame_number,
+            **kwargs
+        )
+
 
     roi_0_machine=roi_0_machine[["frame_number", "in_frame_index", "x", "y", "fragment", "modified", "class_name"]]
     identity_machine=identity_machine[["frame_number", "in_frame_index", "local_identity"]]
@@ -130,10 +220,10 @@ def integrate_data(
 
     if max_machine_fn < max_human_fn:
         logger.warning(
-        f"""
-        You have validations outside of the machine data range ({max_machine_fn} < {max_human_fn}).
-        Did you pass an erroneous fn-interval?
         """
+        You have validations outside of the machine data range (%s < %s).
+        Did you pass an erroneous fn-interval?
+        """, max_machine_fn, max_human_fn
     )
     
     machine_data["chunk"]=machine_data["frame_number"]//chunksize
@@ -417,10 +507,13 @@ def integrate_human_annotations(
     chunksize=get_chunksize(experiment)
 
     updated_data, machine_data, report_data, (first_frame_number, last_frame_number)=integrate_data(
-        experiment, tasks=tasks, first_frame_number=first_frame_number,
-        last_frame_number=last_frame_number, image_format=image_format,
+        experiment, tasks=tasks,
+        first_frame_number=first_frame_number,
+        last_frame_number=last_frame_number,
+        image_format=image_format,
         redownload=redownload,
-        **kwargs)
+        **kwargs
+    )
     
     new_data=manual_validations(experiment, updated_data, machine_data, first_frame_number=first_frame_number, last_frame_number=last_frame_number, **report_data, folder=folder)
 
@@ -441,28 +534,28 @@ def integrate_human_annotations(
         new_data["local_identity"]=[np.nan if np.isnan(x) else int(x) for x in new_data["local_identity"]]
         new_data["is_a_crossing"]=new_data["is_a_crossing"].astype(bool)
 
+    
         if multisex:
-            new_data, all_intervals_ok_labels=prepare_data_for_identity_annnotation_with_courtship(experiment, new_data, download=redownload)
+            new_data, all_intervals_ok_labels, all_intervals_engaged_labels = \
+                prepare_data_for_identity_annnotation_with_courtship(
+                    experiment, new_data,
+                )
         else:
-            all_intervals_ok_labels={}
-     
-        new_data=new_data.loc[~new_data["local_identity"].isna()]
+            all_intervals_ok_labels = {}
+            all_intervals_engaged_labels = {}
+
+        new_data = new_data.loc[~new_data["local_identity"].isna()]
         safe_cudf(new_data)
-        try:
-            new_data_cudf=cudf.DataFrame(new_data)
-        except Exception as error:
-            print(error)
-            import ipdb; ipdb.set_trace()
-            raise error
-        
-        
-        out=annotate_identity(
+        new_data_cudf = cudf.DataFrame(new_data)
+
+        out = annotate_identity(
             new_data_cudf,
             number_of_animals,
             chunksize,
             annotated_table=annotated_table,
             all_intervals_ok_labels=all_intervals_ok_labels,
-            verbose=False
+            all_intervals_engaged_labels=all_intervals_engaged_labels,
+            verbose=False,
         )
     
     except Exception as error:

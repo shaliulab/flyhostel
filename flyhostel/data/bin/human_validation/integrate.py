@@ -23,6 +23,7 @@ def main():
     ap.add_argument("--number-of-rows", type=int, default=1, help="If images in cvat are a grid, how many rows the grid has")
     ap.add_argument("--number-of-cols", type=int, default=1, help="If images in cvat are a grid, how many rows the grid has")
     ap.add_argument("--redownload", action="store_true", default=False, required=False)
+    ap.add_argument("--use-cache", action="store_true", default=False, required=False)
 
     args=ap.parse_args()
 
@@ -30,18 +31,24 @@ def main():
         folder = f"{get_basedir(args.experiment)}/flyhostel/validation"
     else:
         folder=args.folder
+    
+    if args.tasks is None:
+        tasks=None
+    else:
+        tasks=tuple(args.tasks)
 
     integrate_human_annotations(
         args.experiment,
         folder=folder,
-        tasks=args.tasks,
+        tasks=tasks,
         first_frame_number=args.fn_interval[0],
         last_frame_number=args.fn_interval[1],
         redownload=args.redownload,
         number_of_rows=args.number_of_rows,
         number_of_cols=args.number_of_cols,
         frames_from_annotation=args.frames_from_annotation,
-        multisex=args.multisex
+        multisex=args.multisex,
+        use_cache=args.use_cache,
     )
 
 
