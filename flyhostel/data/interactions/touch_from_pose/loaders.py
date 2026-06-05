@@ -141,9 +141,6 @@ def load_experiment_features(experiment, extra_bodyparts=[], min_time=None, max_
             d = d.reindex(frame_number=all_frames)
             all_datasets.append(d)
 
-
-
-
     ds = stack_individuals(all_datasets, ind_names=None, join="exact", on_overlap=on_overlap)
 
     # Now assign the shared 1D time coordinate
