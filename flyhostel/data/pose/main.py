@@ -200,15 +200,21 @@ class FlyHostelLoader(
 
         if identity_table is None:
             self.identity_table="IDENTITY"
-            if self.is_validated:
-                self.identity_table+="_VAL"
+            if self.number_of_animals > 1:
+                if self.is_validated:
+                    self.identity_table+="_VAL"
+                else:
+                    raise ValueError("Experiment is not validated")
         else:
             self.identity_table=identity_table
 
         if roi_0_table is None:
             self.roi_0_table="ROI_0"
-            if self.is_validated:
-                self.roi_0_table+="_VAL"
+            if self.number_of_animals > 1:
+                if self.is_validated:
+                    self.roi_0_table+="_VAL"
+                else:
+                    raise ValueError("Experiment is not validated")
         else:
             self.roi_0_table=roi_0_table
 

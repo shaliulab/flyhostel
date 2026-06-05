@@ -50,7 +50,7 @@ def annotate_bouts(dataset, variable):
     bout_count: How many bouts have there been already
     
     """
-    dataset=count_bout_position(dataset.iloc[::-1], variable=variable, counter="bout_out").iloc[::-1]
+    dataset=count_bout_position(dataset.iloc[::-1].copy(), variable=variable, counter="bout_out").iloc[::-1]
     dataset=count_bout_position(dataset, variable=variable, counter="bout_in")
     return dataset
 
@@ -234,6 +234,4 @@ def annotate_active_state(dataset, y_true, y_pred, inactive_states):
     dataset.loc[dataset[y_pred].isin(inactive_states), "active.pr"]="inactive"
     dataset.loc[dataset[y_true].isin(inactive_states), "active.gt"]="inactive"
     return dataset
-
-
 
