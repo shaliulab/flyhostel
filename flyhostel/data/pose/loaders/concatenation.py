@@ -57,7 +57,7 @@ class ConcatenationLoader(ABC):
 
     def load_concatenation_table(self):
 
-        if experiment_is_validated(self.experiment):
+        if self.number_of_animals>1 and experiment_is_validated(self.experiment):
             conc_tab="CONCATENATION_VAL"
         else:
             conc_tab="CONCATENATION"
