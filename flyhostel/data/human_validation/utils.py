@@ -6,7 +6,8 @@ import numpy as np
 from flyhostel.utils import (
     get_basedir,
     get_dbfile,
-    get_chunksize
+    get_chunksize,
+    get_number_of_animals,
 )
 from flyhostel.data.human_validation.set_0_identity import set_0_identity_to_negative
 from flyhostel.utils.utils import (
@@ -14,7 +15,7 @@ from flyhostel.utils.utils import (
     get_last_frame,
     get_experiment_identifier
 )
-from flyhostel.data.human_validation.cvat.cvat_integration import (
+from flyhostel.utils.cvat import (
     experiment_is_validated,
 )
 
@@ -40,8 +41,13 @@ def check_if_validated(dbfile):
 
 def get_identity(dbfile, local_identity, chunk):
     experiment=get_experiment_identifier(os.path.dirname(dbfile))
+    number_of_animals=get_number_of_animals(experiment)
 
-    if experiment_is_validated(experiment):
+    if number_of_animals==1:
+        identity="0"
+        validated=True
+        
+    elif experiment_is_validated(experiment):
         if "_VAL" == check_if_validated(dbfile):
             validated=True
             concatenation_table="CONCATENATION_VAL"
@@ -54,7 +60,7 @@ def get_identity(dbfile, local_identity, chunk):
             identity=str(pd.read_sql(con=conn, sql=sql).iloc[0].item())
     else:
         identity="0"
-        validated=True
+        validated=False
 
     return identity, validated
 

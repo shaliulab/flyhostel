@@ -3,15 +3,13 @@ import logging
 import json
 import re
 import time
+import h5py
+import sqlite3
 import numpy as np
 import joblib
 import pandas as pd
-import h5py
-
-from flyhostel.utils import (
-    get_chunksize
-)
-
+from .cvat import experiment_is_validated
+from .utils import get_basedir, get_chunksize, get_dbfile, get_number_of_animals
 MINS=.5
 
 def find_files(directory, pattern):
@@ -245,3 +243,98 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", 
 
     generate_single_file(node_names, datasets, point_scores, files, dest_file=dest_file)
     assert os.path.exists(dest_file)
+
+
+def infer_analysis_path(basedir, local_identity, chunk, number_of_animals):
+    if number_of_animals==1:
+        return os.path.join(basedir, "flyhostel", "single_animal", "000",                        str(chunk).zfill(6)+".mp4.predictions.h5")
+    else:
+        return os.path.join(basedir, "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6)+".mp4.predictions.h5")
+
+
+def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VAL", errors="raise"):
+    cur.execute("SELECT value FROM METADATA where field ='idtrackerai_conf';")
+    conf=cur.fetchone()[0]
+    number_of_animals=int(json.loads(conf)["_number_of_animals"]["value"])
+
+    cur.execute(f"PRAGMA table_info('{concatenation_table}');")
+    header=[row[1] for row in cur.fetchall()]
+
+    cur.execute(f"SELECT * FROM {concatenation_table};")
+    records=cur.fetchall()
+    concatenation=pd.DataFrame.from_records(records, columns=header)
+    concatenation["chunk"]=concatenation["chunk"].astype(int)
+    
+    concatenation.sort_values("chunk", inplace=True)
+    diff=concatenation["chunk"].drop_duplicates().diff().iloc[1:]
+
+    
+    if errors == "raise":
+        if not (diff==1).all():
+            rows=np.where(diff!=1)[0].tolist()
+            rows=sorted(rows + (np.array(rows)+1).tolist())
+            print(concatenation.iloc[1:].loc[sorted(rows)])
+            raise ValueError("Missing chunks in concatenation")
+
+    concatenation["dfile"] = [
+        infer_analysis_path(basedir, int(row["local_identity"]), str(int(row["chunk"])).zfill(6), number_of_animals=number_of_animals)
+        for i, row in concatenation.iterrows()
+    ]
+    return concatenation
+
+def recreate_pose_file(experiment, identity, chunks=None, output=".", n_jobs=1):
+    """
+    Arguments
+        experiment (str): Identifier, the basedir and dbfile are derived from there
+        chunks (list): Can be left None to infer from found chunkwise pose files
+        output (str): Path to folder where the file will be saved
+        identity (int)
+        n_jobs (int): Parallel processing in case more than one identity is requested
+    
+    NOTE: Multiple identities are not tested properly. Recommended to pass just one
+    """
+    basedir = get_basedir(experiment)
+    dbfile = get_dbfile(basedir)
+    number_of_animals = get_number_of_animals(experiment)
+
+    with sqlite3.connect(dbfile) as conn:
+        cur=conn.cursor()
+        if number_of_animals > 1 and experiment_is_validated(experiment, errors="raise"):
+            concatenation_table="CONCATENATION_VAL"
+        else:
+            concatenation_table="CONCATENATION"
+
+        concatenation=load_concatenation_table(cur, basedir, concatenation_table=concatenation_table)
+
+    if identity is None:
+        identities=range(1, number_of_animals+1)
+    else:
+        identities=[int(identity)]
+
+    joblib.Parallel(n_jobs=n_jobs)(
+        joblib.delayed(
+            pipeline
+        )(
+            experiment, identity, concatenation, chunks, output=output, strict=False #, write_only=args.write_only
+        )
+        for identity in identities
+    )
+
+
+    return None
+
+
+def get_pose_file(experiment, identity, pose_name):
+    animal=experiment + "__" + str(identity).zfill(2)
+    basedir=get_basedir(experiment)
+    pose_file=os.path.join(
+        basedir, "motionmapper",
+        str(identity).zfill(2),
+        f"pose_{pose_name}",
+        animal,
+        animal + ".h5"
+    )
+    if not os.path.exists(pose_file) and pose_name=="raw":
+        recreate_pose_file(experiment, identity, pose_name)
+
+    return pose_file

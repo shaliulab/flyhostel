@@ -2,7 +2,7 @@ import sqlite3
 import pandas as pd
 
 from flyhostel.utils import get_dbfile, get_basedir
-from flyhostel.data.pose.loaders.concatenation import load_concatenation_table
+from flyhostel.utils.pose_export import load_concatenation_table
 
 
 def check_concatenation(experiment, **kwargs):

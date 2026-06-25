@@ -37,7 +37,7 @@ else:
 from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG, ANALYSIS_FOLDER
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
 logger = logging.getLogger(__name__)
-
+from .cvat import experiment_is_validated
 
 def sort_ids(ids):
     return sorted(ids, key=lambda x: (x.split("_")[1], x.split("_")[0], x.split("_")[2]))
@@ -111,9 +111,8 @@ def get_zt_from_chunk(experiment, chunk, **kwargs):
     else:
         identity=1 
     
-    t_after_ref=load_meta_info(dbfile, identity, **kwargs)["t_after_ref"]
-
-    zt = round((t_after_ref + t) / 3600, 2)
+    start_time=load_meta_info(dbfile, identity, **kwargs)["t_after_ref"]
+    zt = round((start_time + t) / 3600, 2)
     return zt
     
 def get_wavelet_downsample(experiment):
@@ -545,17 +544,7 @@ def get_last_frame(dbfile):
     frame_number=chunk*chunksize
     return frame_number
 
-def get_pose_file(experiment, identity, pose_name):
-    animal=experiment + "__" + str(identity).zfill(2)
-    basedir=get_basedir(experiment)
-    pose_file=os.path.join(
-        basedir, "motionmapper",
-        str(identity).zfill(2),
-        f"pose_{pose_name}",
-        animal,
-        animal + ".h5"
-    )
-    return pose_file
+
 
 def get_identities(experiment):
     number_of_animals=get_number_of_animals(experiment)
@@ -632,7 +621,7 @@ def load_meta_info(dbfile, identity, reference_hour=None):
         reference_hour (int): If provided, time sinc light onset (ZT0) in seconds
     Populate meta_info dictionary with keys:
     
-    * t_after_ref: Number of seconds between start time and ZT0. Add it to an imgstore timestamp to get the ZT time
+    * t_after_ref: Number of seconds between start time (o'clock) and ZT0. Add it to an imgstore timestamp to get the ZT time
     """
 
     meta_info={}
@@ -640,6 +629,7 @@ def load_meta_info(dbfile, identity, reference_hour=None):
     
     with sqlite3.connect(dbfile) as conn:
         start_time=int(float(pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'date_time';", con=conn)["value"].values.item()))
+        original_start=start_time%(24*3600)
         start_time=start_time-start_time%3600
         start_time=start_time%(24*3600)
         
@@ -647,7 +637,7 @@ def load_meta_info(dbfile, identity, reference_hour=None):
         metadata_single_animal=load_metadata(dbfile, identity)
         reference_hour=(metadata_single_animal["reference_hour"]*3600).item()
 
-    meta_info={"t_after_ref": start_time-reference_hour} # seconds
+    meta_info={"t_after_ref": start_time-reference_hour, "start_time": original_start-reference_hour} # seconds
     return meta_info
 
     
@@ -946,3 +936,4 @@ def safe_cudf(df, col_types=None):
             if col == "class_name":
                 selected=[isinstance(x, float) and ~np.isnan(x) for x in df[col]]
                 print(df.loc[selected])
+

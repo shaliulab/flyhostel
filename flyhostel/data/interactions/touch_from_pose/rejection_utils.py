@@ -80,6 +80,9 @@ def add_animal_state(dist_per_sec: xr.DataArray,
         .rename(columns={animal_col: "individuals"})
         .set_index(["sec", "individuals"])[state_col]
     )
+
+    ## NOTE
+    # This line fails if the experiment has > 2 animals
     state_da = s.to_xarray()  # dims: (sec, individuals)
 
     # Shift the *coordinates* of state_da so that

@@ -21,10 +21,12 @@ from flyhostel.utils.utils import (
     rsync_files_from,
     dunder_to_slash,
 )
+from flyhostel.utils.cvat import (
+    experiment_is_validated,
+)
 
 from flyhostel.data.human_validation.cvat.cvat_integration import (
     download_annotations_from_cvat,
-    experiment_is_validated,
 )
 
 logger=logging.getLogger(__name__)
@@ -356,7 +358,7 @@ class FlyHostelGroup(InteractionDetector):
 
         validation_folder=os.path.join(self.basedir, ".", "flyhostel", "validation")
         
-        if not os.path.exists(validation_folder) and experiment_is_validated(self.experiment):
+        if self.number_of_animals > 1 and not os.path.exists(validation_folder) and experiment_is_validated(self.experiment):
             print(f"mkdir {validation_folder}")
             os.makedirs(validation_folder)
 
@@ -365,7 +367,7 @@ class FlyHostelGroup(InteractionDetector):
             files=[metadata_file]
         else:
             validation_files=[]
-            if experiment_is_validated(self.experiment):
+            if self.number_of_animals > 1 and experiment_is_validated(self.experiment):
                 try:
                     validation_files=self.download_annotations_from_cvat(validation_folder)
                 except Exception as error:

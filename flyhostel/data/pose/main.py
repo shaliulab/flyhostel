@@ -41,7 +41,6 @@ from flyhostel.utils.filesystem import FilesystemInterface
 from flyhostel.utils import (
     get_chunksize,
     get_framerate,
-    get_pose_file,
     get_number_of_animals,
     get_pixels_per_mm,
     get_wavelet_downsample,
@@ -53,7 +52,9 @@ from flyhostel.utils import (
     load_meta_info,
     load_metadata,
 )
-from flyhostel.data.human_validation.cvat.cvat_integration import (
+from flyhostel.utils.pose_export import get_pose_file
+
+from flyhostel.utils.cvat import (
     experiment_is_validated,
 )
 

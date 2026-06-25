@@ -78,13 +78,6 @@ def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
 
     return zip_file
 
-
-def experiment_is_validated(experiment):
-    project_id=get_project_id_from_name(experiment, errors="ignore")
-    return project_id is not None
-
-
-
 def download_annotations_from_cvat(experiment, path, tasks=None):
     if tasks is None:
         tasks=sorted(get_tasks_for_project(get_project_id_from_name(experiment, errors="raise")))
