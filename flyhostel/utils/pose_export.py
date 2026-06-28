@@ -8,6 +8,7 @@ import sqlite3
 import numpy as np
 import joblib
 import pandas as pd
+from tqdm.auto import tqdm
 from .cvat import experiment_is_validated
 from .utils import get_basedir, get_chunksize, get_dbfile, get_number_of_animals
 MINS=.5
@@ -101,10 +102,6 @@ def load_file(file, chunksize=None):
         raise error
 
     if chunksize is not None:
-        
-        if tracks.shape[3]!=chunksize:
-            import ipdb; ipdb.set_trace()
-
         assert tracks.shape[3]==chunksize, f"{file} is missing pose estimates (found {tracks.shape[3]} instead of {chunksize})"
 
     return node_names, tracks, score, file
@@ -116,7 +113,6 @@ def load_files(files, chunksize, n_jobs=1):
 
     print(f"{len(files)} files will be loaded")
     Output = joblib.Parallel(n_jobs=n_jobs)(
-    # Output = joblib.Parallel(n_jobs=1)(
         joblib.delayed(
             load_file
         )(
@@ -137,8 +133,7 @@ def load_files(files, chunksize, n_jobs=1):
         if dataset is not None:
             dataset_count += 1
             if template_dataset is None:
-                template_dataset = dataset.copy()
-                template_dataset[:]=np.nan
+                template_dataset = np.full_like(dataset, np.nan)
                 template_score = score.copy()
                 template_score[:] = np.nan
 
@@ -175,18 +170,34 @@ def generate_single_file(node_names, datasets, point_scores, files, dest_file):
     node_names_bytes = np.array([name.encode() for name in node_names])
     files_bytes = np.array([f.encode() for f in files])
     
-    dataset = np.concatenate(datasets, axis=3)
+    # dataset = np.concatenate(datasets, axis=3)
     point_scores = np.concatenate(point_scores, axis=2)
 
     track_names=["individual_0"]
+    total_frames = sum(ds.shape[3] for ds in datasets)
+    final_shape = (datasets[0].shape[0], datasets[0].shape[1], len(node_names), total_frames)
+    chunksize = datasets[0].shape[3]
+
+    print(f"Chunksize = {chunksize}. Final shape = {final_shape}")
+
     with h5py.File(dest_file, 'w') as file:
         node_names_d=file.create_dataset("node_names", (len(node_names), ), dtype='|S12')
         node_names_d[:]=node_names_bytes
         files_bytes_d=file.create_dataset("files", (len(files), ), dtype='|S300')
         files_bytes_d[:]=files_bytes
         
-        tracks_d=file.create_dataset("tracks", dataset.shape)
-        tracks_d[:]=dataset
+        tracks_d = file.create_dataset("tracks", shape=final_shape,
+            chunks=(1, 2, len(node_names), chunksize),  # Smart chunking
+            compression="gzip", compression_opts=4  # Compression
+        )
+        # Write each chunk sequentially
+        offset=0
+        print(f"Writing pose to disk -> {dest_file}")
+        for dataset in datasets:
+            n_frames = dataset.shape[3]  # Frames in THIS chunk
+            tracks_d[:,:,:,offset:offset+n_frames] = dataset
+            offset += n_frames
+        print("Done")
         
 
         i=file.create_dataset("track_names", (len(track_names),), dtype="|S12")
@@ -206,7 +217,7 @@ def parse_number_of_animals(cur):
     return number_of_animals
 
 
-def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", strict=True):
+def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", strict=True, n_jobs=1):
 
     chunksize=get_chunksize(experiment_name)
 
@@ -237,7 +248,11 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", 
 
 
     files=concatenation_i["dfile"]
-    node_names, datasets, point_scores = load_files(files, chunksize)
+
+    if n_jobs is None:
+        n_jobs=-1
+
+    node_names, datasets, point_scores = load_files(files, chunksize, n_jobs=n_jobs)
     dest_file=os.path.join(output, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
 
@@ -311,15 +326,18 @@ def recreate_pose_file(experiment, identity, chunks=None, output=".", n_jobs=1):
     else:
         identities=[int(identity)]
 
-    joblib.Parallel(n_jobs=n_jobs)(
-        joblib.delayed(
-            pipeline
-        )(
-            experiment, identity, concatenation, chunks, output=output, strict=False #, write_only=args.write_only
-        )
-        for identity in identities
+    # joblib.Parallel(n_jobs=n_jobs)(
+    #     joblib.delayed(
+    #         pipeline
+    #     )(
+    #         experiment, identity, concatenation, chunks, output=output, strict=False #, write_only=args.write_only
+    #     )
+    #     for identity in identities
+    # )
+    
+    for identity in identities:
+        pipeline(experiment, identity, concatenation, chunks, output=output, strict=False, n_jobs=n_jobs #, write_only=args.write_only
     )
-
 
     return None
 
@@ -335,6 +353,7 @@ def get_pose_file(experiment, identity, pose_name):
         animal + ".h5"
     )
     if not os.path.exists(pose_file) and pose_name=="raw":
-        recreate_pose_file(experiment, identity, pose_name)
+        output=os.path.dirname(os.path.dirname(pose_file))
+        recreate_pose_file(experiment=experiment, identity=identity, chunks=None, output=output, n_jobs=None)
 
     return pose_file
