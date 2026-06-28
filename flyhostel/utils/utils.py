@@ -20,7 +20,7 @@ try:
     import cudf
 except ModuleNotFoundError:
     cudf=None
-    logger.error("Cannot load cudf")
+    logger.debug("Cannot load cudf")
 
 
 
@@ -937,3 +937,8 @@ def safe_cudf(df, col_types=None):
                 selected=[isinstance(x, float) and ~np.isnan(x) for x in df[col]]
                 print(df.loc[selected])
 
+
+
+def build_ethoscope_id(row):
+    ethoscope_number = row["machine_name"].replace("ETHOSCOPE_", "").zfill(3)
+    return row["date"] + "_" + str(ethoscope_number) + "aad|" + str(row["region_id"]).zfill(2)
