@@ -16,7 +16,7 @@ from flyhostel.utils import (
 )
 
 
-from .api import (
+from flyhostel.utils.cvat import (
     get_tasks_for_project,
     get_project_id_from_name,
 )
