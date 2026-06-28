@@ -50,28 +50,43 @@ class LandmarksLoader:
         Compute distance from each fly position to the arena edge.
         Uses the arena mask (ROI_MAP) stored in the database.
         """
+        import sqlite3
         from scipy import ndimage
         from PIL import Image
         import io
         
-        # Load arena mask from database
-        roi_map = pd.read_sql("SELECT mask FROM ROI_MAP LIMIT 1", self.dbfile)
+        # Create SQLite connection from file path
+        conn = sqlite3.connect(self.dbfile)
+        
+        try:
+            # Load arena mask from database
+            roi_map = pd.read_sql("SELECT mask FROM ROI_MAP LIMIT 1", conn)
+        except Exception as e:
+            logger.warning(f"Could not read ROI_MAP: {e}")
+            conn.close()
+            return None
         
         if roi_map.empty:
             logger.warning("No ROI_MAP found in database")
+            conn.close()
             return None
+        
+        conn.close()
         
         # Deserialize the BLOB (binary mask image)
         mask_blob = roi_map.iloc[0]["mask"]
         
         # Mask is stored as binary image data
-        # Try to load as numpy array or PIL Image
         try:
             # If stored as raw numpy array bytes
             mask = np.frombuffer(mask_blob, dtype=np.uint8).reshape(-1, -1)
         except:
-            # If stored as PIL Image BLOB
-            mask = np.array(Image.open(io.BytesIO(mask_blob)))
+            try:
+                # If stored as PIL Image BLOB
+                mask = np.array(Image.open(io.BytesIO(mask_blob)))
+            except Exception as e:
+                logger.warning(f"Could not deserialize mask blob: {e}")
+                return None
         
         # Ensure binary (white=1, black=0)
         mask = (mask > 127).astype(np.uint8)
@@ -98,7 +113,6 @@ class LandmarksLoader:
                     f"std={edge_distances.std():.2f}, "
                     f"min={edge_distances.min():.2f}, "
                     f"max={edge_distances.max():.2f}")
-        
         
     @property
     def number_of_food_blobs(self):
