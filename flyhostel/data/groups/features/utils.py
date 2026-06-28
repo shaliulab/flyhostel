@@ -84,6 +84,10 @@ def _preextract_arrays(pose_features, step_frames):
     food_distance = pose_features["food_distance"].values[::step_frames]
     notch_distance = pose_features["notch_distance"].values[::step_frames]
     edge_distance = pose_features["edge_distance"].values[::step_frames]
+
+    food_distance = np.squeeze(food_distance)  # Removes all singleton dimensions
+    notch_distance = np.squeeze(notch_distance)
+    edge_distance = np.squeeze(edge_distance)
     
     # Get keypoint index and n_legs from pose_features
     individuals = pose_features.individuals.values

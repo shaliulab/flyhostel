@@ -54,6 +54,7 @@ class Fly:
     edge_distance: float
 
 def flypose_to_fly(
+    fly_idx: int,
     frame: GroupFrame,
     flypose: FlyPose,
     prev_flypose: FlyPose = None,
@@ -127,6 +128,10 @@ def flypose_to_fly(
     wing_angle_r = np.arctan2(rw_vector[1], rw_vector[0]) - heading
     wing_span = np.linalg.norm(flypose.wing_l - flypose.wing_r)
     
+    food_dist = frame.food_distance[fly_idx] if isinstance(frame.food_distance, np.ndarray) else frame.food_distance
+    notch_dist = frame.notch_distance[fly_idx] if isinstance(frame.notch_distance, np.ndarray) else frame.notch_distance
+    edge_dist = frame.edge_distance[fly_idx] if isinstance(frame.edge_distance, np.ndarray) else frame.edge_distance
+
     return Fly(
         position=position,
         velocity=velocity,
@@ -138,9 +143,9 @@ def flypose_to_fly(
         wing_angle_r=wing_angle_r,
         wing_span=wing_span,
         sleep_state=sleep_labels,
-        food_distance=frame.food_distance,      # ← NEW
-        notch_distance=frame.notch_distance,    # ← NEW
-        edge_distance=frame.edge_distance,      # ← NEW
+        food_distance=food_dist,      # ← NEW
+        notch_distance=notch_dist,    # ← NEW
+        edge_distance=edge_dist,      # ← NEW
     )
 
 
@@ -179,7 +184,7 @@ def frames_to_fly_list(
         
         asleep = sleep_labels[t_idx] if sleep_labels is not None else False
         
-        fly = flypose_to_fly(frame, curr_pose, prev_pose, prev_prev_pose, asleep)
+        fly = flypose_to_fly(fly_idx, frame, curr_pose, prev_pose, prev_prev_pose, asleep)
         fly_trajectory.append(fly)
     
     return fly_trajectory
@@ -212,6 +217,41 @@ def extract_individual_features(fly: Fly) -> dict:
     }
 
 
+# def extract_individual_timeseries_from_frames(
+#     frames: list[GroupFrame],
+#     fly_idx: int = 0,
+#     sleep_labels: np.ndarray = None,
+# ) -> tuple[np.ndarray, list[str]]:
+#     """
+#     Extract individual features for one fly across all frames.
+    
+#     Parameters
+#     ----------
+#     frames       : list of GroupFrame objects
+#     fly_idx      : which fly in the group (0 for first, etc.)
+#     sleep_labels : (n_frames,) array of sleep state
+    
+#     Returns
+#     -------
+#     X    : np.ndarray of shape (n_frames, n_features)
+#     keys : list of feature names
+#     """
+#     # Convert frames to Fly trajectory
+#     fly_trajectory = frames_to_fly_list(frames, fly_idx, sleep_labels)
+    
+#     # Extract features for each frame
+#     rows = []
+#     keys = None
+#     for fly in fly_trajectory:
+#         feat = extract_individual_features(fly)
+#         if keys is None:
+#             keys = list(feat.keys())
+#         rows.append([feat[k] for k in keys])
+    
+#     X = np.array(rows)
+#     return X, keys
+
+
 def extract_individual_timeseries_from_frames(
     frames: list[GroupFrame],
     fly_idx: int = 0,
@@ -219,29 +259,28 @@ def extract_individual_timeseries_from_frames(
 ) -> tuple[np.ndarray, list[str]]:
     """
     Extract individual features for one fly across all frames.
-    
-    Parameters
-    ----------
-    frames       : list of GroupFrame objects
-    fly_idx      : which fly in the group (0 for first, etc.)
-    sleep_labels : (n_frames,) array of sleep state
-    
-    Returns
-    -------
-    X    : np.ndarray of shape (n_frames, n_features)
-    keys : list of feature names
     """
-    # Convert frames to Fly trajectory
     fly_trajectory = frames_to_fly_list(frames, fly_idx, sleep_labels)
     
     # Extract features for each frame
     rows = []
     keys = None
-    for fly in fly_trajectory:
+    for frame_idx, fly in enumerate(fly_trajectory):
         feat = extract_individual_features(fly)
+        
         if keys is None:
             keys = list(feat.keys())
-        rows.append([feat[k] for k in keys])
+        
+        # DEBUG: Check for non-scalar values
+        row = []
+        for k in keys:
+            val = feat[k]
+            if isinstance(val, (list, np.ndarray)):
+                print(f"Frame {frame_idx}, Feature '{k}': is a sequence! Value: {val}")
+                raise ValueError(f"Feature '{k}' returned a sequence instead of scalar: {val}")
+            row.append(val)
+        
+        rows.append(row)
     
     X = np.array(rows)
     return X, keys

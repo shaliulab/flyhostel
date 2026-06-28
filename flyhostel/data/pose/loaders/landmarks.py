@@ -35,6 +35,9 @@ class LandmarksLoader:
                 landmark_norm=self.normalize_notch_landmark(landmark.copy(), roi_size=roi_size)
                 specification.append(landmark_norm["specification"])
                 index.append(idx)
+
+            elif landmark["shape"]=="Polygon":
+                logger.warning(f"Ignoring landmark {landmark}")
  
             elif errors=="raise":
                 raise ValueError(f"Landmark {landmark['shape']} not supported")
@@ -44,6 +47,14 @@ class LandmarksLoader:
         self.landmarks_all=self.landmarks.copy()
         self.landmarks=self.landmarks.loc[index]
         self.landmarks["specification_norm"]=specification
+
+    def load_landmarks_and_compute_distances(self):
+        assert self.dt is not None
+        self.load_landmarks(errors="raise")
+        self.compute_if_fly_on_food_patch(include_outside=1)
+        self.compute_if_fly_on_notch()
+        self.compute_distance_to_edge()
+
 
     def compute_distance_to_edge(self):
         """
@@ -117,7 +128,7 @@ class LandmarksLoader:
     @property
     def number_of_food_blobs(self):
         if self.landmarks is None:
-            self.load_landmarks()
+            self.load_landmarks(errors="raise")
         food_blobs=self.landmarks.loc[self.landmarks["shape"]=="food"]
         return food_blobs.shape[0]
 

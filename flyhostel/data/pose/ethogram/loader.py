@@ -326,11 +326,6 @@ def compute_centroid_speed(dt):
     return dt
 
 
-def load_landmarks(loader):
-    loader.load_landmarks()
-    loader.compute_if_fly_on_food_patch(include_outside=1)
-    loader.compute_if_fly_on_notch()
-    loader.compute_distance_to_edge()
 
 def load_centroids(loader, frame_numbers=None, load_centroid_speed=True):
 
@@ -377,7 +372,7 @@ def load_animal_data(
         assert load_pose_data
 
     load_centroids(loader, frame_numbers=frame_numbers)
-    load_landmarks(loader)
+    loader.load_landmarks_and_compute_distances()
 
     if downsample is None:
         downsample = loader.wavelet_downsample

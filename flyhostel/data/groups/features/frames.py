@@ -1,3 +1,5 @@
+import logging
+import traceback
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 
@@ -6,6 +8,8 @@ from .utils import (
     _build_frame,
     _preextract_arrays,
 )
+
+logger=logging.getLogger(__name__)
 
 def build_frames_parallel(
     pose_features,
@@ -36,6 +40,7 @@ def build_frames_parallel(
         ]
     except Exception as e:
         logger.error(f"Error building args: {e}")
+        logger.error(traceback.print_exc())
         args = []
 
     print(f"Building {len(args)} frames across {n_workers} workers...", flush=True)

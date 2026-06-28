@@ -118,7 +118,7 @@ def load_experiment_features(experiment, identity=None, extra_bodyparts=[], min_
             ds.update({"position": interpolate_over_time(ds.position, print_report=True)})
         
         # ← NEW: Load landmarks and distance features
-        load_landmarks(loader)
+        loader.load_landmarks_and_compute_distances()
         
         # Store landmark distances in the dataset
         # Match frames between loader.dt and ds
