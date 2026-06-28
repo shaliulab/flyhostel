@@ -16,41 +16,31 @@ def build_frames_parallel(
 ) -> list[GroupFrame]:
     """
     Fast, parallel replacement for the original loop.
-
-    Parameters
-    ----------
-    pose_features : xarray.Dataset with dims (time, individuals, keypoints, space)
-    fps           : frames per second of the recording
-    step_seconds  : temporal subsampling in seconds (default 5 s)
-    n_workers     : number of parallel workers (default = all CPUs)
-    chunksize     : tasks per worker batch (tune for your frame count)
+    Now also handles distance features.
     """
     step_frames = max(1, int(fps * step_seconds))
-    n_workers   = n_workers or cpu_count()
+    n_workers = n_workers or cpu_count()
 
     print("Extracting arrays from xarray...", flush=True)
-    positions, times, frame_numbers, individuals, kp_index, n_legs = _preextract_arrays(
-        pose_features, step_frames
-    )
+    (positions, times, frame_numbers,
+     food_distance, notch_distance, edge_distance,
+     n_individuals, kp_index, n_legs) = _preextract_arrays(pose_features, step_frames)
 
-    # positions: (T, 2, K, N) — already a plain numpy array, cheap to slice
-
-    # Build argument tuples — each worker gets one (T, 2, K, N) → (2, K, N) slice
+    # Build argument tuples
     try:
         args = [
-            (t_idx, times[t_idx], frame_numbers[t_idx], positions[t_idx], n_legs, kp_index)
+            (t_idx, times[t_idx], frame_numbers[t_idx], positions[t_idx],
+             food_distance[t_idx], notch_distance[t_idx], edge_distance[t_idx],
+             n_individuals, kp_index, n_legs)
             for t_idx in range(len(times))
         ]
-    except:
-        args=[]
-
+    except Exception as e:
+        logger.error(f"Error building args: {e}")
+        args = []
 
     print(f"Building {len(args)} frames across {n_workers} workers...", flush=True)
-    if n_workers==1:
-        frames=[]
-        for arg in args:
-            frames.append(_build_frame(arg))
-
+    if n_workers == 1:
+        frames = [_build_frame(arg) for arg in args]
     else:
         with Pool(processes=n_workers) as pool:
             frames = list(

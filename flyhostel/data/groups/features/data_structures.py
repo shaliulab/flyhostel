@@ -21,29 +21,40 @@ class FlyPose:
     legs: np.ndarray        # (6, 2)
 
 
+from dataclasses import dataclass
+from typing import List
+
 @dataclass
 class GroupFrame:
-    """All fly poses in a single frame."""
-    flies: list[FlyPose]    # length = n_flies (2–10)
-    t: Optional[int] = None
-    frame_number: Optional[int] = None
-
+    """Container for a single timepoint of a fly group."""
+    flies: List['FlyPose']
+    t: float
+    frame_number: int
+    food_distance: np.ndarray      # (n_individuals,) or scalar
+    notch_distance: np.ndarray     # (n_individuals,) or scalar
+    edge_distance: np.ndarray      # (n_individuals,) or scalar
 
 @dataclass
 class Fly:
-    """Individual fly state at one frame."""
-    position: np.ndarray          # (x, y) — center of mass
-    velocity: np.ndarray          # (vx, vy)
-    acceleration: np.ndarray      # (ax, ay)
-    heading: float                # radians, from body orientation
-    heading_change: float         # angular velocity
-    body_length: float            # thorax-to-abdomen distance
-    wing_angle_l: float           # left wing angle
-    wing_angle_r: float           # right wing angle
-    wing_span: float              # wing separation
-    sleep_state: bool             # is asleep
+    """Single fly pose + derived features at one timepoint."""
+    position: np.ndarray          # (2,) [x, y]
+    velocity: np.ndarray          # (2,) [vx, vy]
+    acceleration: np.ndarray      # (2,) [ax, ay]
+    heading: float
+    heading_change: float
+    body_length: float
+    wing_angle_l: float
+    wing_angle_r: float
+    wing_span: float
+    sleep_state: int
+    
+    # NEW: Distance features
+    food_distance: float
+    notch_distance: float
+    edge_distance: float
 
 def flypose_to_fly(
+    frame: GroupFrame,
     flypose: FlyPose,
     prev_flypose: FlyPose = None,
     prev_prev_flypose: FlyPose = None,
@@ -127,6 +138,9 @@ def flypose_to_fly(
         wing_angle_r=wing_angle_r,
         wing_span=wing_span,
         sleep_state=sleep_labels,
+        food_distance=frame.food_distance,      # ← NEW
+        notch_distance=frame.notch_distance,    # ← NEW
+        edge_distance=frame.edge_distance,      # ← NEW
     )
 
 
@@ -165,7 +179,7 @@ def frames_to_fly_list(
         
         asleep = sleep_labels[t_idx] if sleep_labels is not None else False
         
-        fly = flypose_to_fly(curr_pose, prev_pose, prev_prev_pose, asleep)
+        fly = flypose_to_fly(frame, curr_pose, prev_pose, prev_prev_pose, asleep)
         fly_trajectory.append(fly)
     
     return fly_trajectory
@@ -176,21 +190,25 @@ def extract_individual_features(fly: Fly) -> dict:
     Extract non-social features from a single Fly object.
     """
     return {
-        'x': fly.position[0],                                                       # 0
-        'y': fly.position[1],                                                       # 1
-        'speed': np.linalg.norm(fly.velocity),                                      # 2
-        'speed_x': fly.velocity[0],                                                 # 3
-        'speed_y': fly.velocity[1],                                                 # 4
-        'acceleration': np.linalg.norm(fly.acceleration),                           # 5
-        'heading': fly.heading,                                                     # 6
-        'heading_change': fly.heading_change,                                       # 7
-        'heading_stability': 1.0 - np.clip(np.abs(fly.heading_change), 0, 1),       # 8
-        'body_length': fly.body_length,                                             # 9
-        'wing_angle_l': fly.wing_angle_l,                                           # 10
-        'wing_angle_r': fly.wing_angle_r,                                           # 11
-        'wing_span': fly.wing_span,                                                 # 12
-        'wing_asymmetry': np.abs(fly.wing_angle_l - fly.wing_angle_r),              # 13
-        'is_asleep': float(fly.sleep_state),                                        # 14
+        # 'x': fly.position[0],                                                       # 0
+        # 'y': fly.position[1],                                                       # 1
+        'speed': np.linalg.norm(fly.velocity),                                      # 0
+        'speed_x': fly.velocity[0],                                                 # 1
+        'speed_y': fly.velocity[1],                                                 # 2
+        'acceleration': np.linalg.norm(fly.acceleration),                           # 3
+        'heading': fly.heading,                                                     # 4
+        'heading_change': fly.heading_change,                                       # 5
+        'heading_stability': 1.0 - np.clip(np.abs(fly.heading_change), 0, 1),       # 6
+        'body_length': fly.body_length,                                             # 7
+        'wing_angle_l': fly.wing_angle_l,                                           # 8
+        'wing_angle_r': fly.wing_angle_r,                                           # 9
+        'wing_span': fly.wing_span,                                                 # 10
+        'wing_asymmetry': np.abs(fly.wing_angle_l - fly.wing_angle_r),              # 11
+        'is_asleep': float(fly.sleep_state),                                        # 12
+        # Arena-relative features (replaces x, y)
+        'dist_to_food': fly.food_distance,                                          # 13
+        'dist_to_notch': fly.notch_distance,                                        # 14
+        'dist_to_edge': fly.edge_distance,                                          # 15
     }
 
 

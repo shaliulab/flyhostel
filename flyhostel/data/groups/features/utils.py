@@ -71,37 +71,34 @@ def _signed_bearing(focal: FlyPose, other: FlyPose) -> float:
 
 KEYPOINT_ORDER = ["head", "thorax", "abdomen", "proboscis", "lW", "rW"] + LEGS
 
-def _preextract_arrays(pose_features, step_frames: int) -> tuple:
+def _preextract_arrays(pose_features, step_frames):
     """
-    Extract the full numpy array from xarray once, avoiding repeated .sel() calls.
-    Returns:
-        positions   : np.ndarray (n_times, n_individuals, n_keypoints, 2)
-        times       : np.ndarray of selected time values
-        individuals : list of individual labels
-        kp_index    : dict mapping keypoint name → integer index into axis=2
+    Pre-extract numpy arrays from xarray for fast multiprocessing.
+    Now also extracts distance features.
     """
+    positions = pose_features.position.values[::step_frames]  # (T, 2, keypoints, individuals)
     times = pose_features.time.values[::step_frames]
-
-    fn=pose_features.frame_number
-    assert len(fn.shape)==1
+    frame_numbers = pose_features.frame_number.values[::step_frames]
     
-    frame_numbers = fn.values[::step_frames]
+    # Extract distance features (these are per-frame, may be per-individual or shared)
+    food_distance = pose_features["food_distance"].values[::step_frames]
+    notch_distance = pose_features["notch_distance"].values[::step_frames]
+    edge_distance = pose_features["edge_distance"].values[::step_frames]
     
-    # Reindex keypoints into a known order so we can slice by integer index
-    pose_reindexed = pose_features.sel(
-        time=times,
-        keypoints=KEYPOINT_ORDER,
+    # Get keypoint index and n_legs from pose_features
+    individuals = pose_features.individuals.values
+    n_individuals = len(individuals)
+    keypoints = pose_features.keypoints.values
+    kp_index = {kp: i for i, kp in enumerate(keypoints)}
+    
+    # Count legs (everything after lW and rW)
+    n_legs = len([kp for kp in keypoints if kp.startswith('leg')])
+    
+    return (
+        positions, times, frame_numbers, 
+        food_distance, notch_distance, edge_distance,
+        n_individuals, kp_index, n_legs
     )
-
-    # Single large array pull: (n_times, n_individuals, n_keypoints, 2)
-    positions = pose_reindexed.position.values  # shape: (T, N, K, 2)
-
-    individuals = list(pose_features.individuals.values)
-    kp_index    = {kp: i for i, kp in enumerate(KEYPOINT_ORDER)}
-    n_legs      = len(LEGS)
-
-    return positions, times, frame_numbers, individuals, kp_index, n_legs
-
 
 # ---------------------------------------------------------------------------
 # Worker function (must be top-level for multiprocessing pickling)
@@ -110,21 +107,25 @@ def _preextract_arrays(pose_features, step_frames: int) -> tuple:
 def _build_frame(args) -> GroupFrame:
     """
     Build a GroupFrame from pre-extracted numpy slices.
-    args = (t_idx, time_val, frame_positions, n_legs, kp_index)
-    frame_positions : np.ndarray (n_keypoints, 2, n_individuals)
+    args = (t_idx, time_val, frame_number_val, frame_positions, 
+            food_dist, notch_dist, edge_dist, n_individuals, kp_index, n_legs)
     """
-    t_idx, time_val, frame_number_val, frame_positions, n_legs, kp_index = args
-
-    n_individuals = frame_positions.shape[2]
-    n_leg_start   = 6  # head, thorax, abdomen, proboscis, lW, rW come first
+    (t_idx, time_val, frame_number_val, frame_positions,
+     food_dist, notch_dist, edge_dist,
+     n_individuals, kp_index, n_legs) = args
+     
+    leg_idx = [i for i, bp in enumerate(kp_index.keys()) if bp in LEGS]
 
     poses = []
-    n_dims=2
+    food_dist_list = []
+    notch_dist_list = []
+    edge_dist_list = []
+    n_dims = 2
+    
     for ind_idx in range(n_individuals):
         kps = frame_positions[..., ind_idx]  # (n_keypoints, 2)
-        found_dims=len(kps[:, kp_index["head"]])
-
-        assert found_dims==n_dims, f"{found_dims}!={n_dims}"
+        found_dims = len(kps[:, kp_index["head"]])
+        assert found_dims == n_dims, f"{found_dims}!={n_dims}"
 
         pose = FlyPose(
             head      = kps[:, kp_index["head"]],
@@ -133,9 +134,25 @@ def _build_frame(args) -> GroupFrame:
             proboscis = kps[:, kp_index["proboscis"]],
             wing_l    = kps[:, kp_index["lW"]],
             wing_r    = kps[:, kp_index["rW"]],
-            legs      = [kps[:, n_leg_start + i] for i in range(n_legs)],
+            legs      = [kps[:, leg_index] for leg_index in leg_idx],
         )
         poses.append(pose)
+        
+        # Handle distances per individual
+        if isinstance(food_dist, np.ndarray) and food_dist.ndim > 0:
+            food_dist_list.append(food_dist[ind_idx] if len(food_dist) > ind_idx else food_dist[0])
+            notch_dist_list.append(notch_dist[ind_idx] if len(notch_dist) > ind_idx else notch_dist[0])
+            edge_dist_list.append(edge_dist[ind_idx] if len(edge_dist) > ind_idx else edge_dist[0])
+        else:
+            food_dist_list.append(food_dist)
+            notch_dist_list.append(notch_dist)
+            edge_dist_list.append(edge_dist)
 
-    return GroupFrame(flies=poses, t=time_val, frame_number=frame_number_val)
-
+    return GroupFrame(
+        flies=poses,
+        t=time_val,
+        frame_number=frame_number_val,
+        food_distance=np.array(food_dist_list),
+        notch_distance=np.array(notch_dist_list),
+        edge_distance=np.array(edge_dist_list),
+    )
