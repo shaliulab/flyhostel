@@ -23,11 +23,10 @@ from flyhostel.utils.utils import (
     get_number_of_animals,
     get_experiment_identifier
 )
-
-from .api import (
+from flyhostel.utils.cvat import (
     get_tasks_for_project,
-    get_task_mtime,
     get_project_id_from_name,
+    get_task_mtime,
 )
 
 logger=logging.getLogger(__name__)
