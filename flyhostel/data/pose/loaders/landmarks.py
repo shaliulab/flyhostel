@@ -45,6 +45,61 @@ class LandmarksLoader:
         self.landmarks=self.landmarks.loc[index]
         self.landmarks["specification_norm"]=specification
 
+    def compute_distance_to_edge(self):
+        """
+        Compute distance from each fly position to the arena edge.
+        Uses the arena mask (ROI_MAP) stored in the database.
+        """
+        from scipy import ndimage
+        from PIL import Image
+        import io
+        
+        # Load arena mask from database
+        roi_map = pd.read_sql("SELECT mask FROM ROI_MAP LIMIT 1", self.dbfile)
+        
+        if roi_map.empty:
+            logger.warning("No ROI_MAP found in database")
+            return None
+        
+        # Deserialize the BLOB (binary mask image)
+        mask_blob = roi_map.iloc[0]["mask"]
+        
+        # Mask is stored as binary image data
+        # Try to load as numpy array or PIL Image
+        try:
+            # If stored as raw numpy array bytes
+            mask = np.frombuffer(mask_blob, dtype=np.uint8).reshape(-1, -1)
+        except:
+            # If stored as PIL Image BLOB
+            mask = np.array(Image.open(io.BytesIO(mask_blob)))
+        
+        # Ensure binary (white=1, black=0)
+        mask = (mask > 127).astype(np.uint8)
+        
+        # Compute distance transform
+        # distance_transform_edt gives distance to nearest 0-valued pixel (edge)
+        dist_transform = ndimage.distance_transform_edt(mask).astype(np.float32)
+        
+        # For each fly position, lookup distance to edge
+        # Positions are in (x, y) format, but array is indexed as [row, col]
+        x_pos = self.dt["x"].values.astype(int)
+        y_pos = self.dt["y"].values.astype(int)
+        
+        # Clip to valid range (in case positions are slightly out of bounds)
+        x_pos = np.clip(x_pos, 0, dist_transform.shape[1] - 1)
+        y_pos = np.clip(y_pos, 0, dist_transform.shape[0] - 1)
+        
+        # Lookup distance at each position
+        edge_distances = dist_transform[y_pos, x_pos]
+        
+        self.dt["edge_distance"] = edge_distances
+        
+        logger.info(f"Computed edge distances: mean={edge_distances.mean():.2f}, "
+                    f"std={edge_distances.std():.2f}, "
+                    f"min={edge_distances.min():.2f}, "
+                    f"max={edge_distances.max():.2f}")
+        
+        
     @property
     def number_of_food_blobs(self):
         if self.landmarks is None:

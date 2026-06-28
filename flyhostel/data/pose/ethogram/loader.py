@@ -330,7 +330,7 @@ def load_landmarks(loader):
     loader.load_landmarks()
     loader.compute_if_fly_on_food_patch(include_outside=1)
     loader.compute_if_fly_on_notch()
-
+    loader.compute_distance_to_edge()
 
 def load_centroids(loader, frame_numbers=None, load_centroid_speed=True):
 
