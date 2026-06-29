@@ -664,8 +664,8 @@ try:
 
 
 except Exception as error:
-    sleap_integration.debug("SLEAP cannot be loaded. SLEAP integration disabled")
-    sleap_integration.debug(error)
+    # sleap_integration.debug("SLEAP cannot be loaded. SLEAP integration disabled")
+    # sleap_integration.debug(error)
     draw_video_row=None
     make_pose_video_multi_fly=None
 
