@@ -28,6 +28,7 @@ def build_frames_parallel(
     print("Extracting arrays from xarray...", flush=True)
     (positions, times, frame_numbers,
      food_distance, notch_distance, edge_distance,
+     food_cos, food_sin,
      n_individuals, kp_index, n_legs) = _preextract_arrays(pose_features, step_frames)
 
     # Build argument tuples
@@ -35,6 +36,7 @@ def build_frames_parallel(
         args = [
             (t_idx, times[t_idx], frame_numbers[t_idx], positions[t_idx],
              food_distance[t_idx], notch_distance[t_idx], edge_distance[t_idx],
+             food_cos[t_idx], food_sin[t_idx],
              n_individuals, kp_index, n_legs)
             for t_idx in range(len(times))
         ]

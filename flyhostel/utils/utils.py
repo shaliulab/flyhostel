@@ -942,3 +942,9 @@ def safe_cudf(df, col_types=None):
 def build_ethoscope_id(row):
     ethoscope_number = row["machine_name"].replace("ETHOSCOPE_", "").zfill(3)
     return row["date"] + "_" + str(ethoscope_number) + "aad|" + str(row["region_id"]).zfill(2)
+
+
+def compute_heading(thorax, head):
+    """Forward-facing heading (thorax->head), radians in [-pi, pi]."""
+    v = head - thorax
+    return np.arctan2(v[1], v[0])
