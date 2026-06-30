@@ -72,6 +72,8 @@ class LandmarksLoader:
         try:
             # Load arena mask from database
             roi_map = pd.read_sql("SELECT mask FROM ROI_MAP LIMIT 1", conn)
+            roi_width = pd.read_sql("SELECT w FROM ROI_MAP", conn).iloc[0]["w"]
+
         except Exception as e:
             logger.warning(f"Could not read ROI_MAP: {e}")
             conn.close()
@@ -108,8 +110,8 @@ class LandmarksLoader:
         
         # For each fly position, lookup distance to edge
         # Positions are in (x, y) format, but array is indexed as [row, col]
-        x_pos = self.dt["x"].values.astype(int)
-        y_pos = self.dt["y"].values.astype(int)
+        x_pos = self.dt["center_x"].values.astype(int)
+        y_pos = self.dt["center_y"].values.astype(int)
         
         # Clip to valid range (in case positions are slightly out of bounds)
         x_pos = np.clip(x_pos, 0, dist_transform.shape[1] - 1)
@@ -117,6 +119,9 @@ class LandmarksLoader:
         
         # Lookup distance at each position
         edge_distances = dist_transform[y_pos, x_pos]
+
+        # Unit = roi_width
+        edge_distances /= roi_width
         
         self.dt["edge_distance"] = edge_distances
         
@@ -143,20 +148,29 @@ class LandmarksLoader:
         self.dt["food_blobs"]=0
         across_blobs=[]
 
-        j=0
+        centers = []
+        j = 0
         for _, food_blob in food_blobs.iterrows():
-            ellipse=eval(food_blob["specification_norm"])
-            in_ellipse_all=distance_from_points_to_ellipse(
-                self.dt[["x", "y"]].values,
-                ellipse["center"][0],
-                ellipse["center"][1],
+            ellipse = eval(food_blob["specification_norm"])
+            cx, cy = ellipse["center"]
+            centers.append((cx, cy))
+            in_ellipse_all = distance_from_points_to_ellipse(
+                self.dt[["x", "y"]].values, cx, cy,
                 ellipse["axes"][0]*include_outside,
                 ellipse["axes"][1]*include_outside,
                 np.radians(ellipse["angle"]),
             )
-            self.dt[f"food_{j+1}_dist"]=in_ellipse_all
-            # across_blobs.append(in_ellipse_all)
-            j+=1
+            self.dt[f"food_{j+1}_dist"] = in_ellipse_all
+            j += 1
+
+        distances = self.dt[[f"food_{i+1}_dist" for i in range(self.number_of_food_blobs)]].values
+        nearest = distances.argmin(axis=1)
+        self.dt["food"] = nearest + 1
+        self.dt["food_distance"] = distances.min(axis=1)
+
+        centers = np.array(centers)                    # (n_blobs, 2)
+        self.dt["food_cx"] = centers[nearest, 0]       # nearest blob's center, per frame
+        self.dt["food_cy"] = centers[nearest, 1]
         
         # across_blobs=np.stack(across_blobs, axis=1)
 
