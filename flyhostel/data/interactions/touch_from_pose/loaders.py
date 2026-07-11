@@ -26,7 +26,7 @@ from .utils import (
 from .constants import INTERPOLATE, FILTER_BY_CONFIDENCE
 
 legs=[leg for leg in all_legs if "J" not in leg]
-
+INTERPOLATE_MAX_GAP_S=3600
 
 logger=logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ def load_poses_from_file(pose_file, framerate):
 def load_experiment_features(experiment, identity=None, extra_bodyparts=[], min_time=None, max_time=None, on_overlap="raise"):
 
     number_of_animals=get_number_of_animals(experiment)
+    fps=get_framerate(experiment)
     if identity is None:
         if number_of_animals>1:
             identities=list(range(1, number_of_animals+1))
@@ -80,6 +81,7 @@ def load_experiment_features(experiment, identity=None, extra_bodyparts=[], min_
         frames=get_frames(pose_file, chunksize)
 
         ds = load_poses_from_file(pose_file, framerate)
+           
         ds = ds.assign_coords(individuals=("individuals", [animal]))
 
         keypoints = ["head", "thorax", "abdomen", "proboscis"] + legs
@@ -93,7 +95,10 @@ def load_experiment_features(experiment, identity=None, extra_bodyparts=[], min_
         
         # only keep pose frames where the centroid frames are available
         pose_frames=pd.DataFrame({"frame_number": frames})
-        pose_frames=pose_frames.merge(loader.dt[["frame_number", "id", "t", "center_x", "center_y"]], how="left")
+        pose_frames=pose_frames.merge(
+            loader.dt[["frame_number", "id", "t", "center_x", "center_y"]],
+            how="left"
+        )
         ds=ds.isel(time=np.bitwise_not(pose_frames["id"].isna()))
         pose_frames=pose_frames.loc[~pose_frames["id"].isna()]
         
@@ -103,7 +108,7 @@ def load_experiment_features(experiment, identity=None, extra_bodyparts=[], min_
         times=pose_frames["t"].values
 
         if not len(frames) == ds.sizes["time"] == len(times):
-            logger.warning(f"Mismatch between dt and ds! {len(frames)} - {ds.sizes["time"]} - {len(times)}")
+            logger.warning(f"Mismatch between dt and ds! {len(frames)} - {ds.sizes['time']} - {len(times)}")
     
         ds = ds.assign_coords(
             frame_number=("time", frames),
@@ -115,22 +120,39 @@ def load_experiment_features(experiment, identity=None, extra_bodyparts=[], min_
         if FILTER_BY_CONFIDENCE:
             ds.update({"position": filter_by_confidence(ds.position, ds.confidence, print_report=True)})
         if INTERPOLATE:
-            ds.update({"position": interpolate_over_time(ds.position, print_report=True)})
+            ds.update({"position": interpolate_over_time(ds.position, print_report=True, max_gap=INTERPOLATE_MAX_GAP_S*fps)})
         
         # ← NEW: Load landmarks and distance features
         loader.load_landmarks_and_compute_distances()
         
         # Store landmark distances in the dataset
         # Match frames between loader.dt and ds
-        landmark_data = loader.dt[["frame_number", "food_distance", "notch_distance", "edge_distance"]].set_index("frame_number")
-        
-        # Reindex to match ds frame numbers
-        landmark_data = landmark_data.reindex(frames)
-        
-        # Add as data variables to ds (store per time coordinate)
-        ds["food_distance"] = ("time", landmark_data["food_distance"].values)
+        landmark_data = loader.dt[
+                ["frame_number", "food_distance", "notch_distance", "edge_distance",
+                "food_cx", "food_cy"]
+            ].set_index("frame_number").reindex(frames)
+
+        ds["food_distance"]  = ("time", landmark_data["food_distance"].values)
         ds["notch_distance"] = ("time", landmark_data["notch_distance"].values)
-        ds["edge_distance"] = ("time", landmark_data["edge_distance"].values)
+        ds["edge_distance"]  = ("time", landmark_data["edge_distance"].values)
+
+        # heading from thorax -> head vector
+        # NOTE: this formula MUST match whatever flypose_to_fly uses for heading
+        hx = ds.position.sel(keypoints="head",   space="x").values.squeeze()
+        hy = ds.position.sel(keypoints="head",   space="y").values.squeeze()
+        tx = ds.position.sel(keypoints="thorax", space="x").values.squeeze()
+        ty = ds.position.sel(keypoints="thorax", space="y").values.squeeze()
+        heading = np.arctan2(hy - ty, hx - tx)
+
+
+        fcx = landmark_data["food_cx"].values
+        fcy = landmark_data["food_cy"].values
+        angle_to_food = np.arctan2(fcy - ty, fcx - tx)            # bearing from thorax to food
+        rel = np.arctan2(np.sin(angle_to_food - heading),
+                        np.cos(angle_to_food - heading))         # wrapped to [-pi, pi]
+        ds["food_cos"] = ("time", np.cos(rel))                    # +1 = facing food
+        ds["food_sin"] = ("time", np.sin(rel))                    # sign = food left/right
+
         
         for i, (min_time, max_time) in enumerate(zip(min_time_l, max_time_l)):
             if min_time is not None or max_time is not None:
