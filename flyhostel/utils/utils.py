@@ -15,6 +15,7 @@ import pandas as pd
 import cv2
 from matplotlib import cm
 logger=logging.getLogger(__name__)
+from .cvat import get_basedir, get_dbfile, get_experiment_identifier
 
 try:
     import cudf
@@ -37,7 +38,6 @@ else:
 from flyhostel.constants import CONFIG_FILE, DEFAULT_CONFIG, ANALYSIS_FOLDER
 from flyhostel.quantification.constants import TRAJECTORIES_SOURCE
 logger = logging.getLogger(__name__)
-from .cvat import experiment_is_validated
 
 def sort_ids(ids):
     return sorted(ids, key=lambda x: (x.split("_")[1], x.split("_")[0], x.split("_")[2]))
@@ -60,23 +60,7 @@ def get_spaced_colors_util(n, norm=False, black=True, cmap="jet"):
     return colors
 
 
-def get_experiment_identifier(basedir):
-    return "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:])
 
-    
-
-def get_dbfile(basedir):
-    dbfile=os.path.join(
-        basedir,
-        get_experiment_identifier(basedir) + ".db"
-    )
-    assert os.path.exists(dbfile), f"{dbfile} not found"
-    return dbfile
-
-def get_basedir(experiment):
-    tokens = experiment.split("_")
-    basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
-    return basedir
 
 def get_pixels_per_mm_from_roi_width(experiment):
     raise NotImplementedError
@@ -354,6 +338,7 @@ def parse_identity(id):
 
 
 def get_local_identities_from_experiment(experiment, frame_number):
+    raise NotImplementedError
 
     tokens = experiment.split("_")
     experiment_path=os.path.sep.join([tokens[0], tokens[1], "_".join(tokens[2:4])])
