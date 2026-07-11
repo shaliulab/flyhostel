@@ -143,6 +143,7 @@ class FlyHostelLoader(
             else:
                 raise Exception(f"{basedir} not found")
         self.basedir=basedir
+        self.dbfile = self.load_dbfile()
 
 
         self.experiment = experiment
@@ -157,7 +158,6 @@ class FlyHostelLoader(
             if not pose_found:
                 logger.error("Pose not found")
 
-        self.dbfile = self.load_dbfile()
         self.store_path=os.path.join(os.path.dirname(self.dbfile), "metadata.yaml")
         self.store=None
         self.store_index=None
@@ -592,8 +592,8 @@ class FlyHostelLoader(
         for i, row in index.iterrows():
             draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos", chunksize=self.chunksize, fps=fps)
 
-    def get_pose_file_h5py(self, pose_name="filter_rle-jump"):
-        pose_file=get_pose_file(self.experiment, self.identity, pose_name=pose_name)
+    def get_pose_file_h5py(self, pose_name="filter_rle-jump", **kwargs):
+        pose_file=get_pose_file(self.experiment, self.identity, pose_name=pose_name, **kwargs)
         return pose_file
 
     
