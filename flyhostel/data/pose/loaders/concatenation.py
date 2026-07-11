@@ -2,7 +2,7 @@ from abc import ABC
 import logging
 import sqlite3
 
-from flyhostel.utils import (
+from flyhostel.utils.cvat import (
     experiment_is_validated,
 )
 from flyhostel.utils.pose_export import load_concatenation_table
