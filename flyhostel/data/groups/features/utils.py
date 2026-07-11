@@ -84,11 +84,15 @@ def _preextract_arrays(pose_features, step_frames):
     food_distance = pose_features["food_distance"].values[::step_frames]
     notch_distance = pose_features["notch_distance"].values[::step_frames]
     edge_distance = pose_features["edge_distance"].values[::step_frames]
+    food_cos = pose_features["food_cos"].values[::step_frames]
+    food_sin = pose_features["food_sin"].values[::step_frames]
 
     food_distance = np.squeeze(food_distance)  # Removes all singleton dimensions
     notch_distance = np.squeeze(notch_distance)
     edge_distance = np.squeeze(edge_distance)
-    
+    food_cos = np.squeeze(food_cos)
+    food_sin = np.squeeze(food_sin)
+
     # Get keypoint index and n_legs from pose_features
     individuals = pose_features.individuals.values
     n_individuals = len(individuals)
@@ -99,8 +103,9 @@ def _preextract_arrays(pose_features, step_frames):
     n_legs = len([kp for kp in keypoints if kp.startswith('leg')])
     
     return (
-        positions, times, frame_numbers, 
+        positions, times, frame_numbers,
         food_distance, notch_distance, edge_distance,
+        food_cos, food_sin,
         n_individuals, kp_index, n_legs
     )
 
@@ -116,6 +121,7 @@ def _build_frame(args) -> GroupFrame:
     """
     (t_idx, time_val, frame_number_val, frame_positions,
      food_dist, notch_dist, edge_dist,
+     food_cos, food_sin,
      n_individuals, kp_index, n_legs) = args
      
     leg_idx = [i for i, bp in enumerate(kp_index.keys()) if bp in LEGS]
@@ -124,6 +130,8 @@ def _build_frame(args) -> GroupFrame:
     food_dist_list = []
     notch_dist_list = []
     edge_dist_list = []
+    food_cos_list=[]
+    food_sin_list=[]
     n_dims = 2
     
     for ind_idx in range(n_individuals):
@@ -147,10 +155,15 @@ def _build_frame(args) -> GroupFrame:
             food_dist_list.append(food_dist[ind_idx] if len(food_dist) > ind_idx else food_dist[0])
             notch_dist_list.append(notch_dist[ind_idx] if len(notch_dist) > ind_idx else notch_dist[0])
             edge_dist_list.append(edge_dist[ind_idx] if len(edge_dist) > ind_idx else edge_dist[0])
+            food_cos_list.append(food_cos[ind_idx] if len(food_cos) > ind_idx else food_cos[0])
+            food_sin_list.append(food_sin[ind_idx] if len(food_sin) > ind_idx else food_sin[0])
         else:
             food_dist_list.append(food_dist)
             notch_dist_list.append(notch_dist)
             edge_dist_list.append(edge_dist)
+            edge_dist_list.append(edge_dist)
+            food_cos_list.append(food_cos)
+            food_sin_list.append(food_sin)
 
     return GroupFrame(
         flies=poses,
@@ -159,4 +172,6 @@ def _build_frame(args) -> GroupFrame:
         food_distance=np.array(food_dist_list),
         notch_distance=np.array(notch_dist_list),
         edge_distance=np.array(edge_dist_list),
+        food_cos=np.array(food_cos_list),
+        food_sin=np.array(food_sin_list)
     )
