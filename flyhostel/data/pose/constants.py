@@ -49,7 +49,7 @@ filters={"nanmedian": {"window_size": 0.2, "min_window_size": 40, "order": 0}, "
 body_parts_chosen=bodyparts
 thorax_pos=bodyparts.index("thorax")
 
-skeleton=[(0, i) for i in range(1, len(body_parts_chosen)-1)] + [
+skeleton=[(0, i) for i in range(1, len(body_parts_chosen)-1) if body_parts_chosen[i]!="proboscis"]  + [
         (body_parts_chosen.index("head"), body_parts_chosen.index("proboscis"))
 ]
 
