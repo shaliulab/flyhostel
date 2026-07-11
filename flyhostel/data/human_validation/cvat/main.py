@@ -545,6 +545,8 @@ def integrate_human_annotations(
             all_intervals_engaged_labels = {}
 
         new_data = new_data.loc[~new_data["local_identity"].isna()]
+        new_data["fragment"]=new_data["fragment"].astype(np.float64)
+    
         safe_cudf(new_data)
         new_data_cudf = cudf.DataFrame(new_data)
 
