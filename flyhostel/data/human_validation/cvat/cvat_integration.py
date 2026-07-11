@@ -39,7 +39,7 @@ def get_zipfile_for_task(path, task_number):
 
 
 DEBUG=True
-def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
+def download_task_annotations_to_zip(task_number, path = ".", redownload=False, dry_run=False):
     """
     
     Arguments
@@ -50,40 +50,42 @@ def download_task_annotations_to_zip(task_number, path = ".", redownload=False):
     unzipped_folder=f"task_{task_number}"
     zip_file = get_zipfile_for_task(path, task_number)
 
-    if not os.path.exists(unzipped_folder) or redownload:
-    
-        if os.path.exists(zip_file):
-            os.remove(zip_file)
+    if not dry_run:
 
-        if os.path.exists(zip_file):
-            shutil.rmtree(unzipped_folder)
+        if not os.path.exists(unzipped_folder) or redownload:
+        
+            if os.path.exists(zip_file):
+                os.remove(zip_file)
 
-        cmd=f"""
-        /home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli
-        --auth {cvat_username}:{cvat_password}
-        --server-host 'http://{cvat_host}'
-        --server-port 8080
-        dump --format 'COCO 1.0' {task_number} {zip_file}
-        """
-        print(cmd)
-        cmd_list=shlex.split(cmd)
+            if os.path.exists(zip_file):
+                shutil.rmtree(unzipped_folder)
 
-        p=subprocess.Popen(
-            cmd_list
-        )
-        p.communicate()
+            cmd=f"""
+            /home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli
+            --auth {cvat_username}:{cvat_password}
+            --server-host 'http://{cvat_host}'
+            --server-port 8080
+            dump --format 'COCO 1.0' {task_number} {zip_file}
+            """
+            print(cmd)
+            cmd_list=shlex.split(cmd)
 
-        assert os.path.exists(zip_file), f"{zip_file} was not downloaded"
+            p=subprocess.Popen(
+                cmd_list
+            )
+            p.communicate()
+
+            assert os.path.exists(zip_file), f"{zip_file} was not downloaded"
 
     return zip_file
 
-def download_annotations_from_cvat(experiment, path, tasks=None):
+def download_annotations_from_cvat(experiment, path, tasks=None, dry_run=False):
     if tasks is None:
         tasks=sorted(get_tasks_for_project(get_project_id_from_name(experiment, errors="raise")))
     zip_files=[]
 
     for task in tqdm(tasks, desc="Downloading CVAT annotations to .zip"):
-        zip_files.append(download_task_annotations_to_zip(task, path = path, redownload=True))
+        zip_files.append(download_task_annotations_to_zip(task, path = path, redownload=True, dry_run=dry_run))
     return zip_files
 
 

@@ -369,7 +369,7 @@ class FlyHostelGroup(InteractionDetector):
             validation_files=[]
             if self.number_of_animals > 1 and experiment_is_validated(self.experiment):
                 try:
-                    validation_files=self.download_annotations_from_cvat(validation_folder)
+                    validation_files=self.download_annotations_from_cvat(validation_folder, dry_run=False)
                 except Exception as error:
                     logger.error(error)
                     validation_files=[]
@@ -420,5 +420,5 @@ class FlyHostelGroup(InteractionDetector):
         return status
 
 
-    def download_annotations_from_cvat(self, path):
-        return download_annotations_from_cvat(self.experiment, path)
+    def download_annotations_from_cvat(self, path, **kwargs):
+        return download_annotations_from_cvat(self.experiment, path, **kwargs)
