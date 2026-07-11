@@ -1,4 +1,5 @@
-
+import sqlite3
+import glob
 import os
 import logging
 import datetime
@@ -169,7 +170,41 @@ def get_project_id_from_name(experiment, errors="raise"):
 
     return project_id
 
+    
+
+def get_experiment_identifier(basedir):
+    return "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:])
+
+def get_dbfile(basedir):
+    dbfile=os.path.join(
+        basedir,
+        get_experiment_identifier(basedir) + ".db"
+    )
+    assert os.path.exists(dbfile), f"{dbfile} not found"
+    return dbfile
+
+def get_basedir(experiment):
+    tokens = experiment.split("_")
+    basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
+    return basedir
+
 
 def experiment_is_validated(experiment, errors="ignore"):
-    project_id=get_project_id_from_name(experiment, errors=errors)
-    return project_id is not None
+    basedir=get_basedir(experiment)
+    dbfile=get_dbfile(basedir)
+    
+    annotation_files=glob.glob(f"{basedir}/flyhostel/validation/*_annotations.zip")
+    if len(annotation_files)>0:
+        return True
+    else:
+
+        with sqlite3.connect(dbfile) as conn:
+            cur=conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables=cur.fetchall()
+            tables=[e[0] for e in tables]
+        if "ROI_VAL" in tables and "IDENTITY_VAL" in tables:
+            return True
+        else:
+            project_id=get_project_id_from_name(experiment, errors=errors)
+            return project_id is not None
