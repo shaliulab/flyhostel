@@ -131,9 +131,6 @@ def filter_pose(
 
 
     chunk_frames=CHUNK_SECONDS*framerate
-
-
-
     # values_arr has shape min_window_size, _, _, n_windows
     if useGPU >= 0:
 
