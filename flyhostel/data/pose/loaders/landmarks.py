@@ -14,6 +14,7 @@ class LandmarksLoader:
     dt=None
     landmarks=None
     landmarks_all=None
+    roi_size=None
     
 
     def load_landmarks(self, errors="ignore"):
@@ -22,17 +23,17 @@ class LandmarksLoader:
             self.landmarks=pd.read_sql(sql="SELECT * FROM LANDMARKS;", con=conn)
             roi_map=pd.read_sql(sql="SELECT * FROM ROI_MAP;", con=conn)
 
-        roi_size=max(roi_map["w"].item(), roi_map["h"].item())
+        self.roi_size=max(roi_map["w"].item(), roi_map["h"].item())
         index=[]
         specification=[]
         for idx, landmark in self.landmarks.iterrows():
             if landmark["shape"]=="food":
-                landmark_norm=self.normalize_food_landmark(landmark.copy(), roi_size=roi_size)
+                landmark_norm=self.normalize_food_landmark(landmark.copy(), roi_size=self.roi_size)
                 specification.append(landmark_norm["specification"])
                 index.append(idx)
 
             elif landmark["shape"]=="notch":
-                landmark_norm=self.normalize_notch_landmark(landmark.copy(), roi_size=roi_size)
+                landmark_norm=self.normalize_notch_landmark(landmark.copy(), roi_size=self.roi_size)
                 specification.append(landmark_norm["specification"])
                 index.append(idx)
 
@@ -155,7 +156,8 @@ class LandmarksLoader:
             cx, cy = ellipse["center"]
             centers.append((cx, cy))
             in_ellipse_all = distance_from_points_to_ellipse(
-                self.dt[["x", "y"]].values, cx, cy,
+                self.dt[["x", "y"]].values,
+                cx, cy,
                 ellipse["axes"][0]*include_outside,
                 ellipse["axes"][1]*include_outside,
                 np.radians(ellipse["angle"]),
