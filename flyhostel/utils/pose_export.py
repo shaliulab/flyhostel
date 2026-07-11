@@ -82,131 +82,121 @@ def impute_body_part(analysis_file, body_part, reference):
 
 
 def load_file(file, chunksize=None):
-
     if chunksize is None:
         print("chunksize is not passed. No checks for missing data will be made")
-
     if not os.path.exists(file):
         print(f"{file} does not exist")
-        return None, None, None, None
+        return None, None, None, None, None            # <-- 5 now
 
     try:
         with h5py.File(file, 'r') as filehandle:
-            node_names = filehandle["node_names"][:]
-            node_names=[e.decode() for e in node_names]
+            node_names = [e.decode() for e in filehandle["node_names"][:]]
             tracks = filehandle["tracks"][:]
             score = filehandle["point_scores"][:]
-
+            # per-instance, per-frame confidence. Older exports may lack it.
+            if "instance_scores" in filehandle:
+                inst = filehandle["instance_scores"][:]          # (n_tracks, n_frames)
+            else:
+                inst = np.full((tracks.shape[0], tracks.shape[3]), np.nan)
+                logging.warning("%s has no instance_scores -> filled NaN", file)
     except Exception as error:
         logging.warning("Cannot open file %s", file)
         raise error
 
     if chunksize is not None:
-        assert tracks.shape[3]==chunksize, f"{file} is missing pose estimates (found {tracks.shape[3]} instead of {chunksize})"
+        assert tracks.shape[3] == chunksize, \
+            f"{file} is missing pose estimates (found {tracks.shape[3]} instead of {chunksize})"
 
-    return node_names, tracks, score, file
+    return node_names, tracks, score, inst, file          # <-- inst added
+
 
 def load_files(files, chunksize, n_jobs=1):
-    """
-    Load a collection of SLEAP .h5 files
-    """
-
     print(f"{len(files)} files will be loaded")
     Output = joblib.Parallel(n_jobs=n_jobs)(
-        joblib.delayed(
-            load_file
-        )(
-           file, chunksize=chunksize
-        )
-        for file in files
+        joblib.delayed(load_file)(file, chunksize=chunksize) for file in files
     )
 
-    datasets=[]
-    point_scores=[]
-    previous_node_names=None
-
-    template_dataset = None
-    template_score = None
-
+    datasets, point_scores, inst_scores = [], [], []
+    previous_node_names = None
+    template_dataset = template_score = template_inst = None
     dataset_count = 0
-    for i, (node_names, dataset, score, file) in enumerate(Output):
+
+    for i, (node_names, dataset, score, inst, file) in enumerate(Output):   # <-- inst
         if dataset is not None:
             dataset_count += 1
             if template_dataset is None:
                 template_dataset = np.full_like(dataset, np.nan)
-                template_score = score.copy()
-                template_score[:] = np.nan
-
+                template_score = np.full_like(score, np.nan)
+                template_inst = np.full_like(inst, np.nan)                    # <-- template
         else:
             raise ValueError(f"{file} could not be loaded")
-            
+
         datasets.append(dataset)
         point_scores.append(score)
+        inst_scores.append(inst)                                             # <-- collect
+
         if node_names is None:
             continue
-
         if previous_node_names is not None:
-            assert all([node_names[i] == previous_node_names[i] for i in range(len(node_names))])
-        previous_node_names=node_names
+            assert all(node_names[j] == previous_node_names[j] for j in range(len(node_names)))
+        previous_node_names = node_names
     print(f"{dataset_count} datasets have been loaded")
 
-    missing_frames=0
+    missing_frames = 0
     for i, _ in enumerate(datasets):
         if datasets[i] is None:
             datasets[i] = template_dataset.copy()
             point_scores[i] = template_score.copy()
-            missing_frames+=max(template_dataset.shape)
-            
+            inst_scores[i] = template_inst.copy()                            # <-- fill
+            missing_frames += max(template_dataset.shape)
 
-    nframes = sum([dataset.shape[3] for dataset in datasets])
+    nframes = sum(ds.shape[3] for ds in datasets)
     print(f"{nframes} frames loaded. {missing_frames} frames missing")
-    return node_names, datasets, point_scores
+    return node_names, datasets, point_scores, inst_scores                   # <-- 4 returns
 
 
-def generate_single_file(node_names, datasets, point_scores, files, dest_file):
-    # need to populate node_names and tracks
-    # tracks has shape 1 x 2 x node_names x timepoints (frames in video)
-    # node_names is a dataset with a character array. each name is byte encoded
+def generate_single_file(node_names, datasets, point_scores, inst_scores, files, dest_file):
     node_names_bytes = np.array([name.encode() for name in node_names])
     files_bytes = np.array([f.encode() for f in files])
-    
-    # dataset = np.concatenate(datasets, axis=3)
-    point_scores = np.concatenate(point_scores, axis=2)
 
-    track_names=["individual_0"]
+    point_scores = np.concatenate(point_scores, axis=2)   # (n_tracks, n_nodes, frames)
+    inst_scores  = np.concatenate(inst_scores,  axis=1)   # (n_tracks, frames)  <-- axis=1
+
+    track_names = ["individual_0"]
     total_frames = sum(ds.shape[3] for ds in datasets)
     final_shape = (datasets[0].shape[0], datasets[0].shape[1], len(node_names), total_frames)
     chunksize = datasets[0].shape[3]
-
     print(f"Chunksize = {chunksize}. Final shape = {final_shape}")
 
     with h5py.File(dest_file, 'w') as file:
-        node_names_d=file.create_dataset("node_names", (len(node_names), ), dtype='|S12')
-        node_names_d[:]=node_names_bytes
-        files_bytes_d=file.create_dataset("files", (len(files), ), dtype='|S300')
-        files_bytes_d[:]=files_bytes
-        
-        tracks_d = file.create_dataset("tracks", shape=final_shape,
-            chunks=(1, 2, len(node_names), chunksize),  # Smart chunking
-            compression="gzip", compression_opts=4  # Compression
-        )
-        # Write each chunk sequentially
-        offset=0
+        node_names_d = file.create_dataset("node_names", (len(node_names),), dtype='|S12')
+        node_names_d[:] = node_names_bytes
+        files_bytes_d = file.create_dataset("files", (len(files),), dtype='|S300')
+        files_bytes_d[:] = files_bytes
+
+        tracks_d = file.create_dataset(
+            "tracks", shape=final_shape,
+            chunks=(1, 2, len(node_names), chunksize),
+            compression="gzip", compression_opts=4)
+        offset = 0
         print(f"Writing pose to disk -> {dest_file}")
         for dataset in datasets:
-            n_frames = dataset.shape[3]  # Frames in THIS chunk
-            tracks_d[:,:,:,offset:offset+n_frames] = dataset
-            offset += n_frames
+            n = dataset.shape[3]
+            tracks_d[:, :, :, offset:offset + n] = dataset
+            offset += n
         print("Done")
-        
 
-        i=file.create_dataset("track_names", (len(track_names),), dtype="|S12")
-        i[:]=np.array([e.encode() for e in track_names])
+        tn = file.create_dataset("track_names", (len(track_names),), dtype="|S12")
+        tn[:] = np.array([e.encode() for e in track_names])
 
-        point_scores_d=file.create_dataset("point_scores", point_scores.shape)
-        point_scores_d[:]=point_scores
+        ps = file.create_dataset("point_scores", point_scores.shape)
+        ps[:] = point_scores
 
-    return dest_file
+        isd = file.create_dataset("instance_scores", inst_scores.shape)      # <-- new
+        isd[:] = inst_scores
+
+        return dest_file
+
 
 def parse_number_of_animals(cur):
 
@@ -252,11 +242,14 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", 
     if n_jobs is None:
         n_jobs=-1
 
-    node_names, datasets, point_scores = load_files(files, chunksize, n_jobs=n_jobs)
+    node_names, datasets, point_scores, inst_scores = load_files(files, chunksize, n_jobs=n_jobs)
+    
+
     dest_file=os.path.join(output, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+    
+    generate_single_file(node_names, datasets, point_scores, inst_scores, files, dest_file=dest_file)
 
-    generate_single_file(node_names, datasets, point_scores, files, dest_file=dest_file)
     assert os.path.exists(dest_file)
 
 
@@ -308,6 +301,7 @@ def recreate_pose_file(experiment, identity, chunks=None, output=".", n_jobs=1):
     
     NOTE: Multiple identities are not tested properly. Recommended to pass just one
     """
+
     basedir = get_basedir(experiment)
     dbfile = get_dbfile(basedir)
     number_of_animals = get_number_of_animals(experiment)
@@ -342,7 +336,7 @@ def recreate_pose_file(experiment, identity, chunks=None, output=".", n_jobs=1):
     return None
 
 
-def get_pose_file(experiment, identity, pose_name):
+def get_pose_file(experiment, identity, pose_name, recreate=True):
     animal=experiment + "__" + str(identity).zfill(2)
     basedir=get_basedir(experiment)
     pose_file=os.path.join(
@@ -352,7 +346,7 @@ def get_pose_file(experiment, identity, pose_name):
         animal,
         animal + ".h5"
     )
-    if not os.path.exists(pose_file) and pose_name=="raw":
+    if not os.path.exists(pose_file) and pose_name=="raw" and recreate:
         output=os.path.dirname(os.path.dirname(pose_file))
         recreate_pose_file(experiment=experiment, identity=identity, chunks=None, output=output, n_jobs=None)
 
