@@ -161,9 +161,12 @@ def make_clip_and_pose(grp, xy, nodes, chunksize, fps,
 def _process_burst(bid, burst, xy_slice, sc_slice, slice_origin, nodes, fly,
                    chunksize, fps, out_dir, pad, upscale):
     """All artifacts for one burst. Pure function of its arguments (picklable), so it
-    runs identically serial or under joblib."""
-    n = 0
+    runs identically serial or under joblib.
 
+    Returns 1 if the whole-burst clip+pose was written, else 0. (Per-bout artifacts,
+    when PER_BOUT is on, are reported separately via prints and do NOT inflate this
+    count, so `sum(results)/n_bursts` in main() stays a clean bursts-succeeded ratio.)
+    """
     # ---- whole-burst clip + pose ----
     b_start = burst["frame_number"].min() - pad
     b_end   = burst["frame_number"].max() + pad
@@ -177,12 +180,12 @@ def _process_burst(bid, burst, xy_slice, sc_slice, slice_origin, nodes, fly,
         os.path.join(out_dir, burst_stem + ".pose.json"),
         upscale=upscale, include_video=True, include_pose=True,
         first_fn_global=slice_origin, sc=sc_slice)
+    n = int(ok_b)                          # <-- count the whole-burst artifact (0 or 1)
     if not ok_b:
         print(f"  burst {bid}: whole-burst clip failed")
 
     # ---- per-bout pose json (no clip) ----
     if PER_BOUT:
-        ok = False
         for bout_uid, grp in burst.groupby("bout_uid", sort=True):
             start = grp["frame_number"].min() - pad
             end   = grp["frame_number"].max() + pad
@@ -196,12 +199,11 @@ def _process_burst(bid, burst, xy_slice, sc_slice, slice_origin, nodes, fly,
                 os.path.join(out_dir, stem + ".pose.json"),
                 upscale=upscale, include_video=False, include_pose=True,
                 first_fn_global=slice_origin, sc=sc_slice)
-            n += ok
             if not ok:
                 print(f"  burst {bid} bout {bout_uid}: no frames")
-        if not ok:
-            print(f"  burst {bid}: no frames (missing crops?)")
+
     return n
+
 
 
 def _build_tasks(d, xy, sc, first_fn_global, pad):
