@@ -4,6 +4,7 @@ import json
 import re
 import time
 import h5py
+import traceback
 import sqlite3
 import numpy as np
 import joblib
@@ -81,7 +82,57 @@ def impute_body_part(analysis_file, body_part, reference):
     return missing
 
 
+# ==========================================================================
+# low-level pose IO + geometry  (identical numbers feed every classification)
+# ==========================================================================
+
+
+
+def check_file_contains_everything_needed(path, experiment, identity):
+    remake=False
+
+    if os.path.exists(path):
+        with h5py.File(path, "r") as f:
+            if "instance_scores" not in f.keys():
+                remake=True
+            else:
+                remake=False
+    else:
+        remake=True
+    
+    if remake:
+        os.remove(path)
+        print(f"INFO - Remaking {path}")
+        recreate_pose_file(experiment, identity, output=os.path.dirname(os.path.dirname(path)))
+
+
+def load_arrays(path):
+    """
+    Load .h5 pose files to feed the proboscis extension pipeline
+    """
+    try:
+        with h5py.File(path, "r") as f:
+            tracks = f["tracks"][:]          # (n_tracks, 2, n_nodes, n_frames)
+            scores = f["point_scores"][:]    # (n_tracks, n_nodes, n_frames)
+            nodes  = [n.decode() for n in f["node_names"][:]]
+            inst_scores = f["instance_scores"][:]   # (n_tracks, n_frames)
+    except Exception as error:
+        logging.error("Cannot load %s. See error trace", path)
+        logging.error(traceback.print_exc())
+        raise error
+    
+    
+    locs = tracks.transpose(3, 2, 1, 0)  # (frames, nodes, xy, tracks)
+    sc   = scores.transpose(2, 1, 0)     # (frames, nodes, tracks)
+    inst_scores   = inst_scores.transpose(1, 0)     # (frames, nodes, tracks)
+    return locs, sc, nodes, inst_scores
+
+
 def load_file(file, chunksize=None):
+    """
+    Load .h5 pose files to build compiled pipeline
+    """
+
     if chunksize is None:
         print("chunksize is not passed. No checks for missing data will be made")
     if not os.path.exists(file):
@@ -208,6 +259,11 @@ def parse_number_of_animals(cur):
 
 
 def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", strict=True, n_jobs=1):
+    """
+    Given an experiment+identity identifier (single fly), produce a single .h5 file
+    with the pose estimate of all the chunks analyed.
+    This pose file will live in the folder passed in output under /experiment__identity/experiment__identity.h5
+    """
 
     chunksize=get_chunksize(experiment_name)
 
@@ -235,21 +291,17 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", 
                 first_chunk_missing=concatenation_i.iloc[1:].loc[concatenation_i["chunk"].diff().iloc[1:]!=1]["chunk"].iloc[0]
                 concatenation_i=concatenation_i.query(f"chunk < {first_chunk_missing}")
 
-
-
     files=concatenation_i["dfile"]
 
     if n_jobs is None:
         n_jobs=-1
 
-    node_names, datasets, point_scores, inst_scores = load_files(files, chunksize, n_jobs=n_jobs)
-    
+    assert all([file is not None for file in files])
 
+    node_names, datasets, point_scores, inst_scores = load_files(files, chunksize, n_jobs=n_jobs)
     dest_file=os.path.join(output, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-    
     generate_single_file(node_names, datasets, point_scores, inst_scores, files, dest_file=dest_file)
-
     assert os.path.exists(dest_file)
 
 

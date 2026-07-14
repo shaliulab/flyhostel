@@ -33,7 +33,7 @@ from flyhostel.utils import (
     get_basedir, get_dbfile, get_number_of_animals, get_local_identities,
 )
 
-from flyhostel.utils.pose_export import load_arrays
+from flyhostel.utils.pose_export import load_arrays, check_file_contains_everything_needed
 from flyhostel.data.pose.main import FlyHostelLoader
 N_JOBS = -1
 
@@ -483,8 +483,8 @@ def review_file(path, params):
         }
     # human-readable dump per fly (all tiers together)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    df.assign(fly=f"{experiment}__{str(identity).zfill(2)}").to_csv(
-        f"{OUTPUT_DIR}/{experiment}__{str(identity).zfill(2)}__candidates.csv", index=False)
+    df.assign(fly=f"{experiment}__{str(identity).zfill(2)}").to_feather(
+        f"{OUTPUT_DIR}/{experiment}__{str(identity).zfill(2)}_candidates.feather")
     return out
 
 
@@ -495,12 +495,16 @@ def proboscis_candidates_for_fly(fly):
     loader=FlyHostelLoader(experiment, identity)
     pose_file=loader.get_pose_file_h5py("raw")
 
+    check_file_contains_everything_needed(pose_file, experiment, identity)
+
     params = PARAMS.copy()
 
     _, _, nodes, _ = load_arrays(pose_file)
     pd.Series(nodes).to_csv("nodes.csv", index=False, header=["node"])
     records = {}
-    records.update(review_file(pose_file, params))
+    records.update(
+        review_file(pose_file, params)
+    )
 
     for (fid, tier), rec in records.items():
         n = len(rec["frames"])
