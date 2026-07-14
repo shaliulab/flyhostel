@@ -85,6 +85,13 @@ BODY_MOVE_MM_S = 1.00   # thorax speed above this = body moving.                
                         #   (CALIBRATE per rig — 1 px jitter is a different mm/s on each.)
 LEG_MOVE_MM_S  = 2.00   # foreleg speed (relative to thorax) above this = legs   unit: mm/s
                         #   active => grooming. (CALIBRATE against known grooming.)
+
+
+REAR_LEG_MOVE_MM_S = 3.0   # rear-leg speed above this = legs active -> grooming/moving.
+                           # CALIBRATE separately: rear legs may have a different baseline
+                           # jitter than forelegs. Histogram rear_leg_speed_med for
+                           # confirmed groom vs pe.
+
 BODY_MOVE_FRAC = 0.20   # if > this fraction of a bout's frames have the body
                         #   moving, the event is contaminated by locomotion.     unit: fraction
 
@@ -100,7 +107,7 @@ BASELINE_WIN_S  = 1.00  # window before a bout used to estimate the retracted   
                         #   baseline for amplitude.
 
 FORELEGS = ("fRL", "fLL")   # nodes used for the grooming (leg-motion) contrast
-
+REARLEGS = ("rRL", "rLL")  
 # --- FOOD RING proximity (feeding / drinking discriminator) ---
 # Flies feed/drink by placing the proboscis tip essentially ON the perimeter of the
 # food blob. Distance is signed (negative = inside the ellipse).
@@ -124,7 +131,13 @@ LEG_NEAR_PROB_MM = -1 # foreleg tip closer than this to the proboscis tip -> gro
                         #    this threshold is genuinely data-dependent.)
 
 USE_FOOD_RULE = True    # set False to disable the food-ring rule entirely
-USE_LEG_RULE  = False   # set False to disable the foreleg-proximity rule entirely
+USE_LEG_PROXIMITY_RULE = False   # foreleg TIP near proboscis tip -> groom
+USE_LEG_MOTION_RULE     = False   # fore/rear leg SPEED high        -> groom
+
+
+PE_CONF_MIN = 0.65    # peak proboscis confidence must clear this (well above PROD_THRESH=0.5)
+                      # CALIBRATE: histogram conf_at_peak for GUI-confirmed pe vs false-pe
+USE_CONF_RULE = True    # gate PE on peak proboscis confidence (conf_at_peak >= PE_CONF_MIN)
 
 # ==========================================================================
 # signals: gated extension (mm) + body & leg speed (mm/s), full length
@@ -200,7 +213,15 @@ def signals_from_h5(loader, params, track=TRACK):
                 [[np.nan], np.linalg.norm(np.diff(rel, axis=0), axis=1)]) / ppm * fps)
     leg_speed = (np.nanmax(np.stack(leg_sp), axis=0) if leg_sp
                  else np.full_like(body_speed, np.nan))
-
+    rear_sp = []
+    for name in REARLEGS:
+        if name in nodes:
+            rel = locs[:, nodes.index(name), :, track] - thorax
+            rear_sp.append(np.concatenate(
+                [[np.nan], np.linalg.norm(np.diff(rel, axis=0), axis=1)]) / ppm * fps)
+    rear_leg_speed = (np.nanmax(np.stack(rear_sp), axis=0) if rear_sp
+                    else np.full_like(body_speed, np.nan))
+        
     leg_prob_mm = foreleg_proboscis_distance(locs, nodes, track, ppm)
 
     # --- proboscis -> food boundary -------------------------------------------
@@ -233,7 +254,7 @@ def signals_from_h5(loader, params, track=TRACK):
         prob_food_mm = np.take_along_axis(per_blob, nearest[None, :], axis=0)[0]
         assert prob_food_mm.size == thorax_arena_xy.shape[0]
 
-    return dict(dist_mm=dist_mm, body_speed=body_speed, leg_speed=leg_speed,
+    return dict(dist_mm=dist_mm, prob_conf=v["pc"], body_speed=body_speed, leg_speed=leg_speed, rear_leg_speed=rear_leg_speed,
                 leg_prob_mm=leg_prob_mm, prob_food_mm=prob_food_mm,
                 ext_min_mm=ext_min_mm, fps=fps, ppm=ppm, n_frames=dist_mm.size,
                 first_fn=get_first_frame_number(path, get_chunksize(exp)))
@@ -503,6 +524,16 @@ def bout_features(loader, params, track=TRACK, tier_frames=None):
         leg_med = float(np.nanmedian(lseg)) if np.isfinite(lseg).any() else np.nan
         body_med = float(np.nanmedian(bseg)) if np.isfinite(bseg).any() else np.nan
 
+        # --- rear-leg motion (grooming even when forelegs are still) ---
+        rlseg = sig["rear_leg_speed"][s:e]
+        rear_leg_med = float(np.nanmedian(rlseg)) if np.isfinite(rlseg).any() else np.nan
+
+        # --- proboscis confidence in this bout ---
+        pc_seg = sig["prob_conf"][s:e]
+        conf_at_peak = float(sig["prob_conf"][pk]) if np.isfinite(sig["prob_conf"][pk]) else np.nan
+        conf_med_in_bout = float(np.nanmedian(pc_seg)) if np.isfinite(pc_seg).any() else np.nan
+        conf_frac = float(np.nanmean(pc_seg >= PROD_THRESH)) if pc_seg.size else np.nan
+        
         # --- burst context (graceful for solitary: n=1, IBI=NaN, autocorr low) ---
         b = burst_id[i]
         n_in_burst = burst_size[b]
@@ -524,12 +555,20 @@ def bout_features(loader, params, track=TRACK, tier_frames=None):
             rise_s=rise_s, fall_s=fall_s, symmetry=symmetry,
             returned=bool(returned), return_time_s=return_time_s,
             quiescence_bout_s=quiescence_bout_s,
-            quiesc_before_s=quiesc_before_s, quiesc_after_s=quiesc_after_s,
-            prob_food_min_mm=prob_food_min_mm, prob_food_at_peak_mm=prob_food_at_peak_mm,
+            quiesc_before_s=quiesc_before_s,
+            quiesc_after_s=quiesc_after_s,
+            prob_food_min_mm=prob_food_min_mm,
+            prob_food_at_peak_mm=prob_food_at_peak_mm,
             leg_prob_min_mm=leg_prob_min_mm,
-            body_move_frac=body_move_frac, body_speed_med=body_med, leg_speed_med=leg_med,
+            leg_speed_med=leg_med,
+            rear_leg_speed_med=rear_leg_med,
+            body_move_frac=body_move_frac,
+            body_speed_med=body_med,
             n_ctx=n_ctx, ibi_prev_s=ibi_prev, ibi_next_s=ibi_next,
             autocorr_peak=ac_peak, ext_frac_window=ext_frac_win,
+            conf_at_peak=conf_at_peak,
+            conf_med_in_bout=conf_med_in_bout,
+            conf_frac=conf_frac,
             in_tier=True
         ))
         
@@ -556,11 +595,20 @@ def label_bouts(df):
     lab = np.full(len(df), "ambiguous", dtype=object)
 
     static_body = (df["body_move_frac"] < BODY_MOVE_FRAC)
-    static_legs = (df["leg_speed_med"] < LEG_MOVE_MM_S)
+    
+    static_legs = (df["leg_speed_med"] < LEG_MOVE_MM_S) & \
+                    (df["rear_leg_speed_med"].fillna(0) < REAR_LEG_MOVE_MM_S)
+    legs_moving = ~static_legs
+
     pe_shape  = df["dur_s"].between(PE_DUR_MIN_S, PE_DUR_MAX_S)
     plateau   = (df["dur_s"] > PLATEAU_DUR_S)
     returned  = df["returned"].astype(bool)
     long_quiet = (df["quiescence_bout_s"] >= MIN_QUIESCENCE_S)
+    confident = (df["conf_at_peak"].fillna(0) >= PE_CONF_MIN)
+    
+    # order matters: most specific first. Each rule ALSO records why it fired, so
+    # explain_frame can report the reason without re-deriving (and drifting from) it.
+    reason = np.full(len(df), "no rule matched", dtype=object)
 
     # NaN-safe: a missing feature must NEVER reject a bout (fillna -> "far away").
     # NB pass mode/cutoff EXPLICITLY: near_food_mask's defaults are bound at import
@@ -569,12 +617,17 @@ def label_bouts(df):
                                mode=NEAR_FOOD_MODE, cutoff=FOOD_RING_MM) if USE_FOOD_RULE else np.zeros(len(df), bool)
     near_food = pd.Series(np.where(df["prob_food_min_mm"].isna(), False, near_food),
                           index=df.index)
-    legs_near = (df["leg_prob_min_mm"].fillna(np.inf) <= LEG_NEAR_PROB_MM) if USE_LEG_RULE \
-            else pd.Series(False, index=df.index)
 
-    # order matters: most specific first. Each rule ALSO records why it fired, so
-    # explain_frame can report the reason without re-deriving (and drifting from) it.
-    reason = np.full(len(df), "no rule matched", dtype=object)
+    legs_near = (df["leg_prob_min_mm"].fillna(np.inf) <= LEG_NEAR_PROB_MM) \
+                if USE_LEG_PROXIMITY_RULE else pd.Series(False, index=df.index)
+
+    legs_moving = (~static_legs) if USE_LEG_MOTION_RULE else pd.Series(False, index=df.index)
+
+    m = (~plateau & ~near_food & (legs_near | legs_moving)).to_numpy()
+    lab[m] = "groom"
+    reason[m] = (f"foreleg within LEG_NEAR_PROB_MM ({LEG_NEAR_PROB_MM}mm) of proboscis "
+                 f"or leg_speed_med >= LEG_MOVE_MM_S ({LEG_MOVE_MM_S})")
+
 
     lab[plateau.to_numpy()] = "feed"
     reason[plateau.to_numpy()] = f"dur_s > PLATEAU_DUR_S ({PLATEAU_DUR_S}s) -> held extension"
@@ -585,11 +638,6 @@ def label_bouts(df):
     reason[m] = (f"proboscis within FOOD_RING_MM ({FOOD_RING_MM}mm) of the food blob "
                  f"[{NEAR_FOOD_MODE}] -> feeding/drinking")
 
-    # forelegs touching the proboscis -> grooming, even if they move slowly
-    m = (~plateau & ~near_food & (legs_near | ~static_legs)).to_numpy()
-    lab[m] = "groom"
-    reason[m] = (f"foreleg within LEG_NEAR_PROB_MM ({LEG_NEAR_PROB_MM}mm) of proboscis "
-                 f"or leg_speed_med >= LEG_MOVE_MM_S ({LEG_MOVE_MM_S})")
 
     clean = ~plateau & ~near_food & ~legs_near & static_legs
     m = (clean & ~static_body).to_numpy()
@@ -603,13 +651,32 @@ def label_bouts(df):
     lab[m] = "brief_quiescence"
     reason[m] = f"quiescence_bout_s < MIN_QUIESCENCE_S ({MIN_QUIESCENCE_S}s) -> feeding between walks"
 
-    m = (still & returned & long_quiet & pe_shape).to_numpy()
-    lab[m] = "pe"
-    reason[m] = ("returned to baseline + long quiescence + still body/legs + "
-                 "away from food + legs off proboscis + PE-scale duration")
+    # m = (still & returned & long_quiet & pe_shape).to_numpy()
+    # lab[m] = "pe"
+    # reason[m] = ("returned to baseline + long quiescence + still body/legs + "
+    #              "away from food + legs off proboscis + PE-scale duration")
 
     m = (still & returned & long_quiet & ~pe_shape).to_numpy()
     reason[m] = f"dur_s outside PE band [{PE_DUR_MIN_S}, {PE_DUR_MAX_S}]s"
+
+
+    if USE_CONF_RULE:
+        confident = (df["conf_at_peak"].fillna(0) >= PE_CONF_MIN)
+    else:
+        confident = pd.Series(True, index=df.index)   # confidence never rejects
+
+    pe_ok = still & returned & long_quiet & pe_shape
+    m = (pe_ok & confident).to_numpy()
+    lab[m] = "pe"
+    reason[m] = ("returned to baseline + long quiescence + still body/legs + "
+                "away from food + PE-scale duration"
+                + (f" + conf_at_peak >= PE_CONF_MIN ({PE_CONF_MIN})" if USE_CONF_RULE else ""))
+
+    if USE_CONF_RULE:
+        m = (pe_ok & ~confident).to_numpy()
+        lab[m] = "low_conf"
+        reason[m] = f"conf_at_peak < PE_CONF_MIN ({PE_CONF_MIN}) -> proboscis barely detected"
+
 
     df = df.copy()
     df["label"] = lab
