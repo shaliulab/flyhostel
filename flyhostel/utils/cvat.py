@@ -115,7 +115,7 @@ def file_is_older_than_seconds(path, seconds):
 
 def update_project_list():
 
-    if file_is_older_than_seconds(PROJECTS_JSON, 60):
+    if not os.path.exists(PROJECTS_JSON) or file_is_older_than_seconds(PROJECTS_JSON, 60):
         url="http://localhost:8080/api/projects?page_size=9999&scheme=json"
         print(f"Fetching {url}")
 
@@ -128,7 +128,7 @@ def update_project_list():
             r.raise_for_status()
             out = r.json()
 
-            if file_is_older_than_seconds(PROJECTS_JSON, 60):
+            if not os.path.exists(PROJECTS_JSON) or file_is_older_than_seconds(PROJECTS_JSON, 60):
                 with open(PROJECTS_JSON, 'w') as handle:
                     json.dump(out, handle)
     else:
