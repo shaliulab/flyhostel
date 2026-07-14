@@ -151,7 +151,8 @@ def project_thorax_to_arena(loader, thorax, frame_numbers):
 
 def signals_from_h5(loader, params, track=TRACK):
     """Per-frame signals, built from the SAME gate classify_detections uses."""
-    loader.load_centroid_data(cache="flyhostel_data/cache")
+    loader.load_centroid_data(cache="/flyhostel_data/cache")
+    assert loader.dt is not None
     loader.load_landmarks()
     path = loader.get_pose_file_h5py("raw")
 
