@@ -242,9 +242,6 @@ def process_experiment(experiment, number_of_animals, window_s=10):
     """
     Annotate immobility state of each fly involved in interactions detected in a flyhostel experiment
     """
-    
-    # index_csv=get_basedir(experiment) + f"/interactions/{experiment}_index.csv"
-    # features_pkl=get_basedir(experiment) + f"/interactions/{experiment}_features.pkl"
     index_csv="index.csv"
     features_pkl="features.pkl"
     
