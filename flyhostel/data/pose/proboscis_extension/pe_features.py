@@ -32,11 +32,6 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 from flyhostel.data.pose.main import FlyHostelLoader
-from flyhostel.utils import (
-    get_pixels_per_mm, get_framerate, get_chunksize,
-    get_square_width,
-    get_square_height,
-)
 
 from flyhostel.data.pose.landmarks import distance_from_points_to_ellipse
 from flyhostel.utils.pose_export import load_arrays, get_first_frame_number, load_frame_numbers
@@ -146,9 +141,8 @@ USE_CONF_RULE = True    # gate PE on peak proboscis confidence (conf_at_peak >= 
 # ==========================================================================
 
 def project_thorax_to_arena(loader, thorax, frame_numbers):
-    square_width=get_square_width(loader.experiment)
-    square_height=get_square_height(loader.experiment)
-
+    square_width=loader.square_width
+    square_height=loader.square_height
     thorax_arena_xy=thorax.copy()
     thorax_arena_xy[:, 0] -= square_width//2
     thorax_arena_xy[:, 1] -= square_height//2
@@ -175,7 +169,7 @@ def signals_from_h5(loader, params, track=TRACK):
     frame_numbers = load_frame_numbers(path, loader.chunksize)
     g = compute_geometry(locs, sc, nodes, inst)
     exp = os.path.basename(path).split("__")[0]
-    ppm, fps = get_pixels_per_mm(exp), get_framerate(exp)
+    ppm, fps = loader.pixels_per_mm, loader.framerate
     ext_min_mm = EXT_FRAC * params["max_ext_mm"]
 
     # ---------------------------------------------------------------------
@@ -259,7 +253,7 @@ def signals_from_h5(loader, params, track=TRACK):
     return dict(dist_mm=dist_mm, prob_conf=v["pc"], body_speed=body_speed, leg_speed=leg_speed, rear_leg_speed=rear_leg_speed,
                 leg_prob_mm=leg_prob_mm, prob_food_mm=prob_food_mm,
                 ext_min_mm=ext_min_mm, fps=fps, ppm=ppm, n_frames=dist_mm.size,
-                first_fn=get_first_frame_number(path, get_chunksize(exp)))
+                first_fn=get_first_frame_number(path, loader.chunksize))
 
 # ==========================================================================
 # bout + burst segmentation
@@ -721,8 +715,8 @@ def pe_features_for_fly(fly):
     # scalars the builder needs, carried as columns so it imports no flyhostel
     df["fly"] = fly
     df["h5_path"] = pose_file
-    df["chunksize"] = get_chunksize(experiment)
-    df["fps"] = get_framerate(experiment)
+    df["chunksize"] = loader.chunksize
+    df["fps"] = loader.framerate
     # per-frame video_file + local_frame for the bout's PEAK frame (frame_number).
     # resolve_video_paths keys on frame_number, so the peak lands in the right
     # chunk video even when its bout straddles a boundary.
