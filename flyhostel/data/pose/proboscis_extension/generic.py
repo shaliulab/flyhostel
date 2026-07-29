@@ -1,10 +1,15 @@
 class GenericLoader:
 
-    def __init__(self, experiment: str, identity: int, pixels_per_mm: float, **kwargs):
+    def __init__(self, experiment: str, identity: int, pixels_per_mm: float, chunksize: int, framerate: int, square_width: int, **kwargs):
         self.experiment=experiment              # shared by all flies in the group
         self.identity=identity                  # specific to this fly in this group
         self.pixels_per_mm=pixels_per_mm        # how many pixels make up one mm in the arena?
+        self.chunksize=chunksize                # how many frames make up one of the videos that make up the recording
+        self.framerate=framerate                # how many frames are collected in one second?
+        self.square_width=square_width          # how many pixels does the square around the centroid have
+        self.square_height=square_height
         self.kwargs=kwargs
+
 
 
     @property
