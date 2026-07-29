@@ -33,7 +33,9 @@ from flyhostel.utils import (
     get_basedir, get_dbfile, get_number_of_animals, get_local_identities,
 )
 
-from flyhostel.utils.pose_export import load_arrays, check_file_contains_everything_needed
+from flyhostel.utils.pose_export import (
+    load_arrays, check_file_contains_everything_needed, get_first_frame_number, estimate_body_length_mm
+)
 from flyhostel.data.pose.main import FlyHostelLoader
 N_JOBS = -1
 
@@ -104,32 +106,105 @@ PARAMS={
 }
 
 
-def compute_geometry(locs, sc, nodes, inst_scores):
-    pi, hi, ti = nodes.index("proboscis"), nodes.index("head"), nodes.index("thorax")
+
+def compute_geometry(locs, sc, nodes, inst_scores, bp1="head", bp2="thorax"):
+    """As before, plus body long-axis heading, body length, and abdomen confidence.
+ 
+    New keys
+    --------
+    body_theta   : (frames, tracks) heading (rad) of the long axis, abdomen->head
+                   (anterior). This is the axis meant by MAX_ANGLE in the detector.
+    body_length  : (frames, tracks) head<->abdomen distance in PIXELS.
+    abd_conf     : (frames, tracks) abdomen point confidence.
+ 
+    Note: bp2 default corrected to "thorax" (was a typo "throax"); pass bp2
+    explicitly if your node graph names it differently.
+    """
+    pi, hi, ti = nodes.index("proboscis"), nodes.index(bp1), nodes.index(bp2)
     ab = nodes.index("abdomen")
     prob_conf, head_conf, axis_conf = sc[:, pi, :], sc[:, hi, :], sc[:, ti, :]
-
+    abd_conf = sc[:, ab, :]                                     # NEW
+ 
     body_axis = locs[:, hi, :, :] - locs[:, ti, :, :]          # thorax -> head (anterior)
     theta = np.arctan2(body_axis[:, 1, :], body_axis[:, 0, :])
     vec = locs[:, pi, :, :] - locs[:, hi, :, :]                # head -> proboscis
     dist = np.linalg.norm(vec, axis=1)
     ang = np.arctan2(vec[:, 1, :], vec[:, 0, :])
     off_axis = np.abs(np.angle(np.exp(1j * (ang - theta))))
-
-    # signed projection of head->proboscis onto the anterior axis (px).
-    # > 0 : proboscis is IN FRONT of the head;  < 0 : behind it (180deg-off / on abdomen).
+ 
     along = vec[:, 0, :] * np.cos(theta) + vec[:, 1, :] * np.sin(theta)
-
     prob_to_abd = np.linalg.norm(locs[:, pi, :, :] - locs[:, ab, :, :], axis=1)
-
+ 
+    # NEW: long axis (abdomen -> head, anterior) and body length (head <-> abdomen)
+    long_axis = locs[:, hi, :, :] - locs[:, ab, :, :]
+    body_theta = np.arctan2(long_axis[:, 1, :], long_axis[:, 0, :])
+    body_length = np.linalg.norm(long_axis, axis=1)            # px
+ 
     disp = np.full_like(dist, np.nan)
     disp[1:, :] = np.linalg.norm(np.diff(locs[:, pi, :, :], axis=0), axis=1)
-
+ 
     return dict(pi=pi, hi=hi, ti=ti, ab=ab,
                 prob_conf=prob_conf, head_conf=head_conf, axis_conf=axis_conf,
+                abd_conf=abd_conf,
                 dist=dist, off_axis=off_axis, along=along, prob_to_abd=prob_to_abd,
+                theta=theta, body_theta=body_theta, body_length=body_length,
                 disp=disp, locs=locs, inst_scores=inst_scores)
+ 
 
+
+# --------------------------------------------------------------------------- #
+# Bridge: pose file -> detector columns on loader.dt                           #
+# --------------------------------------------------------------------------- #
+def attach_pose_features(
+    loader, *, track, first_frame_number,
+    orientation_col="heading", body_length_col="body_length_mm",
+    body_length_estimator="percentile", body_length_percentile=90.0,
+    min_pose_confidence=0.0, pose_kind="raw", inplace=True,
+):
+    """Populate ``loader.dt`` with heading (rad) and body length (mm) per frame.
+ 
+    Parameters that only *you* can resolve (they depend on the FlyHostel layout,
+    not on anything visible here) are required explicitly:
+      * ``track``              : index of this fly's track in its pose file.
+      * ``first_frame_number`` : frame_number of pose-array index 0, e.g.
+                                 ``get_first_frame_number(path, get_chunksize(exp))``.
+ 
+    Alignment: pose array row ``k`` -> ``frame_number = first_frame_number + k``.
+    The result is left-joined onto ``loader.dt`` by ``frame_number``, so rows with
+    no pose stay NaN (and the detector treats them as "can't assert closeness").
+ 
+    Returns the augmented dt (and assigns it to ``loader.dt`` if ``inplace``).
+    """
+
+    raise Exception # this function is a fossile?
+
+    if h5py is None:
+        raise RuntimeError("h5py is required for attach_pose_features but is unavailable.")
+ 
+    path = loader.get_pose_file_h5py(pose_kind)
+    locs, sc, nodes, inst = load_arrays(path)
+    g = compute_geometry(locs, sc, nodes, inst)
+ 
+    heading = g["body_theta"][:, track]                    # long-axis anterior heading (rad)
+    conf = np.minimum(g["head_conf"][:, track], g["abd_conf"][:, track])
+    body_len_mm = estimate_body_length_mm(
+        g["body_length"][:, track], conf, loader.pixels_per_mm,
+        estimator=body_length_estimator, percentile=body_length_percentile,
+        min_confidence=min_pose_confidence,
+    )
+ 
+    n = heading.shape[0]
+    fn = np.arange(n, dtype=np.int64) + int(first_frame_number)
+    pose_df = pd.DataFrame({
+        "frame_number": fn,
+        orientation_col: heading,
+        body_length_col: body_len_mm,
+    })
+ 
+    dt = loader.dt.merge(pose_df, on="frame_number", how="left")
+    if inplace:
+        loader.dt = dt
+    return dt
 
 # ==========================================================================
 # parameter fitting (run once, cached). Physiological units -> rig-invariant.
@@ -292,20 +367,6 @@ def classify_detections(path, params, track=0):
 # ==========================================================================
 # resolve identity / chunk video, then write one feather per (fly, tier)
 # ==========================================================================
-def get_first_frame_number(path, chunksize):
-    with h5py.File(path) as f:
-        files = [e.decode() for e in f["files"][:]]
-    return int(os.path.basename(files[0]).split(".")[0]) * chunksize
-
-def load_frame_numbers(path, chunksize):
-    with h5py.File(path) as f:
-        files = [e.decode() for e in f["files"][:]]
-    
-    chunks=[int(os.path.basename(file).split(".")[0]) for file in files]
-    n_frames=len(chunks)*chunksize
-    frames=get_first_frame_number(path, chunksize) + np.arange(n_frames)
-    return frames
-
 
 
 def resolve_video_paths(df, experiment, identity):
@@ -528,8 +589,6 @@ def proboscis_candidates_for_fly(fly):
 
 
 # derive parameters
-
-
 def derive_parameters(files):
     dist_mm, offax, dist_for_off, vel = [], [], [], []
     for path in tqdm(files, desc="Fitting gates"):

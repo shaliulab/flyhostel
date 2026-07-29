@@ -39,10 +39,12 @@ from flyhostel.utils import (
 )
 
 from flyhostel.data.pose.landmarks import distance_from_points_to_ellipse
+from flyhostel.utils.pose_export import load_arrays, get_first_frame_number, load_frame_numbers
 from .proboscis_candidates import (
-    load_arrays, compute_geometry, EXT_FRAC, PROD_THRESH, PARAMS,
-    get_first_frame_number, load_frame_numbers, resolve_video_paths, gate_masks
+    compute_geometry, EXT_FRAC, PROD_THRESH, PARAMS,
+    resolve_video_paths, gate_masks
 )
+
 
 # ==========================================================================
 # ||||||||||||||||||  MANUAL PARAMETERS (not data-derived)  ||||||||||||||||||
@@ -759,4 +761,3 @@ if __name__ == "__main__":
     
     print(f"\n{len(out)} bouts over {out['fly'].nunique()} flies -> pe_bouts.feather")
     print(out["label"].value_counts())
-

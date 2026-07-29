@@ -22,7 +22,9 @@ correctly. This keeps the pickle payload tiny (a few hundred rows per task) whet
 serial or parallel.
 """
 import os
+import logging
 import json
+import pickle
 import argparse
 import numpy as np
 import pandas as pd
@@ -42,6 +44,7 @@ TRACK = 0
 FOURCC = cv2.VideoWriter_fourcc(*"avc1")
 PER_BOUT = False
 
+logger=logging.getLogger(__name__)
 
 def load_pose(h5_path):
     with h5py.File(h5_path, "r") as f:
@@ -87,6 +90,8 @@ def make_clip_and_pose(grp, xy, nodes, chunksize, fps,
     writer, size, start_frame = None, None, None
     json_frames = []
     target_uids = set(grp["bout_uid"].dropna().unique().tolist())
+    last_local_frame=None
+    last_video_file=None
 
     for _, row in grp.iterrows():
         gf = int(row["frame_number"])
@@ -95,13 +100,23 @@ def make_clip_and_pose(grp, xy, nodes, chunksize, fps,
         img = None
         if include_video:
             src = row["video_file"]
+            if last_video_file is not None and src != last_video_file:
+                logger.debug("src = %s", src)
+            last_video_file=src
+    
             local = int(row["local_frame"])
             if not os.path.exists(src):
                 continue
             if src not in cap_cache:
                 cap_cache[src] = cv2.VideoCapture(src)
             cap = cap_cache[src]
-            cap.set(cv2.CAP_PROP_POS_FRAMES, local)
+            
+            if last_local_frame is not None and local == last_local_frame+1:
+                pass
+            else:
+                logger.debug("setting %s to frame %s", src, local)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, local)
+            last_local_frame=local
             ok, img = cap.read()
             if not ok:
                 continue
@@ -112,8 +127,10 @@ def make_clip_and_pose(grp, xy, nodes, chunksize, fps,
                                  interpolation=cv2.INTER_NEAREST)
             if writer is None:
                 size = (img.shape[1], img.shape[0])
-                writer = cv2.VideoWriter(mp4_path, FOURCC, fps, size)
+                logger.debug("initializing video writer @ %s with fps = %s and size = %s", mp4_path, fps, size)
+                writer = cv2.VideoWriter(mp4_path, FOURCC, fps, size, isColor=True)
                 start_frame = gf
+            logger.debug("Writing frame of shape %s", img.shape)
             writer.write(img)
 
         if include_pose:
@@ -223,24 +240,24 @@ def _build_tasks(d, xy, sc, first_fn_global, pad):
     return tasks
 
 
-def main(fly, upscale=1, output=None, n_jobs=1):
+def main(fly, upscale=1, output=None, n_jobs=1, burst_id=None):
     experiment, identity = fly.split("__")
     experiment = experiment.replace("/", "_")
     identity = int(identity)
-
     loader = FlyHostelLoader(experiment, identity)
-    d = pd.read_feather(f"./{fly}_traces.feather")
+
+    if output is None:
+        output = os.path.join(loader.basedir, "flyhostel", "proboscis_extensions")
+
+    out_dir = os.path.join(output, "videos")
+
+    d = pd.read_feather(f"{output}/{fly}_traces.feather")
 
     xy, nodes, first_chunk, sc = load_pose(loader.get_pose_file_h5py("raw"))  # load ONCE
     chunksize, fps = loader.chunksize, loader.framerate
     first_fn_global = first_chunk * chunksize
     pad = int(round(fps))
 
-    if output is None:
-        output = os.path.join(loader.basedir, "flyhostel", "proboscis_extensions")
-    else:
-        output = "."
-    out_dir = os.path.join(output, "videos")
     os.makedirs(out_dir, exist_ok=True)
 
     tasks = _build_tasks(d, xy, sc, first_fn_global, pad)
@@ -250,6 +267,11 @@ def main(fly, upscale=1, output=None, n_jobs=1):
         bid, burst, xy_slice, sc_slice, slice_origin = t
         return _process_burst(bid, burst, xy_slice, sc_slice, slice_origin, nodes, fly,
                               chunksize, fps, out_dir, pad, upscale)
+    
+    if burst_id is not None:
+        tasks=[task for task in tasks if task[0]==burst_id]
+        with open("tasks.pkl", "wb") as handle:
+            pickle.dump(tasks, handle)
 
     if n_jobs == 1:
         results = [run(t) for t in tqdm(tasks, desc="Making burst clips")]

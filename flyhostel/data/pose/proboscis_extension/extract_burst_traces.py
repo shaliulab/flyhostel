@@ -17,10 +17,11 @@ import pandas as pd
 
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.utils import get_pixels_per_mm, get_framerate, get_chunksize
-from flyhostel.utils.pose_export import load_arrays
+from flyhostel.utils.pose_export import load_arrays, get_first_frame_number
 from .proboscis_candidates import (
-    compute_geometry, get_first_frame_number, resolve_video_paths,
+    compute_geometry, resolve_video_paths,
 )
+
 
 
 ROOT_DIR = "."
@@ -80,11 +81,10 @@ def extract_burst_traces(bouts, h5_path, out_feather="burst_traces.feather",
 
     `n_jobs` parallelizes the per-burst frame-table construction (default 1 = serial).
     """
-    bursts = bouts.loc[bouts["label"] == "pe", "burst_id"].drop_duplicates().values
+    # bursts = bouts.loc[bouts["label"] == "pe", "burst_id"].drop_duplicates().values
+    bursts = bouts["burst_id"].drop_duplicates().values
     idx = bouts.loc[bouts["burst_id"].isin(bursts)]
-
-    if idx.empty:
-        raise ValueError("no PE bouts in the CSV")
+    
 
     fly = idx["fly"].iloc[0]
     experiment, identity = fly.split("__")
