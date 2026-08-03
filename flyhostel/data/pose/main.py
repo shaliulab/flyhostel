@@ -34,6 +34,7 @@ from flyhostel.data.pose.loaders.interactions import InteractionsLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import ROI_WIDTH_MM
 from flyhostel.data.pose.sleep import SleepAnnotator
+
 from flyhostel.data.pose.loaders.concatenation import ConcatenationLoader
 
 from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
@@ -53,7 +54,7 @@ from flyhostel.utils import (
     load_meta_info,
     load_metadata,
 )
-from flyhostel.utils.pose_export import get_pose_file
+from flyhostel.utils.pose_export import get_pose_file_
 
 from flyhostel.utils.cvat import (
     experiment_is_validated,
@@ -66,17 +67,50 @@ from flyhostel.data.pose.sleap import draw_video_row
 from flyhostel.data.deg import DEGLoader
 from flyhostel.data.pose.video_crosser import CrossVideo
 
+def annotate_root_split(file, basedir):
+    return file.replace(basedir, os.path.join(basedir, "."))
 
+def assert_table_exists(conn, table_name):
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?;",
+        (table_name,),
+    ).fetchone()
+    assert row is not None, f"Table {table_name!r} does not exist"
 
-class FlyHostelBackup:   
-    
+def remove_raw_tables_from_dbfile(path, tables=None):
+    if tables is None:
+        tables=["ROI_0", "IDENTITY", "CONCATENATION"]
+
+    conn = sqlite3.connect(path)
+    try:
+        with conn:
+            for table in tables:
+                assert_table_exists(conn, f"{table}_VAL")
+                conn.execute(f"DROP TABLE IF EXISTS {table};")
+    finally:
+        conn.close()
+
+class FlyHostelBackup:
+
     DEFAULT_CHUNKS=list(range(0, 400))
 
     def __init__(self, *args, **kwargs):
         self.chunksize=None
         self.basedir=None
         self.dbfile=None
+        self.identity=None
+        self.number_of_animals=1
         super(FlyHostelBackup, self).__init__(*args, **kwargs)
+
+    @property
+    def is_validated(self):
+        return NotImplementedError
+
+    def get_pose_file_h5py(self, pose_name):
+        raise NotImplementedError
+
+    def get_behavior_feather_file(self):
+        raise NotImplementedError
 
     def analysis_is_complete(self):
         pose_file=self.get_pose_file_h5py("raw")
@@ -86,6 +120,96 @@ class FlyHostelBackup:
             out=out and os.path.exists(file)
     
         return out
+
+
+    def export_all(self, output=".", include_top=False, include_single_animal=False, include_dbfile=False, **kwargs):
+        if self.is_validated:
+            concatenation_table="CONCATENATION_VAL"
+        else:
+            concatenation_table="CONCATENATION"
+
+        self.export_all_video(output=output, include_top=include_top, include_single_animal=include_single_animal, concatenation_table=concatenation_table, **kwargs)
+        self.export_all_datasets(output=output, include_dbfile=include_dbfile, **kwargs)
+
+
+    def export_all_datasets(self, output=".", include_dbfile=True, **kwargs):
+        pose_file=self.get_pose_file_h5py("raw")
+
+        files=[pose_file]
+        if include_dbfile:
+            files.append(self.dbfile)
+
+        files2=[]
+        for file in files:
+            files2.append(annotate_root_split(file, self.basedir))
+
+        rsync_files_from(files2, output, **kwargs)
+        self.export_behavior(output=output)
+        if include_dbfile and self.number_of_animals>1:
+            remove_raw_tables_from_dbfile(
+                os.path.join(output, files2[-1].split("/./")[1])
+            )
+
+
+    def export_behavior(self, output="."):
+        feather_file=self.get_behavior_feather_file()
+        feather_file=annotate_root_split(feather_file, self.basedir)
+
+        df=pd.read_feather(feather_file)[["id", "t", "frame_number", "prediction", "prediction2", "duration_pred"]]
+        df.rename({"prediction": "prediction_raw", "prediction2": "prediction", "duration_pred": "duration"}, axis=1, inplace=True)
+        df.to_feather(os.path.join(output, feather_file.split("/./")[1]))
+
+
+
+    def export_all_video(self, include_top=False, include_single_animal=False, **kwargs):
+        if include_top:
+            self.export_all_video_top(**kwargs)
+
+        if include_single_animal:
+            self.export_all_video_single_animal(**kwargs)
+                        
+
+    def export_all_video_single_animal(self, output=".", concatenation_table=None, **kwargs):
+        table = get_local_identities(self.dbfile, concatenation_table=concatenation_table).reset_index(drop=True)
+        table=table.loc[table["identity"]==self.identity]
+
+        files=[]
+        for _, row in table.iterrows():
+            mp4_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(row["local_identity"]).zfill(3), str(row["chunk"]).zfill(6) + ".mp4")
+            # h5_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(row["local_identity"]).zfill(3), str(row["chunk"]).zfill(6) + ".mp4.predictions.h5")
+            files.append(mp4_file)
+            # files.append(h5_file)
+
+        rsync_files_from(files, output, **kwargs)
+
+
+    def export_all_video_top(self, output=".", concatenation_table=None, **kwargs):
+
+
+        table = get_local_identities(self.dbfile, concatenation_table=concatenation_table).reset_index(drop=True)
+
+
+        if self.identity==0:
+            # table.sort_values(["chunk", "identity"], inplace=True)
+            if table.duplicated("chunk").any():
+                raise f"Please revise CONCATENATION table in {self.dbfile}"
+    
+        else:
+            table=table.loc[table["identity"]==self.identity]
+
+        files=[]
+        for _, row in table.iterrows():
+            mp4_file=os.path.join(self.basedir, ".", str(row["chunk"]).zfill(6) + ".mp4")
+            png_file=os.path.join(self.basedir, ".",  str(row["chunk"]).zfill(6) + ".png")
+            npz_file=os.path.join(self.basedir, ".",  str(row["chunk"]).zfill(6) + ".npz")
+                                    
+            files.append(mp4_file)
+            # files.append(png_file)
+            # files.append(npz_file)
+
+        rsync_files_from(files, output, **kwargs)
+
+
     def backup(self, new_basedir, chunks=None, dry_run=False):
 
         # pose files in flyhostel/single_animal
@@ -139,11 +263,11 @@ class FlyHostelLoader(
     """
 
     def __init__(self, experiment, identity, *args, lq_thresh=1, roi_width_mm=ROI_WIDTH_MM, n_jobs=1, chunks=None,
-                 roi_0_table=None, identity_table=None, **kwargs
+                 roi_0_table=None, identity_table=None, ensure_validated=True, **kwargs
         ):
         super(FlyHostelLoader, self).__init__(*args, **kwargs)
 
-        basedir = os.environ["FLYHOSTEL_VIDEOS"] + "/" + dunder_to_slash(experiment)
+        basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], dunder_to_slash(experiment))
         if not os.path.exists(basedir):
             dirs=glob.glob(basedir + "*")
             if len(dirs) == 1:
@@ -181,6 +305,7 @@ class FlyHostelLoader(
         self.pixels_per_mm=get_pixels_per_mm(experiment)
         self.wavelet_downsample=get_wavelet_downsample(experiment)
         self.square_width=get_square_width(experiment)
+        self.square_height=self.square_width
 
 
         self.roi_width_mm=roi_width_mm
@@ -213,7 +338,10 @@ class FlyHostelLoader(
                 if self.is_validated:
                     self.identity_table+="_VAL"
                 else:
-                    raise ValueError("Experiment is not validated")
+                    if ensure_validated:
+                        raise ValueError("Experiment is not validated")
+                    else:
+                        pass
         else:
             self.identity_table=identity_table
 
@@ -223,14 +351,17 @@ class FlyHostelLoader(
                 if self.is_validated:
                     self.roi_0_table+="_VAL"
                 else:
-                    raise ValueError("Experiment is not validated")
+                    if ensure_validated:
+                        raise ValueError("Experiment is not validated")
+                    else:
+                        pass
         else:
             self.roi_0_table=roi_0_table
 
 
     @property
     def is_validated(self):
-        return experiment_is_validated(self.experiment)
+        return experiment_is_validated(self.experiment, errors="ignore")
 
 
     def __repr__(self):
@@ -278,8 +409,16 @@ class FlyHostelLoader(
         return dt
 
 
+    def get_pose_file(self, pose_name, recreate=True):
+        centroids=__
+        return get_pose_file_(self.experiment, self.identity, pose_name, recreate=recreate, centroids=centroids)
+
+
     def annotate_frame_number_in_dataset(self, df):
         assert self.dt is not None
+        assert "t" in self.dt.columns
+        assert "frame_number" in self.dt.columns
+                        
         t_index=self.dt[["t", "frame_number"]].copy()
         t_index["frame_number"]=np.array(t_index["frame_number"].values, np.int64)
         t_index["t_round"]=1*(t_index["t"]//1)
@@ -627,7 +766,7 @@ def validate_h5py_file(file):
         return False
 
 
-def init_loaders(experiment, metadata):
+def init_loaders(experiment, metadata, **kwargs):
     number_of_animals=get_number_of_animals(experiment)
     
     if number_of_animals==1:
@@ -638,7 +777,7 @@ def init_loaders(experiment, metadata):
     basedir = get_basedir(experiment)
     if not os.path.exists(basedir):
         return []
-    loaders=[FlyHostelLoader(experiment, identity=identity) for identity in identities]
+    loaders=[FlyHostelLoader(experiment, identity=identity, **kwargs) for identity in identities]
     loaders=filter_loaders(loaders, metadata)
     return loaders
 
