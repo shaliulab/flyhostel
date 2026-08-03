@@ -17,13 +17,6 @@ from matplotlib import cm
 logger=logging.getLogger(__name__)
 from .cvat import get_basedir, get_dbfile, get_experiment_identifier
 
-try:
-    import cudf
-except ModuleNotFoundError:
-    cudf=None
-    logger.debug("Cannot load cudf")
-
-
 
 if sys.version_info > (3, 8):
     import pickle
@@ -373,16 +366,20 @@ def get_local_identities_v1(dbfile, frame_numbers, identity_table="IDENTITY"):
     
     return table
 
-def get_local_identities_v2(dbfile, frame_numbers=None, identity_table=None):
+def get_local_identities_v2(dbfile, frame_numbers=None, concatenation_table=None):
     chunksize=get_chunksize(dbfile=dbfile)
 
     if frame_numbers is not None:
         chunks=(np.array(frame_numbers)//chunksize).tolist()
     else:
         chunks=None
+
+    if concatenation_table is None:
+        concatenation_table="CONCATENATION_VAL"
+
     with sqlite3.connect(dbfile) as conn:
         cursor = conn.cursor()
-        query = "SELECT * FROM CONCATENATION_VAL;"
+        query = f"SELECT id, chunk, identity, local_identity FROM {concatenation_table};"
         cursor.execute(query)
         table = cursor.fetchall()
     
@@ -497,6 +494,14 @@ def annotate_time_in_dataset(dataset, index, t_column="t", t_after_ref=None):
 
 
 def establish_dataframe_framework(dt):
+
+    try:
+        import cudf
+    except ModuleNotFoundError:
+        cudf=None
+        logger.debug("Cannot load cudf")
+
+
     if cudf is None:
         return pd
         #raise ModuleNotFoundError("cudf not installed")
@@ -933,3 +938,42 @@ def compute_heading(thorax, head):
     """Forward-facing heading (thorax->head), radians in [-pi, pi]."""
     v = head - thorax
     return np.arctan2(v[1], v[0])
+
+
+def copy_file(src, dest, verbose=True, dry_run=False):
+
+    if verbose:
+        print(f"{src} --> {dest}")
+    if not dry_run:
+        shutil.copy(src, dest)
+
+
+
+ANIMALS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
+GROUPS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/interaction_detection/index.csv"
+
+def load_experiments(number_of_animals=6, interactions=False):
+    """
+    Load experiment name for all experiments
+    whose behavior and interaction pipelines are complete
+    """
+    metadata_beh=pd.read_csv(ANIMALS_CSV, header=None)
+    metadata_beh.columns=["experiment", "basedir", "identity", "date_completed", "status", "select"]
+    metadata_beh["number_of_animals"]=metadata_beh["basedir"].str.slice(34, 35).astype(int)
+    metadata_inters=pd.read_csv(GROUPS_CSV, header=None)
+    metadata_inters.columns=["basedir", "experiment", "number_of_animals", "status", "select"]
+    metadata_inters=metadata_inters.loc[metadata_inters["select"]=="SELECT"]
+
+    if number_of_animals>1 and interactions:
+        metadata=metadata_inters[["experiment"]].merge(metadata_beh, on="experiment", how="inner")
+    else:
+        metadata=metadata_beh
+    metadata.loc[(metadata["number_of_animals"]==1), "status"]="SELECT"
+    metadata=metadata.loc[~(metadata["select"].isna())]
+    metadata=metadata.loc[metadata["select"]=="SELECT"]
+    experiments=metadata.loc[
+        (metadata["number_of_animals"]==number_of_animals),
+        "experiment"
+    ].unique().tolist()
+
+    return experiments
