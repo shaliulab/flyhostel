@@ -200,7 +200,7 @@ class PoseLoader:
         return pose
 
 
-    def load_pose_data(self, experiment=None, identity=None, min_time=None, max_time=None, time_system="zt", stride=1, cache=None, verbose=False, files=None, write_only=False):
+    def load_pose_data(self, pose_name=None, experiment=None, identity=None, min_time=None, max_time=None, time_system="zt", stride=1, cache=None, verbose=False, files=None, write_only=False):
 
         if experiment is None:
             experiment=self.experiment
@@ -208,10 +208,13 @@ class PoseLoader:
             identity=self.identity
 
         if files is None:
-            files=[(
-                self.get_pose_file_h5py(pose_name="filter_rle-jump"),
-                self.get_pose_file_h5py(pose_name="raw")
-            )]
+            if pose_name is None:
+                files=[(
+                    self.get_pose_file_h5py(pose_name="filter_rle-jump"),
+                    self.get_pose_file_h5py(pose_name="raw")
+                )]
+            else:
+                files=[(self.get_pose_file_h5py(pose_name=pose_name), )]
         
         if min_time is not None and max_time is not None and min_time>=max_time:
             logger.warning("Passed time interval (%s - %s) is meaningless")
@@ -248,6 +251,7 @@ class PoseLoader:
             if out is not None:
                 pose, _, index_pandas=out
                 if len(pose)==0:
+                    logger.warning("No data is loaded")
                     return None
 
                 assert len(index_pandas)==1
@@ -290,6 +294,7 @@ class PoseLoader:
 
     def add_centroid_data_to_pose(self):
         assert self.dt is not None
+        assert self.pose is not None
         self.pose=self.pose.drop(
             ["center_x", "center_y"], axis=1, errors="ignore"
         ).merge(
