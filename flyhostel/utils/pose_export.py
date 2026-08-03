@@ -206,6 +206,14 @@ def load_files(files, chunksize, n_jobs=1):
     return node_names, datasets, point_scores, inst_scores                   # <-- 4 returns
 
 
+def parse_number_of_animals(cur):
+
+    cur.execute("SELECT value FROM METADATA  WHERE field  = 'idtrackerai_conf';")
+    conf=cur.fetchall()[0][0]
+    conf=json.loads(conf.strip())
+    number_of_animals=int(conf["_number_of_animals"]["value"])
+    return number_of_animals
+
 def generate_single_file(node_names, datasets, point_scores, inst_scores, files, dest_file, dt=None, interval=None):
     node_names_bytes = np.array([name.encode() for name in node_names])
     files_bytes = np.array([f.encode() for f in files])
@@ -228,7 +236,9 @@ def generate_single_file(node_names, datasets, point_scores, inst_scores, files,
         tracks_d = file.create_dataset(
             "tracks", shape=final_shape,
             chunks=(1, 2, len(node_names), chunksize),
-            compression="gzip", compression_opts=4)
+            compression="gzip",
+            compression_opts=4
+        )
         offset = 0
         print(f"Writing pose to disk -> {dest_file}")
         for dataset in datasets:
@@ -291,6 +301,9 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", 
                 first_chunk_missing=concatenation_i.iloc[1:].loc[concatenation_i["chunk"].diff().iloc[1:]!=1]["chunk"].iloc[0]
                 concatenation_i=concatenation_i.query(f"chunk < {first_chunk_missing}")
 
+    else:
+        chunks=concatenation_i["chunk"].tolist()
+
     files=concatenation_i["dfile"]
 
     if n_jobs is None:
@@ -301,7 +314,10 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", 
     node_names, datasets, point_scores, inst_scores = load_files(files, chunksize, n_jobs=n_jobs)
     dest_file=os.path.join(output, f"{experiment_name}__{str(identity).zfill(2)}", f"{experiment_name}__{str(identity).zfill(2)}.h5")
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-    generate_single_file(node_names, datasets, point_scores, inst_scores, files, dest_file=dest_file)
+
+    interval=(chunks[0]*chunksize, chunks[-1]*chunksize + chunksize)
+    
+    generate_single_file(node_names, datasets, point_scores, inst_scores, files, dest_file=dest_file, interval=interval, **kwargs)
     assert os.path.exists(dest_file)
 
 
@@ -342,7 +358,7 @@ def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VA
     ]
     return concatenation
 
-def recreate_pose_file(experiment, identity, chunks=None, output=".", n_jobs=1):
+def recreate_pose_file(experiment, identity, chunks=None, output=".", n_jobs=1, **kwargs):
     """
     Arguments
         experiment (str): Identifier, the basedir and dbfile are derived from there
@@ -354,6 +370,7 @@ def recreate_pose_file(experiment, identity, chunks=None, output=".", n_jobs=1):
     NOTE: Multiple identities are not tested properly. Recommended to pass just one
     """
 
+    assert isinstance(int(identity), int)
     basedir = get_basedir(experiment)
     dbfile = get_dbfile(basedir)
     number_of_animals = get_number_of_animals(experiment)
@@ -366,29 +383,13 @@ def recreate_pose_file(experiment, identity, chunks=None, output=".", n_jobs=1):
             concatenation_table="CONCATENATION"
 
         concatenation=load_concatenation_table(cur, basedir, concatenation_table=concatenation_table)
-
-    if identity is None:
-        identities=range(1, number_of_animals+1)
-    else:
-        identities=[int(identity)]
-
-    # joblib.Parallel(n_jobs=n_jobs)(
-    #     joblib.delayed(
-    #         pipeline
-    #     )(
-    #         experiment, identity, concatenation, chunks, output=output, strict=False #, write_only=args.write_only
-    #     )
-    #     for identity in identities
-    # )
     
-    for identity in identities:
-        pipeline(experiment, identity, concatenation, chunks, output=output, strict=False, n_jobs=n_jobs #, write_only=args.write_only
-    )
+        pipeline(experiment, identity, concatenation, chunks, output=output, strict=False, n_jobs=n_jobs, **kwargs)
 
     return None
 
 
-def get_pose_file(experiment, identity, pose_name, recreate=True):
+def get_pose_file_(experiment, identity, pose_name, recreate=True, **kwargs):
     animal=experiment + "__" + str(identity).zfill(2)
     basedir=get_basedir(experiment)
     pose_file=os.path.join(
@@ -400,6 +401,66 @@ def get_pose_file(experiment, identity, pose_name, recreate=True):
     )
     if not os.path.exists(pose_file) and pose_name=="raw" and recreate:
         output=os.path.dirname(os.path.dirname(pose_file))
-        recreate_pose_file(experiment=experiment, identity=identity, chunks=None, output=output, n_jobs=None)
+        recreate_pose_file(experiment=experiment, identity=identity, chunks=None, output=output, n_jobs=None, **kwargs)
 
     return pose_file
+
+def get_first_frame_number(path, chunksize):
+    with h5py.File(path) as f:
+        files = [e.decode() for e in f["files"][:]]
+    return int(os.path.basename(files[0]).split(".")[0]) * chunksize
+
+def load_frame_numbers(path, chunksize):
+    with h5py.File(path) as f:
+        files = [e.decode() for e in f["files"][:]]
+    
+    chunks=[int(os.path.basename(file).split(".")[0]) for file in files]
+    n_frames=len(chunks)*chunksize
+    frames=get_first_frame_number(path, chunksize) + np.arange(n_frames)
+    return frames
+
+
+
+# --------------------------------------------------------------------------- #
+# Body-length estimation                                                       #
+# --------------------------------------------------------------------------- #
+def estimate_body_length_mm(
+    body_length_px, conf, pixels_per_mm,
+    estimator="percentile", percentile=90.0, min_confidence=0.0,
+):
+    """Reduce a per-frame head<->abdomen distance trace to a body-length series (mm).
+ 
+    Body length is a stable property of the animal, but the instantaneous
+    head<->abdomen distance shrinks whenever the fly bends. So the default is a
+    single per-fly scalar (a high percentile of the confident-frame distances,
+    approximating full extension) broadcast to every frame. This also avoids
+    fragmenting encounters where pose is momentarily missing.
+ 
+    estimator : "percentile" (default) | "median" | "max" | "mean" | "per_frame"
+    """
+    px = np.asarray(body_length_px, dtype=float)
+    good = np.asarray(conf, dtype=float) >= min_confidence
+    valid = good & np.isfinite(px)
+ 
+    if estimator == "per_frame":
+        out = np.where(valid, px, np.nan)
+        return out / float(pixels_per_mm)
+ 
+    if not valid.any():
+        return np.full(px.shape, np.nan)
+ 
+    vals = px[valid]
+    if estimator == "percentile":
+        scalar = float(np.percentile(vals, percentile))
+    elif estimator == "median":
+        scalar = float(np.median(vals))
+    elif estimator == "max":
+        scalar = float(np.max(vals))
+    elif estimator == "mean":
+        scalar = float(np.mean(vals))
+    else:
+        raise ValueError("unknown estimator %r" % estimator)
+ 
+    return np.full(px.shape, scalar / float(pixels_per_mm))
+ 
+ 
