@@ -206,7 +206,7 @@ def load_files(files, chunksize, n_jobs=1):
     return node_names, datasets, point_scores, inst_scores                   # <-- 4 returns
 
 
-def generate_single_file(node_names, datasets, point_scores, inst_scores, files, dest_file):
+def generate_single_file(node_names, datasets, point_scores, inst_scores, files, dest_file, dt=None, interval=None):
     node_names_bytes = np.array([name.encode() for name in node_names])
     files_bytes = np.array([f.encode() for f in files])
 
@@ -246,19 +246,19 @@ def generate_single_file(node_names, datasets, point_scores, inst_scores, files,
         isd = file.create_dataset("instance_scores", inst_scores.shape)      # <-- new
         isd[:] = inst_scores
 
+        if dt is not None:
+            assert interval is not None
+            dt=dt.loc[(dt["frame_number"] >= interval[0]) & (dt["frame_number"] < interval[1])]
+            diff=dt["frame_number"].diff().iloc[1:]
+            assert (diff==1).all()
+            anchor=dt[["tl_x_arena_pixels", "tl_y_arena_pixels"]].values
+            ds = file.create_dataset("anchor", anchor.shape)
+            ds[:]=anchor
+
         return dest_file
 
 
-def parse_number_of_animals(cur):
-
-    cur.execute("SELECT value FROM METADATA  WHERE field  = 'idtrackerai_conf';")
-    conf=cur.fetchall()[0][0]
-    conf=json.loads(conf.strip())
-    number_of_animals=int(conf["_number_of_animals"]["value"])
-    return number_of_animals
-
-
-def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", strict=True, n_jobs=1):
+def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", strict=True, n_jobs=1, **kwargs):
     """
     Given an experiment+identity identifier (single fly), produce a single .h5 file
     with the pose estimate of all the chunks analyed.
