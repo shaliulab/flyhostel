@@ -419,6 +419,8 @@ class FlyHostelGroup(InteractionDetector):
         
         return status
 
+    def analysis_is_complete(self):
+        return all([fly.analysis_is_complete() for fly in self.flies.values()])
 
     def download_annotations_from_cvat(self, path, **kwargs):
         return download_annotations_from_cvat(self.experiment, path, **kwargs)

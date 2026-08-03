@@ -78,7 +78,14 @@ class FlyHostelBackup:
         self.dbfile=None
         super(FlyHostelBackup, self).__init__(*args, **kwargs)
 
+    def analysis_is_complete(self):
+        pose_file=self.get_pose_file_h5py("raw")
+        feather_file=self.get_behavior_feather_file()
+        out=True
+        for file in [pose_file, feather_file]:
+            out=out and os.path.exists(file)
     
+        return out
     def backup(self, new_basedir, chunks=None, dry_run=False):
 
         # pose files in flyhostel/single_animal
