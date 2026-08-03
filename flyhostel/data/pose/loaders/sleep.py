@@ -111,7 +111,7 @@ class SleepLoader:
         else:
             feather_file_r=os.path.join(
                 root_dir,
-                f"{self.datasetnames[0]}_sleep={min_time_immobile_min}_bin={bin_size}.feather"
+                f"{self.datasetnames[0]}_mean_sleep={min_time_immobile_min}_bin={bin_size}.feather"
             )
         
         feather_file=glob.glob(feather_file_r)
@@ -129,7 +129,9 @@ class SleepLoader:
 
         if bin_size is None and "t_round" in dataset.columns:
             del dataset["t_round"]
-        dataset=self.annotate_frame_number_in_dataset(dataset)  
+        else:
+            dataset["t"]=dataset["t_round"]
+        dataset=self.annotate_frame_number_in_dataset(dataset)
         return dataset
         
 
