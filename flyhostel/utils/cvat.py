@@ -162,7 +162,6 @@ def get_project_id_from_name(experiment, errors="raise"):
             hit=True
     
     if project_id is None:
-        errors="raise"
         if errors=="raise":
             raise Exception(f"0 projects with name {experiment}")
         elif errors=="ignore":
