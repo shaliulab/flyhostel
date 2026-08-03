@@ -4,20 +4,21 @@ import pandas as pd
 import numpy as np
 from flyhostel.utils import get_sqlite_file
 
+def _build_sql_query(chunks, identity):
+    placeholders = ', '.join('?' for _ in chunks)
+    cmd=f"""
+        SELECT R0.x, R0.y, R0.frame_number
+        FROM ROI_0 AS R0
+            INNER JOIN STORE_INDEX AS IDX ON R0.frame_number = IDX.frame_number AND IDX.chunk IN ({placeholders}) AND IDX.half_second = 1
+            INNER JOIN IDENTITY AS ID ON R0.frame_number = ID.frame_number AND R0.in_frame_index = ID.in_frame_index AND ID.identity = {identity};
+    """
+    return cmd
+
 def read_animal_position(sqlite3_file, identity, chunks):
 
-    placeholders = ', '.join('?' for _ in chunks)
-    
+    cmd=_build_sql_query(chunks, identity)
     with sqlite3.connect(sqlite3_file) as conn:
-        cur=conn.cursor()
-        cmd=f"""
-            SELECT R0.x, R0.y, R0.frame_number
-            FROM ROI_0 AS R0
-                INNER JOIN STORE_INDEX AS IDX ON R0.frame_number = IDX.frame_number AND IDX.chunk IN ({placeholders}) AND IDX.half_second = 1
-                INNER JOIN IDENTITY AS ID ON R0.frame_number = ID.frame_number AND R0.in_frame_index = ID.in_frame_index AND ID.identity = {identity};
-        """
-        # print(cmd)
-        
+        cur=conn.cursor()       
         cur.execute(cmd, tuple([*chunks]))
         records=cur.fetchall()
     data=pd.DataFrame.from_records(records, columns=["x", "y", "frame_number"])
