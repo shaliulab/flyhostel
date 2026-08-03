@@ -1,44 +1,21 @@
 import os
+import logging
 from pathlib import Path
 
 import joblib
 import pandas as pd
 from .sociability import process_experiment
-
-ANIMALS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
-GROUPS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/interaction_detection/index.csv"
-
+from flyhostel.utils import load_experiments as load_experiments_
 N_CLUSTERS=20
 WINDOW_S=1
 MIN_TIME=6*3600
 MAX_TIME=30*360
 
+logger=logging.getLogger(__name__)
 
-def load_experiments(number_of_animals=6, interactions=False):
-    """
-    Load experiment name for all experiments
-    whose behavior and interaction pipelines are complete
-    """
-    metadata_beh=pd.read_csv(ANIMALS_CSV, header=None)
-    metadata_beh.columns=["experiment", "basedir", "identity", "date_completed", "status", "select"]
-    metadata_beh["number_of_animals"]=metadata_beh["basedir"].str.slice(34, 35).astype(int)
-    metadata_inters=pd.read_csv(GROUPS_CSV, header=None)
-    metadata_inters.columns=["basedir", "experiment", "number_of_animals", "status", "select"]
-    metadata_inters=metadata_inters.loc[metadata_inters["select"]=="SELECT"]
-
-    if number_of_animals>1 and interactions:
-        metadata=metadata_inters[["experiment"]].merge(metadata_beh, on="experiment", how="inner")
-    else:
-        metadata=metadata_beh
-    metadata.loc[(metadata["number_of_animals"]==1), "status"]="SELECT"
-    metadata=metadata.loc[~(metadata["select"].isna())]
-    metadata=metadata.loc[metadata["select"]=="SELECT"]
-    experiments=metadata.loc[
-        (metadata["number_of_animals"]==number_of_animals),
-        "experiment"
-    ].unique().tolist()
-
-    return experiments
+def load_experiments(*args, **kwargs):
+    logger.warning("Please replace flyhostel.data.interactions.sociability.load_experiments with flyhostel.utils.load_experiments")
+    return load_experiments_(*args, **kwargs)
 
 
 def main():

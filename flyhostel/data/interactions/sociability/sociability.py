@@ -365,17 +365,16 @@ def get_features_multi(pose_complex1, pose_complex2, frame_indices_all, *args, *
     return df
 
 
-def load_data(loader, min_time=None, max_time=None, contact_threshold=CONTACT_THRESHOLD, loaders_cache=None, identities=None):
+def load_data(loader, min_time=None, max_time=None, contact_threshold=CONTACT_THRESHOLD, loaders_cache=None, identities=None, **kwargs):
 
     cache_file=f"{loaders_cache}/{loader.experiment}__{str(loader.identity).zfill(2)}.pkl"
-    
     out=None
     if os.path.exists(cache_file):
         out=loader.load_from_cache(cache_file)
     if out is None:
         if min_time is not None and max_time is not None: assert min_time < max_time
         loader.load_centroid_data(min_time=min_time, max_time=max_time)
-        loader.load_pose_data(min_time=min_time, max_time=max_time)
+        loader.load_pose_data(min_time=min_time, max_time=max_time, **kwargs)
     else:
         loader=out
 
@@ -459,28 +458,29 @@ def load_data_all(experiment, identities, min_time=None, max_time=None, max_work
         logger.error(traceback.print_exc())
         return []
 
-    new_loaders=[]
-    if max_workers==1:
+    from functools import partial
+
+    new_loaders = []
+    if max_workers == 1:
         for loader in tqdm(loaders, desc=f"Loading data from {experiment}"):
             try:
                 new_loaders.append(load_data(loader, min_time=min_time, max_time=max_time, **kwargs))
             except Exception as error:
                 logger.error(error)
-                logger.error(traceback.print_exc())
-                pass
+                logger.error(traceback.format_exc())
     else:
         # Parallel loading using processes
-        min_times=[min_time, ]*len(identities)
-        max_times=[max_time,]*len(identities)
-        args=[]
-        for kw in kwargs.keys():
-            args.append([kwargs[kw], ]*len(identities))
-        
-        before=time.time()
+        load_fn = partial(load_data, min_time=min_time, max_time=max_time, **kwargs)
+
+        before = time.time()
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            new_loaders = list(executor.map(load_data, loaders, min_times, max_times, *args))
-        after=time.time()
-        print(f"sociability.load_data_all done in {after-before} seconds")
+            new_loaders = list(tqdm(
+                executor.map(load_fn, loaders),
+                total=len(loaders),
+                desc=f"Loading data from {experiment}",
+            ))
+        after = time.time()
+        print(f"sociability.load_data_all done in {after - before} seconds")
 
     loaders=new_loaders
     for loader in loaders:
