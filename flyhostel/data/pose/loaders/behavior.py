@@ -49,8 +49,8 @@ class BehaviorLoader():
     def load_store_index(self):
         raise NotImplementedError
 
-    def get_behavior_feather_file(self, experiment, identity, fail=False):
-        file=get_behavior_feather_file_path(experiment, identity)
+    def get_behavior_feather_file(self):
+        file=get_behavior_feather_file_path(self.experiment, self.identity)
         assert os.path.exists(file), f"{file} not found"
         return file
 
@@ -77,12 +77,7 @@ class BehaviorLoader():
             * centroid_speed: Distance travelled by the centroid from the previous timepoint to the current one (fps=30)
             * centroid_speed_1s: Distance travelled by the centroid in the last second, computed by adding the distance travelled in the last 150 original timepoints           
         """
-
-        experiment=self.experiment
-
-        identity=self.identity
-
-        feather_path=self.get_behavior_feather_file(experiment, identity)
+        feather_path=self.get_behavior_feather_file()
         if os.path.exists(feather_path):
             logger.debug("Reading %s", feather_path)
             dt=pd.read_feather(feather_path)
