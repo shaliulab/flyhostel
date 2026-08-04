@@ -265,6 +265,9 @@ def generate_single_file(node_names, datasets, point_scores, inst_scores, files,
             ds = file.create_dataset("anchor", anchor.shape)
             ds[:]=anchor
 
+            tds = file.create_dataset("t", dt["t"].values.shape)
+            tds[:] = dt["t"].values
+
         return dest_file
 
 
