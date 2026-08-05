@@ -9,8 +9,7 @@ import joblib
 from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
-import cudf
-
+from .apf import build_group
 from flyhostel.data.interactions.detector import InteractionDetector
 from flyhostel.data.synchrony.main import compute_synchrony, DEFAULT_LAGS
 from flyhostel.data.hostpy import load_hostel
@@ -36,6 +35,10 @@ time_counter=logging.getLogger("time_counter")
 # which contains the result of load_centroid_data
 DEBUG=False
 
+try:
+    import cudf
+except ModuleNotFoundError:
+    cudf=pd
 
 class FlyHostelGroup(InteractionDetector):
 
@@ -424,3 +427,64 @@ class FlyHostelGroup(InteractionDetector):
 
     def download_annotations_from_cvat(self, path, **kwargs):
         return download_annotations_from_cvat(self.experiment, path, **kwargs)
+
+
+    def build_group_for_apf(self, vi=0, id0=0, pose_name="raw"):
+        """Assemble this group into an APF-ready data fragment.
+
+        One FlyHostelGroup == one arena == one experiment == one APF "video".
+        Requires a real group: all flies share basedir/dbfile/px_per_mm, which is
+        what makes arena calibration and the social sensory features meaningful.
+
+        Args:
+            vi:        videoidx stamped on every frame of this group
+            id0:       first global agent id (must be unique across groups)
+            pose_name: which pose .h5 to read; MUST contain 'tracks', 'anchor',
+                    and 'node_names' in the updated format.
+
+        Returns:
+            (data_fragment, next_id0) from apf.build_group. Also stashes the
+            agent-column -> fly identity map on self for traceability.
+        """
+        assert self.group_is_real, \
+            "APF export needs a real group (shared arena); got a virtual group"
+        if not self.group_is_complete:
+            logger.warning(
+                "Building APF group with %d/%s flies present; "
+                "missing flies weaken the social sensory channels",
+                len(self.flies), self.number_of_animals,
+            )
+
+        # Deterministic identity order -> reproducible agent columns
+        animals = self.animals                      # sorted dataset names
+        flies   = [self.flies[a] for a in animals]
+
+        # One updated-format pose .h5 per fly
+        paths = [self._resolve_pose_path(fly, pose_name) for fly in flies]
+
+        # Real group => every fly shares arena + scale, so any loader represents it
+        loader = flies[0]
+
+        # Record which agent id belongs to which fly BEFORE build_group re-sorts.
+        # (see caveat 3 — build_group currently sorts paths internally)
+        order = sorted(range(len(paths)), key=lambda i: paths[i])
+        self.apf_agent_map = {
+            id0 + col: {"animal": animals[i], "id": self.flies[animals[i]].ids[0]}
+            for col, i in enumerate(order)
+        }
+
+        return build_group(paths, loader, vi, id0)
+
+    @staticmethod
+    def _resolve_pose_path(fly, pose_name):
+        """get_pose_file_h5py may return a path or an open h5py.File; normalize
+        to a filesystem path, since apf.read_fly reopens by path."""
+    
+    
+        x = fly.get_pose_file_h5py(pose_name=pose_name, dt=fly.dt)
+        if isinstance(x, str):
+            return x
+        fn = getattr(x, "filename", None)      # h5py.File handle
+        if fn is not None:
+            return fn
+        raise TypeError(f"Cannot resolve pose path from {type(x)}")
