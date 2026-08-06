@@ -25,6 +25,7 @@ from imgstore.interface import VideoCapture
 from flyhostel.data.pose.loaders.wavelets import WaveletLoader
 from flyhostel.data.pose.loaders.behavior import BehaviorLoader
 from flyhostel.data.pose.loaders.landmarks import LandmarksLoader
+from flyhostel.data.pose.loaders.roi import ROILoader
 from flyhostel.data.pose.loaders.movement import MovementLoader
 from flyhostel.data.pose.loaders.rejections import RejectionsLoader
 from flyhostel.data.pose.loaders.pose import PoseLoader
@@ -246,7 +247,7 @@ class FlyHostelBackup:
 
 
 class FlyHostelLoader(
-    CrossVideo, FilesystemInterface, ConcatenationLoader, SleepAnnotator, InteractionsLoader, PoseLoader,
+    CrossVideo, FilesystemInterface, ConcatenationLoader, SleepAnnotator, InteractionsLoader, PoseLoader, ROILoader,
     SleepLoader, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader, MovementLoader, RejectionsLoader, PELoader, FlyHostelBackup):
     """
     Analyse microbehavior produced in the flyhostel
@@ -727,11 +728,16 @@ class FlyHostelLoader(
             dt["center_x"]=dt["x"]*self.roi_width
             dt["center_y"]=dt["y"]*self.roi_width
             dt["distance"]=10**(dt["xy_dist_log10x1000"]/1000)
+            dt["tl_x_arena_pixels"]=(dt["center_x"].astype(int)) - self.square_width // 2
+            dt["tl_y_arena_pixels"]=(dt["center_y"].astype(int)) - self.square_height // 2
+
             self.dt=dt
             
             self.meta_info=meta_info[0]
         else:
             logger.warning("No centroid data database found for %s %s", self.experiment, identity)
+
+
 
 
     def draw_videos(self, index):
@@ -740,7 +746,7 @@ class FlyHostelLoader(
             draw_video_row(self, row["identity"], i, row, output=self.experiment + "_videos", chunksize=self.chunksize, fps=fps)
 
     def get_pose_file_h5py(self, pose_name="filter_rle-jump", **kwargs):
-        pose_file=get_pose_file(self.experiment, self.identity, pose_name=pose_name, **kwargs)
+        pose_file=get_pose_file_(self.experiment, self.identity, pose_name=pose_name, **kwargs)
         return pose_file
 
     

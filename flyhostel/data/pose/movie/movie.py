@@ -19,16 +19,15 @@ def annotate_behavior_in_video(*args, **kwargs):
     return annotate_behavior_in_video_cv2(*args, **kwargs)
     
     
-def make_video(pose, id, filename, frame_numbers, output_folder="."):
+def make_video(experiment, pose, id, filename, frame_numbers, output_folder="."):
     pose=pose.loc[pose["id"]==id]
-    pose["animal"]=pose["id"]
     identity=int(id.split("|")[1])
     logger.info("id =  %s, identity = %s", id, identity)
-
+    
     
     # make index: annotate in which .mp4 video file 
     # can the source video be found for each fly in each frame
-    index=cross_with_video_data(pose[["frame_number", "identity", "id", "animal"]])
+    index=cross_with_video_data(experiment, pose[["frame_number", "identity", "id"]])
     draw_video(
         pose, index,
         identity=identity,
@@ -63,7 +62,7 @@ def annotate_chunk(experiment, behavior_df, chunk, identity, input_video, pose=N
         filename, ext = os.path.splitext(os.path.basename(output_video))
         filename = filename +"_with_pose" + ext
         id = dt_scored["id"].iloc[0]
-        make_video(pose, id, filename, frame_numbers=dt_scored["frame_number"].values, output_folder=output_folder)
+        make_video(experiment, pose, id, filename, frame_numbers=dt_scored["frame_number"].values, output_folder=output_folder)
         input_video=os.path.join(output_folder, filename)
 
     annotate_behavior_in_video(

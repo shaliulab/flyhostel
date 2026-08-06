@@ -3,6 +3,7 @@ import os.path
 import numpy as np
 import h5py
 from flyhostel.data.pose.loaders.roi import arena_calib
+from flyhostel.utils.pose_export import load_frame_numbers
 from .synthesize import synthesize, FLIP_Y, N
 TARGET_FPS=30
 
@@ -72,7 +73,7 @@ def _decimate_indices(t, target_fps=30):
     return np.unique(idx)                                # dedupe if rounding collides
 
 
-def read_fly(path, xy_offset_center, px_per_mm, target_fps=30, warn_gap=None):
+def read_fly(path, xy_offset_center, px_per_mm, target_fps=30, warn_gap=None, return_indices=False):
     cx, cy = xy_offset_center
     print(f"Opening {path}")
     with h5py.File(path, 'r') as f:
@@ -91,7 +92,9 @@ def read_fly(path, xy_offset_center, px_per_mm, target_fps=30, warn_gap=None):
     if FLIP_Y: xy[1] = -xy[1]
     xy /= px_per_mm                                                   # -> mm
     nd = {role: xy[:, names.index(nm), :] for role, nm in N.items()}
-    return synthesize(nd)
+    X=synthesize(nd)
+    return (X, keep) if return_indices else X
+
 
 
 def build_group(paths, loader, vi, id0, target_fps=TARGET_FPS):
@@ -114,10 +117,11 @@ def build_group(paths, loader, vi, id0, target_fps=TARGET_FPS):
     arena_cx, arena_cy, arena_r_px = arena_calib(loader.dbfile, loader.px_per_mm)
 
     # --- 2. Read + convert each fly to APF keypoints (19, 2, T_i) in mm, arena-centered ---
-    flies = [
-        read_fly(path, (arena_cx, arena_cy), loader.px_per_mm, target_fps=target_fps)
-        for path in sorted(paths)
-    ]
+    paths = sorted(paths)
+    out   = [read_fly(p, (arena_cx, arena_cy), loader.px_per_mm,
+                      target_fps=target_fps, return_indices=True) for p in paths]
+    flies = [o[0] for o in out]
+    sels  = [o[1] for o in out]
     n_agents = len(flies)
 
     # --- 3. Truncate to the shortest fly so all agents share one frame axis ---
@@ -133,10 +137,40 @@ def build_group(paths, loader, vi, id0, target_fps=TARGET_FPS):
     agent_ids = np.arange(n_agents) + id0
     ids = np.broadcast_to(agent_ids[None, :], (n_frames, n_agents)).copy()
 
-    # --- 6. Bookkeeping arrays APF derives the rest from ---
-    frames   = np.arange(n_frames)[:, None]           # (T, 1) per-frame index
-    videoidx = np.full((n_frames, 1), vi)             # (T, 1) all this group's frames
-    y        = np.zeros((1, n_frames, n_agents), np.float32)  # category placeholder
+    # --- 6. Bookkeeping: REAL frame numbers, decimated the same way as X ---
+    fns = [load_frame_numbers(p, loader.chunksize) for p in paths]
 
-    data_fragment = dict(X=X, ids=ids, frames=frames, videoidx=videoidx, y=y)
+    # (2) all flies in a group were analyzed on the same frames
+    for p, fn in zip(paths[1:], fns[1:]):
+        assert np.array_equal(fns[0], fn), (
+            f"frame numbers differ between {paths[0]} and {p}: "
+            f"{len(fns[0])} vs {len(fn)} entries")
+    for p, s in zip(paths[1:], sels[1:]):
+        assert np.array_equal(sels[0], s), (
+            f"decimation indices differ between {paths[0]} and {p} — "
+            f"timestamps are not frame-aligned across flies")
+
+    # APF derives isstart from consecutive `frames` (apf/data.py:536) —
+    # must be 0,1,2,... per fragment or every frame reads as a sequence start.
+    frames = np.arange(n_frames)[:, None]
+
+    # Raw (undecimated) frame numbers, for mapping windows back to video time.
+    # APF ignores this key; load_raw_npz_data reads a fixed key list.
+    fns = [load_frame_numbers(p, loader.chunksize) for p in paths]
+    for p, fn in zip(paths[1:], fns[1:]):
+        assert np.array_equal(fns[0], fn), f"frame numbers differ: {paths[0]} vs {p}"
+    for p, s in zip(paths[1:], sels[1:]):
+        assert np.array_equal(sels[0], s), f"decimation indices differ: {paths[0]} vs {p}"
+    frame_numbers = np.asarray(fns[0])[sels[0]][:n_frames][:, None]
+    assert frame_numbers.shape[0] == n_frames
+    assert np.all(np.diff(frame_numbers[:, 0]) > 0)
+
+    videoidx = np.full((n_frames, 1), vi)
+    y        = np.zeros((1, n_frames, n_agents), np.float32)
+
+
+    data_fragment = dict(X=X, ids=ids, frames=frames,
+                         frame_numbers=frame_numbers,
+                         videoidx=videoidx, y=y)
+    
     return data_fragment, id0 + n_agents

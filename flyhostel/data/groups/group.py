@@ -429,7 +429,7 @@ class FlyHostelGroup(InteractionDetector):
         return download_annotations_from_cvat(self.experiment, path, **kwargs)
 
 
-    def build_group_for_apf(self, vi=0, id0=0, pose_name="raw"):
+    def build_group_for_apf(self, vi=0, id0=0, pose_name="raw", **kwargs):
         """Assemble this group into an APF-ready data fragment.
 
         One FlyHostelGroup == one arena == one experiment == one APF "video".
@@ -473,7 +473,7 @@ class FlyHostelGroup(InteractionDetector):
             for col, i in enumerate(order)
         }
 
-        return build_group(paths, loader, vi, id0)
+        return build_group(paths, loader, vi, id0, **kwargs)
 
     @staticmethod
     def _resolve_pose_path(fly, pose_name):

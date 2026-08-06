@@ -5,16 +5,13 @@ import logging
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
-from flyhostel.utils import get_sqlite_file, get_local_identities, get_single_animal_video, get_chunksize, get_basedir
+from flyhostel.utils import get_dbfile, get_local_identities, get_single_animal_video, get_chunksize, get_basedir
 
 logger=logging.getLogger(__name__)
 
 
-def cross_with_video_data(dt):
+def cross_with_video_data(experiment, dt):
     dt["identity"] = [int(e.split("|")[1]) for e in dt["id"]]
-    animal=dt["animal"].iloc[0]
-    dbfile=get_sqlite_file(animal.split("|")[0] + "*")
-    experiment=animal.split("__")[0]
     basedir=get_basedir(experiment)
     chunksize=get_chunksize(experiment)
 
@@ -27,8 +24,7 @@ def cross_with_video_data(dt):
 
  
     for i, row in tqdm(dt_chunk.iterrows()):
-        dt_chunk["dbfile"]=get_sqlite_file(row["id"].split("|")[0] + "*")
-
+        dt_chunk["dbfile"]=get_dbfile(basedir)
     frame_numbers=[int(e) for e in sorted(dt["frame_number"].unique())]
     frame_numbers=np.unique(np.array(frame_numbers)//chunksize)*chunksize
     frame_numbers=frame_numbers.tolist()
@@ -40,8 +36,8 @@ def cross_with_video_data(dt):
     for i, row in tqdm(dt_chunk.iterrows()):
         video=get_single_animal_video(basedir, row["frame_number"], table=table, identity=row["identity"], chunksize=chunksize)
         print(i, row["identity"], row["chunk"], video)
-        dt_chunk["video"].loc[i]=video
-        dt_chunk["local_identity"].loc[i]=int(os.path.basename(os.path.dirname(video)))
+        dt_chunk.loc[i, "video"] = video
+        dt_chunk.loc[i, "local_identity"] = int(os.path.basename(os.path.dirname(video)))
 
     dt=dt.merge(dt_chunk[["dbfile", "id", "video", "chunk", "local_identity"]], on=["id", "chunk"], how="left")
 
