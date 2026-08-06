@@ -960,6 +960,7 @@ def load_experiments(number_of_animals=6, interactions=False):
     metadata_beh=pd.read_csv(ANIMALS_CSV, header=None)
     metadata_beh.columns=["experiment", "basedir", "identity", "date_completed", "status", "select"]
     metadata_beh["number_of_animals"]=metadata_beh["basedir"].str.slice(34, 35).astype(int)
+    metadata_beh=metadata_beh.loc[metadata_beh["select"]=="SELECT"]
     metadata_inters=pd.read_csv(GROUPS_CSV, header=None)
     metadata_inters.columns=["basedir", "experiment", "number_of_animals", "status", "select"]
     metadata_inters=metadata_inters.loc[metadata_inters["select"]=="SELECT"]
