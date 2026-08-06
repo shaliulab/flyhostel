@@ -39,6 +39,7 @@ setup(
         "vidio",
         "webcolors",
         "GitPython",
+        "colour",
         # "sleap-io",
         #"cupy>=12.2.0",
         #"cudf>=23.10.02",
