@@ -61,7 +61,7 @@ def make_illustrations(dt, behavior, animal, framerate, min_duration=None, n_sec
         
         index_input=df[["frame_number", "identity", "id"]]
         index_input["animal"]=animal
-        index=cross_with_video_data(index_input)
+        index=cross_with_video_data(experiment, index_input)
         video_input=index["video"].unique()
         assert len(video_input)==1
         video_input=video_input[0]
