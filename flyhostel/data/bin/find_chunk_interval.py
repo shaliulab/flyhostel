@@ -27,6 +27,9 @@ def main():
     experiment=args.experiment
     flyhostel_db = args.flyhostel_db
     concatenation_table_name=args.concatenation_table_name
+    find_chunk_interval(experiment, basedir, flyhostel_db, concatenation_table_name)
+
+def find_chunk_interval(experiment, basedir, flyhostel_db, concatenation_table_name):
     number_of_animals=get_number_of_animals(experiment)
 
     experiment2="_".join(basedir.split(os.path.sep)[-3:])
