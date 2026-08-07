@@ -5,8 +5,7 @@ import codetiming
 
 from tqdm.auto import tqdm
 
-import cudf
-import cupy as cp
+
 import pandas as pd
 import numpy as np
 
@@ -15,6 +14,15 @@ time_counter=logging.getLogger("time_counter")
 
 from flyhostel.utils import establish_dataframe_framework
 
+try:
+    import cudf
+except ModuleNotFoundError:
+    cudf=pd
+
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    cp=None
 def compute_distance_between_all_ids(df, ids=None, step=10, **kwargs):
     """
         Arguments:
