@@ -3,8 +3,6 @@ import codetiming
 import logging
 import pandas as pd
 import numpy as np
-import cupy as cp
-import cudf
 
 
 from flyhostel.data.interactions.neighbors_gpu import find_neighbors as find_neighbors_gpu
