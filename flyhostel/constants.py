@@ -1,4 +1,4 @@
-import os
+import socket
 import os.path
 
 from flyhostel.quantification.modelling.constants import *
@@ -32,3 +32,13 @@ NUMBER_OF_JOBS_FOR_COPYING_TRAJECTORIES=1
 ANALYSIS_FOLDER="idtrackerai"
 OUTPUT_FOLDER="flyhostel"
 NUMBER_OF_JOBS_TO_GENERATE_INDIVIDUAL_VIDEOS=1
+
+def is_running_in_cv3():
+    hostname = socket.gethostname()
+    return hostname=="cv3"
+
+if is_running_in_cv3():
+    ENV_ROOT="/home/vibflysleep/mambaforge/envs/rapids-23.04"
+else:
+    ENV_ROOT="/data/leuven/333/vsc33399/jupyter/envs/google"
+
