@@ -3,6 +3,7 @@ Constants variables for the sqlite3 module
 """
 
 import os
+import socket
 import warnings
 from flyhostel.data.pose.constants import get_bodyparts
 
@@ -44,9 +45,18 @@ NODES=get_bodyparts()
 RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
 METADATA_FILE = "metadata.csv"
 
+def is_running_in_cv3():
+    hostname = socket.gethostname()
+    return hostname=="cv3"
+
 try:
+    if is_running_in_cv3():
+        ENV_ROOT="/home/vibflysleep/mambaforge/envs/rapids-23.04"
+    else:
+        ENV_ROOT="/data/leuven/333/vsc33399/jupyter/envs/google"
+
     DOWNLOAD_FLYHOSTEL_METADATA=os.environ.get("DOWNLOAD_FLYHOSTEL_METADATA", None)
-    DOWNLOAD_FLYHOSTEL_METADATA="/home/vibflysleep/mambaforge/envs/rapids-23.04/bin/download_flyhostel_metadata"
+    DOWNLOAD_FLYHOSTEL_METADATA=f"{ENV_ROOT}/bin/download_flyhostel_metadata"
     assert DOWNLOAD_FLYHOSTEL_METADATA is not None and os.path.exists(DOWNLOAD_FLYHOSTEL_METADATA)
 
 except AssertionError:
