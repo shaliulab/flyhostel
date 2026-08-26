@@ -23,6 +23,8 @@ setup(
             "trajectorytools-shaliulab==0.3.5"
         ],
     },
+    include_package_data=True,
+    package_data={"flyhostel": ["default_logging.yaml"]},
     install_requires=[
         "zeitgeber>=0.0.2",
         "matplotlib",
@@ -79,5 +81,6 @@ setup(
     },
 )
 
+print("YOU NEED TO MANUALLY INSTALL THE LAB'S VERSION OF ETHOSCOPY AND CONFAPP")
 
 warnings.warn("Make sure that idtrackerai, torch, torchvision, confapp, zeitgeber, trajectorytools, feed_integration, dropy are installed")
