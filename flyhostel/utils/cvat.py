@@ -5,11 +5,14 @@ import logging
 import datetime
 import json
 import requests
-
-CVAT_BASE = "http://" + os.environ["CVAT_HOST"] + ":8080"
+from flyhostel.data.human_validation.constants import CVAT_HOST, _require_cvat
+CVAT_BASE = "http://" + CVAT_HOST + ":8080"
 logger=logging.getLogger(__name__)
 
+
 def cvat_auth(session):
+
+    _require_cvat()
 
     login_url = f"{CVAT_BASE}/api/auth/login"
     r = session.post(login_url, json={
@@ -22,6 +25,9 @@ def cvat_auth(session):
 
 
 def delete_task(task_id: int) -> None:
+
+    _require_cvat()
+
     url = f"{CVAT_BASE}/api/tasks/{task_id}"
     with requests.Session() as s:
         cvat_auth(s)
@@ -47,12 +53,14 @@ def delete_task(task_id: int) -> None:
 
 def get_tasks_for_project(project_id):
 
+    _require_cvat()
+    url = f"{CVAT_BASE}/api/tasks"
+
     with requests.Session() as s:
         # 1) Log in (endpoint and payload depend on your API)
         r = cvat_auth(s)
     
         # 2) Now cookies are stored in `s`, and will be sent automatically
-        url = f"{CVAT_BASE}/api/tasks"
         r = s.get(url, params={"project_id": project_id})
         r.raise_for_status()
         out = r.json()
@@ -64,7 +72,10 @@ def get_tasks_for_project(project_id):
 
 
 def delete_task_annotations(task_number):
-    url = f"http://localhost:8080/api/tasks/{task_number}/annotations/"
+
+    _require_cvat()
+
+    url = f"{CVAT_BASE}/api/tasks/{task_number}/annotations/"
     print(f"Fetching {url}")
 
     with requests.Session() as s:
@@ -74,7 +85,7 @@ def delete_task_annotations(task_number):
         csrf = s.cookies.get("csrftoken")
         headers = {
             "X-CSRFTOKEN": csrf,
-            "Referer": "http://localhost:8080",  # DRF also checks this on unsafe methods
+            "Referer": CVAT_BASE,  # DRF also checks this on unsafe methods
         }
 
         r = s.delete(url, headers=headers)
@@ -89,7 +100,9 @@ def get_task_mtime(task_number):
     Arguments
         task (int):
     """
-    url=f"http://localhost:8080/api/tasks/{task_number}"
+    _require_cvat()
+
+    url=f"{CVAT_BASE}/api/tasks/{task_number}"
     print(f"Fetching {url}")
 
     with requests.Session() as s:
@@ -114,9 +127,10 @@ def file_is_older_than_seconds(path, seconds):
     return (dt + datetime.timedelta(seconds=seconds)) < datetime.datetime.now()
 
 def update_project_list():
+    _require_cvat()
 
     if not os.path.exists(PROJECTS_JSON) or file_is_older_than_seconds(PROJECTS_JSON, 60):
-        url="http://localhost:8080/api/projects?page_size=9999&scheme=json"
+        url=f"{CVAT_BASE}/api/projects?page_size=9999&scheme=json"
         print(f"Fetching {url}")
 
         with requests.Session() as s:
@@ -140,6 +154,8 @@ def update_project_list():
 
 
 def get_project_id_from_name(experiment, errors="raise"):
+
+    _require_cvat()
 
     update_project_list()
 
