@@ -5,8 +5,7 @@ import logging
 import datetime
 import json
 import requests
-from flyhostel.data.human_validation.constants import CVAT_HOST, _require_cvat
-CVAT_BASE = "http://" + CVAT_HOST + ":8080"
+from flyhostel.data.human_validation.cvat.constants import CVAT_BASE, _require_cvat
 logger=logging.getLogger(__name__)
 
 
