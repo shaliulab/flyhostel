@@ -34,17 +34,35 @@ install_requires = [
     #"cudf>=23.10.02",
 ]
 
-# ethoscopy lives in a submodule rather than on PyPI. Point pip at the checkout
-# with an absolute file:// URL — a relative path would be resolved against the
-# working directory, not this file.
-ETHOSCOPY_DIR = HERE / "libraries" / "ethoscopy"
-if (ETHOSCOPY_DIR / "setup.py").exists() or (ETHOSCOPY_DIR / "pyproject.toml").exists():
-    install_requires.append("ethoscopy @ {}".format(ETHOSCOPY_DIR.resolve().as_uri()))
-else:
-    warnings.warn(
-        "libraries/ethoscopy is empty, so ethoscopy will not be installed. "
-        "Run: git submodule update --init --recursive"
-    )
+
+def vendored(dist_name, subdir, extras=None):
+    """Build a PEP 508 direct reference to a submodule under libraries/.
+
+    The path must be absolute: pip resolves relative paths against the working
+    directory, not against this file. `dist_name` must be the name declared in
+    that package's own setup.py, or pip rejects the install as a name mismatch.
+    """
+    path = HERE / "libraries" / subdir
+    if not ((path / "setup.py").exists() or (path / "pyproject.toml").exists()):
+        warnings.warn(
+            "libraries/{} is empty, so {} will not be installed. "
+            "Run: git submodule update --init --recursive".format(subdir, dist_name)
+        )
+        return None
+
+    name = "{}[{}]".format(dist_name, ",".join(extras)) if extras else dist_name
+    return "{} @ {}".format(name, path.resolve().as_uri())
+
+
+for requirement in (
+    vendored("ethoscopy", "ethoscopy"),
+    # The distribution is named idtrackerai-shaliulab, not idtrackerai.
+    # [gpu] pulls in torch and torchvision.
+    vendored("idtrackerai-shaliulab", "idtrackerai", extras=["gpu"]),
+):
+    if requirement is not None:
+        install_requires.append(requirement)
+
 
 setup(
     name=PKG_NAME,
@@ -96,6 +114,6 @@ setup(
 )
 
 warnings.warn(
-    "Make sure that idtrackerai, torch, torchvision, confapp, zeitgeber, "
+    "Make sure that torch, torchvision, confapp, zeitgeber, "
     "trajectorytools, feed_integration, dropy are installed"
 )
