@@ -10,9 +10,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from yolov7tools.utils import load_detection
-
-
 def filter_by_chunks_pandas(paths, chunks):
 
     chunk_of_paths = [int(re.search("_([0-9]*)-", os.path.basename(path)).group(1)) for path in paths]
@@ -76,6 +73,8 @@ def process_labels(label_file):
 
     See compute_angle
     """
+
+    from yolov7tools.utils import load_detection
 
     try:
         with open(label_file, "r") as filehandle:

@@ -24,7 +24,6 @@ install_requires = [
     "tqdm",
     "h5py",
     "hdf5storage",
-    "yolov7tools==1.1",
     "vidio",
     "webcolors",
     "GitPython",
@@ -75,6 +74,7 @@ setup(
             "recordtype",
             "trajectorytools-shaliulab==0.3.5"
         ],
+        "detection": ["yolov7tools==1.1"],
     },
     include_package_data=True,
     package_data={"flyhostel": ["default_logging.yaml"]},

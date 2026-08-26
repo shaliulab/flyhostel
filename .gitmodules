@@ -25,3 +25,6 @@
 [submodule "libraries/idtrackerai"]
 	path = libraries/idtrackerai
 	url = git@github.com:shaliulab/idtrackerai
+[submodule "libraries/yolov7tools"]
+	path = libraries/yolov7tools
+	url = git@github.com:shaliulab/yolov7tools
