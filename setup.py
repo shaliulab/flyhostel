@@ -25,6 +25,9 @@ install_requires = [
     "h5py",
     "hdf5storage",
     "vidio",
+    # vidio requires opencv-python-headless unconstrained; idtrackerai pins
+    # opencv-python<4, which forces numpy 1.x. Keep both on the same ABI.
+    "opencv-python-headless<4",
     "webcolors",
     "GitPython",
     "colour",
