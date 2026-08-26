@@ -3,8 +3,10 @@ Constants variables for the sqlite3 module
 """
 
 import os
+import socket
 import warnings
 from flyhostel.data.pose.constants import get_bodyparts
+from flyhostel.constants import ENV_ROOT
 
 TABLES = [
     "METADATA", "IMG_SNAPSHOTS", "ROI_MAP", "VAR_MAP", "ROI_0",
@@ -45,8 +47,10 @@ RAISE_EXCEPTION_IF_METADATA_NOT_FOUND=True
 METADATA_FILE = "metadata.csv"
 
 try:
+
+
     DOWNLOAD_FLYHOSTEL_METADATA=os.environ.get("DOWNLOAD_FLYHOSTEL_METADATA", None)
-    DOWNLOAD_FLYHOSTEL_METADATA="/home/vibflysleep/mambaforge/envs/rapids-23.04/bin/download_flyhostel_metadata"
+    DOWNLOAD_FLYHOSTEL_METADATA=f"{ENV_ROOT}/bin/download_flyhostel_metadata"
     assert DOWNLOAD_FLYHOSTEL_METADATA is not None and os.path.exists(DOWNLOAD_FLYHOSTEL_METADATA)
 
 except AssertionError:

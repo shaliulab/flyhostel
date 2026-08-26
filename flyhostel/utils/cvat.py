@@ -184,7 +184,7 @@ def get_dbfile(basedir):
 
 def get_basedir(experiment):
     tokens = experiment.split("_")
-    basedir=f"/flyhostel_data/videos/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
+    basedir=f"{os.environ['FLYHOSTEL_VIDEOS']}/{tokens[0]}/{tokens[1]}/{'_'.join(tokens[2:4])}"
     return basedir
 
 
