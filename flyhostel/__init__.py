@@ -63,6 +63,3 @@ def _configure_logging():
 _configure_logging()
 
 conf += "flyhostel.constants"
-
-from flyhostel.data.pose.main import FlyHostelLoader, init_loaders  # noqa: E402
-from flyhostel.data.groups.group import FlyHostelGroup  # noqa: E402
