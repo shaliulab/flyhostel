@@ -19,3 +19,6 @@
 [submodule "flyhostel/modelling"]
 	path = flyhostel/modelling
 	url = git@github.com:shaliulab/flyhostel-modelling
+[submodule "libraries/ethoscopy"]
+	path = libraries/ethoscopy
+	url = git@github.com:shaliulab/ethoscopy.git
