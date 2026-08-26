@@ -3,8 +3,6 @@ import logging
 import cv2
 import numpy as np
 
-from idtrackerai.animals_detection.segmentation_utils import _getCentroid
-from idtrackerai.blob import _overlaps_with_fraction
 
 logger=logging.getLogger(__name__)
 
@@ -24,6 +22,8 @@ def select_by_contour(contour, candidates, debug=False, frame=None):
     if the annotation does not overlap with any square, it is a 'de novo' annotation
     if the annotation fully contains 2 or more squares, the two squares are probably a failed NMS (Non Maximal Supression) artifact
     """
+    from idtrackerai.blob import _overlaps_with_fraction
+
 
     scores=[]
     for candidate in candidates:
@@ -175,6 +175,8 @@ def rle_to_blob(*args, frame_width, frame_height, number_of_cols, original_resol
 
 
 def contour_to_centroid(contour):
+    from idtrackerai.animals_detection.segmentation_utils import _getCentroid
+
     x, y= _getCentroid(contour)
     return round(x, 2), round(y, 2)
     
