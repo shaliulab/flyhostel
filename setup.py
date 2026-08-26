@@ -1,7 +1,7 @@
 import pathlib
-from setuptools import setup, find_packages
-
 import warnings
+
+from setuptools import setup, find_packages
 
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent
@@ -12,10 +12,44 @@ README = (HERE / "README.md").read_text()
 PKG_NAME = "flyhostel"
 version = "1.1.7"
 
+install_requires = [
+    "zeitgeber>=0.0.2",
+    "matplotlib",
+    "pyaml",
+    "imgstore-shaliulab>=0.4.0",
+    "pandas",
+    "confapp-shaliulab",
+    "scikit-learn",
+    "recordtype",
+    "tqdm",
+    "h5py",
+    "hdf5storage",
+    "yolov7tools==1.1",
+    "vidio",
+    "webcolors",
+    "GitPython",
+    "colour",
+    # "sleap-io",
+    #"cupy>=12.2.0",
+    #"cudf>=23.10.02",
+]
+
+# ethoscopy lives in a submodule rather than on PyPI. Point pip at the checkout
+# with an absolute file:// URL — a relative path would be resolved against the
+# working directory, not this file.
+ETHOSCOPY_DIR = HERE / "libraries" / "ethoscopy"
+if (ETHOSCOPY_DIR / "setup.py").exists() or (ETHOSCOPY_DIR / "pyproject.toml").exists():
+    install_requires.append("ethoscopy @ {}".format(ETHOSCOPY_DIR.resolve().as_uri()))
+else:
+    warnings.warn(
+        "libraries/ethoscopy is empty, so ethoscopy will not be installed. "
+        "Run: git submodule update --init --recursive"
+    )
+
 setup(
     name=PKG_NAME,
     version=version,
-    packages = find_packages(),
+    packages=find_packages(exclude=["libraries", "libraries.*"]),
     extras_require={
         "sensor": ["pyserial"],
         "quant": [
@@ -25,27 +59,7 @@ setup(
     },
     include_package_data=True,
     package_data={"flyhostel": ["default_logging.yaml"]},
-    install_requires=[
-        "zeitgeber>=0.0.2",
-        "matplotlib",
-        "pyaml",
-        "imgstore-shaliulab>=0.4.0",
-        "pandas",
-        "confapp-shaliulab",
-        "scikit-learn",
-        "recordtype",
-        "tqdm",
-        "h5py",
-        "hdf5storage",
-        "yolov7tools==1.1",
-        "vidio",
-        "webcolors",
-        "GitPython",
-        "colour",
-        # "sleap-io",
-        #"cupy>=12.2.0",
-        #"cudf>=23.10.02",
-    ],
+    install_requires=install_requires,
     entry_points={
         "console_scripts": [
             "fh=flyhostel.__main__:main",
@@ -70,7 +84,7 @@ setup(
             "save-human-annotations=flyhostel.data.bin.human_validation.integrate:save",
             "cvat-label-constructor=flyhostel.data.bin.human_validation.label_constructor:main",
             "fh-make-video=flyhostel.data.bin.video:main",
-            "fh-make-csv=flyhostel.data.bin.video:save_csv",            
+            "fh-make-csv=flyhostel.data.bin.video:save_csv",
             "find-chunk-interval=flyhostel.data.bin.find_chunk_interval:main",
             "get-wavelet-profile=flyhostel.data.bin.utils:main_get_wavelet_profile",
             "get-framerate=flyhostel.data.bin.utils:main_get_framerate",
@@ -81,6 +95,7 @@ setup(
     },
 )
 
-print("YOU NEED TO MANUALLY INSTALL THE LAB'S VERSION OF ETHOSCOPY AND CONFAPP")
-
-warnings.warn("Make sure that idtrackerai, torch, torchvision, confapp, zeitgeber, trajectorytools, feed_integration, dropy are installed")
+warnings.warn(
+    "Make sure that idtrackerai, torch, torchvision, confapp, zeitgeber, "
+    "trajectorytools, feed_integration, dropy are installed"
+)
