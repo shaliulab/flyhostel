@@ -22,3 +22,6 @@
 [submodule "libraries/ethoscopy"]
 	path = libraries/ethoscopy
 	url = git@github.com:shaliulab/ethoscopy.git
+[submodule "libraries/idtrackerai"]
+	path = libraries/idtrackerai
+	url = git@github.com:shaliulab/idtrackerai
