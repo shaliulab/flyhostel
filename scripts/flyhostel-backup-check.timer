@@ -1,7 +1,9 @@
 [Unit]
-Description=Warn about stale FlyHostel backups
+Description=Daily FlyHostel backup staleness check
 
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/flyhostel-backup-check.sh
-StateDirectory=flyhostel-backup
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
