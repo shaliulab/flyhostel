@@ -8,3 +8,4 @@ StateDirectory=flyhostel-backup
 SuccessExitStatus=75
 Nice=10
 TimeoutStartSec=12h
+EnvironmentFile=/home/vibflysleep/opt/flyhostel/scripts/backup.env
