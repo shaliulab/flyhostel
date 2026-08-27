@@ -3,5 +3,5 @@ Description=Warn about stale FlyHostel backups
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/flyhostel-backup-check.sh
+ExecStart=/home/vibflysleep/opt/flyhostel/scripts/flyhostel-backup-check.sh
 StateDirectory=flyhostel-backup
