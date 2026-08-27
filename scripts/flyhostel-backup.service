@@ -1,0 +1,10 @@
+[Unit]
+Description=FlyHostel backup to external drives
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/flyhostel-backup.sh
+StateDirectory=flyhostel-backup
+SuccessExitStatus=75
+Nice=10
+TimeoutStartSec=12h
