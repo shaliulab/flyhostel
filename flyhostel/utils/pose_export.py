@@ -258,9 +258,13 @@ def generate_single_file(node_names, datasets, point_scores, inst_scores, files,
 
         if dt is not None:
             assert interval is not None
+
+            index=pd.DataFrame({"frame_number": np.arange(interval[0], interval[1])})
+            dt=index.merge(dt, on="frame_number", how="left")
             dt=dt.loc[(dt["frame_number"] >= interval[0]) & (dt["frame_number"] < interval[1])]
             diff=dt["frame_number"].diff().iloc[1:]
-            assert (diff==1).all()
+            if not (diff==1).all():
+                logging.warning(f"Max gap in pose is = {diff.max()}")
             anchor=dt[["tl_x_arena_pixels", "tl_y_arena_pixels"]].values
             ds = file.create_dataset("anchor", anchor.shape)
             ds[:]=anchor
