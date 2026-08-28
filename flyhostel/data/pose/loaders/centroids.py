@@ -34,6 +34,7 @@ def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=N
             if n_after==0:
                 logger.warning("No metadata for experiment %s and identity %s", experiment, identity)
             if n_after>1:
+                logger.error(meta[["id", "identity"]])
                 raise Exception("> 1 animals matches experiment %s and identity %s", experiment, identity)
 
         if meta.shape[0]==0:
