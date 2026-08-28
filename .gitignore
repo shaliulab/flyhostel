@@ -6,7 +6,6 @@ flyhostel/tests/static_data/flyhostel.db
 .nextflow.log*
 *h5
 scripts/.nextflow/
-scripts/work/
-scripts/
 flyhostel/tests_old/
 .vscode/
+scripts/backup.env
