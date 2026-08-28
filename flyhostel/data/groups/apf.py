@@ -95,7 +95,11 @@ def read_fly(path, xy_offset_center, px_per_mm, target_fps=30, warn_gap=None, re
     X=synthesize(nd)
     return (X, keep) if return_indices else X
 
+def load_t(path):
 
+    with h5py.File(path, "r") as f:
+        t = f["t"][:]
+    return t
 
 def build_group(paths, loader, vi, id0, target_fps=TARGET_FPS):
     """Convert one group (one arena, one experiment) into an APF `data` fragment.
@@ -169,8 +173,22 @@ def build_group(paths, loader, vi, id0, target_fps=TARGET_FPS):
     y        = np.zeros((1, n_frames, n_agents), np.float32)
 
 
-    data_fragment = dict(X=X, ids=ids, frames=frames,
-                         frame_numbers=frame_numbers,
-                         videoidx=videoidx, y=y)
+    # --- ZT encoding: sin/cos of time-of-day, so the model sees circadian phase ---
+    # t[i] = seconds since ZT0 for the i-th (undecimated) pose
+    ts = [load_t(p) for p in paths]                      # your accessor for the 't' dataset
+    for p, tt in zip(paths[1:], ts[1:]):
+        assert np.allclose(ts[0], tt), f"timestamps differ: {paths[0]} vs {p}"
+    t_sel = np.asarray(ts[0])[sels[0]][:n_frames]        # (T,) seconds since ZT0
+    phase = 2 * np.pi * (t_sel % 86400.0) / 86400.0
+    zt = np.stack([np.sin(phase), np.cos(phase)], axis=1).astype(np.float32)  # (T, 2)
+    assert zt.shape == (n_frames, 2)
+
+
+    data_fragment = dict(
+        X=X, ids=ids, frames=frames,
+        frame_numbers=frame_numbers,
+        videoidx=videoidx, y=y,
+        zt = zt
+    )
     
     return data_fragment, id0 + n_agents
