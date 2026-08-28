@@ -28,6 +28,22 @@ INTERVAL_BETWEEN_CHECKPOINTS_IN_SECONDS = 1
 
 logger=logging.getLogger(__name__)
 
+_KEYFRAME_HELP = """
+Terminology: a KEYFRAME is a frame where you explicitly drew, moved, or resized
+a shape. In CVAT it appears as a solid marker on that object's timeline row.
+Frames between two keyframes are interpolated by CVAT — they look annotated in
+the UI but carry no data in the export, so this parser cannot see them.
+
+Every chunk a courtship bout spans needs its own keyframe, because engagement
+markers are matched to COURTSHIP boxes frame-by-frame, and identities are
+resolved per chunk.
+
+To add one: navigate to a frame in the listed range, select the COURTSHIP
+object, and either nudge its box or click the keyframe (star/diamond) toggle in
+the object sidebar. Then draw the engagement markers on that same frame.
+"""
+
+
 def parse_frame_number(x):
     return int(x.split("_")[0])
 
@@ -698,13 +714,14 @@ def parse_engagement_markers(annotations, intervals, chunksize,
     # For early-fail validation we also need: which (interval_id, chunk) pairs
     # are *expected* to have markers? Any chunk that contains at least one
     # raw-annotated COURTSHIP frame for the bout's track.
-    expected_keys = set()  # {(interval_id, chunk), ...}
+    keyframes_by_key = {}  # (interval_id, chunk) -> {frame_number, ...}
     for fn, courtships in courtship_by_frame.items():
         chunk = fn // chunksize
         for (track_id, *_) in courtships:
             iid = courtship_track_to_interval.get(int(track_id))
             if iid is not None:
-                expected_keys.add((iid, chunk))
+                keyframes_by_key.setdefault((iid, chunk), set()).add(fn)
+    expected_keys = set(keyframes_by_key)
 
     # Walk all annotations, identify markers by containment.
     # Per (interval_id, chunk), accumulate marker labels AND track the set
@@ -760,6 +777,22 @@ def parse_engagement_markers(annotations, intervals, chunksize,
 
     errors = []
 
+    # Frame range of each (interval_id, chunk), so errors can name a concrete
+    # window to annotate rather than just a chunk index.
+    span_frames = (
+        intervals
+        .assign(chunk=intervals["frame_number"] // chunksize)
+        .groupby(["interval_id", "chunk"])["frame_number"]
+        .agg(["min", "max"])
+        .to_dict("index")
+    )  # {(interval_id, chunk): {"min": f0, "max": f1}}
+
+    def _range_str(iid, chunk):
+        rng = span_frames.get((iid, chunk))
+        if rng is None:
+            return f"chunk {chunk}"
+        return f"frames {rng['min']}-{rng['max']} (chunk {chunk})"
+    
     # Chunks the bout spans that have NO raw COURTSHIP keyframe at all.
     # These can't be in expected_keys (which is keyed off raw keyframes), so
     # they'd silently skip validation under the previous logic.
@@ -768,40 +801,51 @@ def parse_engagement_markers(annotations, intervals, chunksize,
         chunks_seen_per_interval.setdefault(iid, set()).add(chunk)
 
     for iid, spanned_chunks in spanned.items():
-        seen = chunks_seen_per_interval.get(iid, set())
-        missing_keyframes = spanned_chunks - seen
-        if missing_keyframes:
-            errors.append(
-                f"  interval_id={iid}: no raw COURTSHIP keyframe in "
-                f"chunk(s) {sorted(missing_keyframes)} — CVAT interpolation "
-                f"is not enough. Add a keyframe in each, then place "
-                f"{expected_per_chunk} engagement markers inside it."
-            )
-
+            seen = chunks_seen_per_interval.get(iid, set())
+            missing_keyframes = spanned_chunks - seen
+            for chunk in sorted(missing_keyframes):
+                errors.append(
+                    f"  bout {iid}: NO COURTSHIP KEYFRAME in {_range_str(iid, chunk)}.\n"
+                    f"      The bout is visible there only because CVAT interpolates "
+                    f"between keyframes in chunks {sorted(seen) or 'n/a'}.\n"
+                    f"      Fix: open any frame in that range, make the COURTSHIP box "
+                    f"a keyframe, then draw {expected_per_chunk} markers inside it."
+                )
     # Per (interval_id, chunk) marker-count validation (unchanged).
     for key in sorted(expected_keys):
         iid, chunk = key
         markers = by_chunk.get(key, set())
         if not markers:
             errors.append(
-                f"  interval_id={iid}, chunk={chunk}: no engagement markers "
-                f"(expected {expected_per_chunk})"
+                f"  bout {iid}, {_range_str(iid, chunk)}: COURTSHIP keyframe(s) "
+                f"exist at frame(s) {sorted(keyframes_by_key[key])}, but NO "
+                f"engagement markers were found inside the box there.\n"
+                f"      Fix: on one of those exact frames, draw {expected_per_chunk} "
+                f"integer-labelled rectangles fully inside the COURTSHIP box.\n"
+                f"      (Markers drawn on a non-keyframe, or sticking out past the "
+                f"COURTSHIP edge, are ignored.)"
             )
             continue
         if len(markers) != expected_per_chunk:
             errors.append(
-                f"  interval_id={iid}, chunk={chunk}: found {len(markers)} "
-                f"marker(s) {sorted(markers)} at frames "
-                f"{sorted(marker_frames[key])} (expected {expected_per_chunk})"
+                f"  bout {iid}, {_range_str(iid, chunk)}: found {len(markers)} "
+                f"marker(s) {sorted(markers)} at frame(s) "
+                f"{sorted(marker_frames[key])}, expected {expected_per_chunk}.\n"
+                f"      Fix: add or delete markers on those frames so exactly "
+                f"{expected_per_chunk} are inside the COURTSHIP box. If you drew "
+                f"more, check whether one is flush with / outside the box edge "
+                f"(tolerance={tolerance} px)."
             )
 
     # (Whole-track-missing check can now go away — the spanned-vs-seen
     # check above subsumes it, with a more useful error message.)
-
     if errors:
         raise EngagementMarkerError(
-            "Engagement marker validation failed:\n" + "\n".join(errors)
+            f"Engagement marker validation failed ({len(errors)} problem(s)):\n"
+            + "\n".join(errors)
+            + "\n" + _KEYFRAME_HELP
         )
+
 
     # --- Pack output (unchanged) ------------------------------------------
     out = {}
