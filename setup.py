@@ -61,7 +61,6 @@ for requirement in (
     vendored("ethoscopy", "ethoscopy"),
     # The distribution is named idtrackerai-shaliulab, not idtrackerai.
     # [gpu] pulls in torch and torchvision.
-    vendored("idtrackerai-shaliulab", "idtrackerai", extras=["gpu"]),
 ):
     if requirement is not None:
         install_requires.append(requirement)
@@ -78,6 +77,7 @@ setup(
             "trajectorytools-shaliulab==0.3.5"
         ],
         "detection": ["yolov7tools==1.1"],
+        "idtrackerai": [vendored("idtrackerai-shaliulab", "idtrackerai", extras=["gpu"])],
     },
     include_package_data=True,
     package_data={"flyhostel": ["default_logging.yaml"]},
