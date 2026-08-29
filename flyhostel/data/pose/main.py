@@ -340,7 +340,7 @@ class FlyHostelLoader(
                     self.identity_table+="_VAL"
                 else:
                     if ensure_validated:
-                        raise ValueError("Experiment is not validated")
+                        raise ValueError(f"Experiment {experiment} is not validated")
                     else:
                         pass
         else:
@@ -353,7 +353,7 @@ class FlyHostelLoader(
                     self.roi_0_table+="_VAL"
                 else:
                     if ensure_validated:
-                        raise ValueError("Experiment is not validated")
+                        raise ValueError(f"Experiment {experiment} is not validated")
                     else:
                         pass
         else:
