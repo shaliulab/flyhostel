@@ -274,7 +274,7 @@ class FlyHostelLoader(
             if len(dirs) == 1:
                 basedir = dirs[0]
             else:
-                raise Exception(f"{basedir} not found")
+                raise FileNotFoundError(f"{basedir} not found")
         self.basedir=basedir
         self.dbfile = self.load_dbfile()
 
