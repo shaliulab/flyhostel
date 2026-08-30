@@ -194,7 +194,8 @@ def get_dbfile(basedir):
         basedir,
         get_experiment_identifier(basedir) + ".db"
     )
-    assert os.path.exists(dbfile), f"{dbfile} not found"
+    if not os.path.exists(dbfile):
+        raise FileNotFoundError(f"{dbfile} not found")
     return dbfile
 
 def get_basedir(experiment):

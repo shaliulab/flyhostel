@@ -48,7 +48,6 @@ def annotate_for_validation(
     basedir=get_basedir(experiment)
     number_of_animals=get_number_of_animals(experiment)
     dbfile=get_dbfile(basedir)
-    assert os.path.exists(dbfile), f"{dbfile} not found"
     chunksize = get_chunksize(experiment)
     framerate = get_framerate(experiment)
 
