@@ -933,6 +933,9 @@ def build_ethoscope_id(row):
     ethoscope_number = row["machine_name"].replace("ETHOSCOPE_", "").zfill(3)
     return row["date"] + "_" + str(ethoscope_number) + "aad|" + str(row["region_id"]).zfill(2)
 
+def build_experiment_from_meta(metadata):
+    return "FlyHostel" + metadata["flyhostel_number"] + "_" + metadata["number_of_animals"].astype(str) + "X_" + metadata["flyhostel_date"] + "_" + metadata["flyhostel_time"]
+
 
 def compute_heading(thorax, head):
     """Forward-facing heading (thorax->head), radians in [-pi, pi]."""
