@@ -115,7 +115,6 @@ class SleepLoader:
             )
         
         feather_file=glob.glob(feather_file_r)
-        print(feather_file)
     
         if len(feather_file)>1:
             logger.warning("More than 1 feather file detected for %s", self.datasetnames[0])
