@@ -75,6 +75,7 @@ def main():
         "status",
         "comment"
     ]
+    metadata=metadata.query("comment=='SELECT'")
 
     metadata["flyhostel"]=metadata["experiment"].str.slice(start=0, stop=10)
     metadata["number_of_animals"]=[int(x[1].replace("X", "")) for x in metadata["experiment"].str.split("_")]
