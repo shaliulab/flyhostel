@@ -359,6 +359,23 @@ class FlyHostelLoader(
         else:
             self.roi_0_table=roi_0_table
 
+    @property
+    def genotype(self):
+        return self.metadata["genotype"].item()
+
+
+    @property
+    def sex(self):
+        return self.metadata["sex"].item()
+
+    @property
+    def light_cycle(self):
+        if self.metadata["condition"].isna().item() or self.metadata["condition"].item()=="LD":
+            return "LD"
+        else:
+            self.metadata["condition"].item()
+
+
 
     @property
     def is_validated(self):
@@ -386,6 +403,7 @@ class FlyHostelLoader(
         """
 
         self.metadata=load_metadata(self.dbfile, self.identity)
+        self.metadata["experiment"]=self.experiment
         self.meta_info=load_meta_info(self.dbfile, self.identity)
 
 
