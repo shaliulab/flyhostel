@@ -955,7 +955,10 @@ def copy_file(src, dest, verbose=True, dry_run=False):
 ANIMALS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
 GROUPS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/interaction_detection/index.csv"
 
-def load_experiments(number_of_animals=6, interactions=False):
+def load_experiments(
+        number_of_animals=6, interactions=False,
+        complete=True
+    ):
     """
     Load experiment name for all experiments
     whose behavior and interaction pipelines are complete
@@ -975,9 +978,33 @@ def load_experiments(number_of_animals=6, interactions=False):
     metadata.loc[(metadata["number_of_animals"]==1), "status"]="SELECT"
     metadata=metadata.loc[~(metadata["select"].isna())]
     metadata=metadata.loc[metadata["select"]=="SELECT"]
+
+    if complete:
+        index=metadata.groupby("experiment").apply(experiment_is_complete)
+        experiments=index.loc[index==True].index
+        metadata=metadata.loc[metadata["experiment"].isin(experiments)]
+
+
+
     experiments=metadata.loc[
         (metadata["number_of_animals"]==number_of_animals),
         "experiment"
     ].unique().tolist()
 
     return experiments
+
+
+def experiment_is_homogenous(df):
+    return len(df["genotype"].unique())==1
+
+def experiment_is_complete(df):
+    number_of_animals=df["number_of_animals"].unique().tolist()
+    assert len(number_of_animals)==1
+    number_of_animals=int(number_of_animals[0])
+
+    if "id" in df.columns:
+        identity_column="id"
+    else:
+        identity_column="identity"
+    n_ids = len(df[identity_column].unique())
+    return number_of_animals==n_ids
