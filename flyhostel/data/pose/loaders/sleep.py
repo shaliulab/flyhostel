@@ -1,13 +1,18 @@
 import glob
+import h5py
 import logging
 import os.path
 
+import numpy as np
 import pandas as pd
 from flyhostel.data.sleep import (
     PURE_INACTIVE_STATES,
     bin_apply_all,
     sleep_annotation_rf_all
 )
+
+from flyhostel.data.interactions.classifier.inter_orientation import calculate_angles_with_vertical_batch
+from flyhostel.utils.pose_export import load_frame_numbers
 
 logger=logging.getLogger(__name__)
 
@@ -19,6 +24,14 @@ class SleepLoader:
     datasetnames=[]
     behavior=None
     sleep=None
+    pixels_per_mm=None
+    metadata=None
+    framerate=None
+    experiment=None
+    square_width=None
+    chunksize=None
+    dt=None
+    ids=[]
 
     def __init__(self, *args, **kwargs):
         self.interaction=None
@@ -157,3 +170,59 @@ class SleepLoader:
                 x_bin_length=bin_size
             )
         return dt_sleep
+
+
+    def get_pose_file_h5py(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def load_centroid_data(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+    def load_data_for_social_regression(self, meta_vars=[]):
+        """
+        Produce timeseries of this fly with columns id, frame_number, asleep, orientation, x, y, and meta_vars
+
+        Needs sleep analysis to be complete
+        Sampling rate given by sleep dataset. Typically 1Hz (i.e. every second new data point)
+        """
+        self.load_centroid_data(cache="/flyhostel_data/cache")
+        try:
+            self.load_sleep_data(bin_size=None)
+        except FileNotFoundError:
+            logger.error("%s no sleep data available", self)
+            return None
+            
+        self.sleep=self.sleep[["id", "frame_number", "asleep"]]
+        path = self.get_pose_file_h5py("raw", dt=self.dt)
+        
+        frame_numbers=load_frame_numbers(path, self.chunksize)
+        with h5py.File(path, "r") as f:
+            assert "anchor" in f.keys()
+            assert f["anchor"].shape[0]==f["tracks"].shape[3]
+            bps=[bp.decode() for bp in f["node_names"][:]]
+            head=f["tracks"][0, :, bps.index("head"), :].T
+            abdomen=f["tracks"][0, :, bps.index("abdomen"), :].T
+            centroids = f["anchor"][:] + self.square_width//2
+            t = f["t"][:]
+            points=np.stack([head, abdomen], axis=1)
+        assert points.shape[1] == 2
+        assert points.shape[2] == 2
+        angle=calculate_angles_with_vertical_batch(points)
+        
+        df=pd.DataFrame(centroids, columns=["x", "y"])
+        df/=self.pixels_per_mm
+        df.insert(0, "frame_number", frame_numbers)
+        df.insert(1, "t", t)
+        df.insert(0, "id", self.ids[0])
+        df["orientation"]=angle
+
+        df=df.merge(self.sleep[["id", "frame_number", "asleep"]], on=["id", "frame_number"], how="left")
+        df["asleep"] = df["asleep"].ffill(limit=int(self.framerate))
+        assert df["asleep"].isna().mean() < 0.01
+        df.insert(1, "experiment", self.experiment)
+
+        for meta_var in meta_vars:
+            df[meta_var]=self.metadata[meta_var].item()
+
+        return df
