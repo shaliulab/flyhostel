@@ -994,8 +994,13 @@ def load_experiments(
     return experiments
 
 
-def experiment_is_homogenous(df):
-    return len(df["genotype"].unique())==1
+def experiment_is_homogenous(df, meta_vars=[]):
+    test=True
+    for col_name in meta_vars:
+        test_ = len(df[col_name].unique())==1
+        test=test and test_
+
+    return test
 
 def experiment_is_complete(df):
     number_of_animals=df["number_of_animals"].unique().tolist()
