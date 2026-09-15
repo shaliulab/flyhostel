@@ -49,13 +49,15 @@ def download_task_annotations_to_zip(task_number, path = ".", redownload=False, 
 
     unzipped_folder=f"task_{task_number}"
     zip_file = get_zipfile_for_task(path, task_number)
+    mtime=get_task_mtime(task_number)
+
+    if os.path.exists(zip_file) and os.path.getmtime(zip_file) > mtime:
+        return zip_file
 
     if not dry_run:
 
         if not os.path.exists(unzipped_folder) or redownload:
-        
-            if os.path.exists(zip_file):
-                os.remove(zip_file)
+
 
             if os.path.exists(zip_file):
                 shutil.rmtree(unzipped_folder)
@@ -111,9 +113,8 @@ def download_task_annotations(task_number, *args, **kwargs):
     categories=pd.DataFrame(cvat_annotations["categories"])
 
 
-    mtime=get_task_mtime(task_number)
 
-    return annotations, images, categories, mtime
+    return annotations, images, categories
 
 
 def load_task_annotations(annotations, images, categories, basedir, frame_width=1000, frame_height=1000, number_of_rows=1, number_of_cols=1, chunksize=None, image_format="v1"):
@@ -292,7 +293,8 @@ def get_annotations(experiment, basedir, tasks, n_jobs=2, **kwargs):
 
 
 def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of_rows=1, image_format="v1", **kwargs):
-    annotations, images, categories, mtime=download_task_annotations(task_number, **kwargs)
+    mtime=get_task_mtime(task_number)
+    annotations, images, categories=download_task_annotations(task_number, **kwargs)
     chunksize=get_chunksize(experiment)
     
     assert len(images["width"].unique())==1
