@@ -182,9 +182,11 @@ class SleepLoader:
 
     def load_data_for_social_regression(self, meta_vars=[]):
         """
-        Produce timeseries of this fly with columns id, frame_number, asleep, orientation, x, y, and meta_vars
+        Produce timeseries of this fly with columns id, t, frame_number, asleep, orientation, x, y, and meta_vars
 
-        Needs sleep analysis to be complete
+        Requires sleep analysis to be done before it can be called
+
+        x, y are in mm relative to the top left corner of the frame
         Sampling rate given by sleep dataset. Typically 1Hz (i.e. every second new data point)
         """
         self.load_centroid_data(cache="/flyhostel_data/cache")
