@@ -208,6 +208,7 @@ class SleepLoader:
             abdomen=f["tracks"][0, :, bps.index("abdomen"), :].T
             centroids = f["anchor"][:] + self.square_width//2
             t = f["t"][:]
+            assert (np.diff(t)>0).all(), "Repeated timestamps found. Did h5py corrupt some small time deltas?"
             points=np.stack([head, abdomen], axis=1)
         assert points.shape[1] == 2
         assert points.shape[2] == 2
