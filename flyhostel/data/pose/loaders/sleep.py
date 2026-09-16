@@ -197,7 +197,7 @@ class SleepLoader:
             logger.error("%s no sleep data available", self)
             return None
             
-        self.sleep=self.sleep[["id", "frame_number", "asleep"]]
+        self.sleep=self.sleep[["id", "frame_number", "t", "asleep"]]
         path = self.get_pose_file_h5py("raw", dt=self.dt)
         
         frame_numbers=load_frame_numbers(path, self.chunksize)
