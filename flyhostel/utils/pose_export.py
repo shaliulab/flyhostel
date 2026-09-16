@@ -394,8 +394,7 @@ def recreate_pose_file(experiment, identity, chunks=None, output=".", n_jobs=1, 
 
     return None
 
-
-def get_pose_file_(experiment, identity, pose_name, recreate=True, **kwargs):
+def get_pose_file_path(experiment, identity, pose_name):
     animal=experiment + "__" + str(identity).zfill(2)
     basedir=get_basedir(experiment)
     pose_file=os.path.join(
@@ -405,6 +404,11 @@ def get_pose_file_(experiment, identity, pose_name, recreate=True, **kwargs):
         animal,
         animal + ".h5"
     )
+    return pose_file
+
+def get_pose_file_(experiment, identity, pose_name, recreate=True, **kwargs):
+    pose_file=get_pose_file_path(experiment, identity, pose_name)
+
     if not os.path.exists(pose_file) and pose_name=="raw" and recreate:
         output=os.path.dirname(os.path.dirname(pose_file))
         recreate_pose_file(experiment=experiment, identity=identity, chunks=None, output=output, n_jobs=None, **kwargs)
