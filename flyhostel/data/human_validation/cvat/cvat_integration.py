@@ -51,7 +51,8 @@ def download_task_annotations_to_zip(task_number, path = ".", redownload=False, 
     zip_file = get_zipfile_for_task(path, task_number)
     mtime=get_task_mtime(task_number)
 
-    if os.path.exists(zip_file) and os.path.getmtime(zip_file) > mtime:
+    if os.path.exists(zip_file) and os.path.getmtime(zip_file) > mtime.timestamp():
+        print(f"Skipping download of task {task_number}")
         return zip_file
 
     if not dry_run:
@@ -60,6 +61,7 @@ def download_task_annotations_to_zip(task_number, path = ".", redownload=False, 
 
 
             if os.path.exists(zip_file):
+                os.remove(zip_file)
                 shutil.rmtree(unzipped_folder)
 
             cmd=f"""
