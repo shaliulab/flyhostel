@@ -373,12 +373,22 @@ class FlyHostelLoader(
 
     @property
     def light_cycle(self):
-        if self.metadata["condition"].isna().item() or self.metadata["condition"].item()=="LD":
+
+        if "sheet" in self.metadata.columns and self.metadata["sheet"]=="DD":
+            return "DD"
+
+        elif "light_cycle" in self.metadata:
+            x=self.metadata["light_cycle"].item()
+            if isinstance(x, str):
+                return x
+            elif np.isnan(x):
+                x="LD"
+            return x
+
+        elif self.metadata["condition"].isna().item() or self.metadata["condition"].item()=="LD":
             return "LD"
         else:
             self.metadata["condition"].item()
-
-
 
     @property
     def is_validated(self):
