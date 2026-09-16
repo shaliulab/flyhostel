@@ -391,6 +391,28 @@ class FlyHostelLoader(
 
 
     @property
+    def condition(self):
+        if "condition" in self.metadata.columns:
+            condition = self.metadata["condition"]
+            if condition=="LD":
+                return "NONE"
+            else:
+                return condition
+        else:
+            return "NONE"
+
+    @property
+    def SD_schedule(self):
+        if "schedule" in self.metadata.columns:
+            schedule = self.metadata["schedule"]
+            if schedule=="LD":
+                return "NONE"
+            else:
+                return schedule
+        else:
+            return "NONE"
+
+    @property
     def is_validated(self):
         return experiment_is_validated(self.experiment, errors="ignore")
 
