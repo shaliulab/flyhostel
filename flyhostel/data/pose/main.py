@@ -393,22 +393,22 @@ class FlyHostelLoader(
     @property
     def condition(self):
         if "condition" in self.metadata.columns:
-            condition = self.metadata["condition"]
-            if condition=="LD":
+            x = self.metadata["condition"].item()
+            if x=="LD":
                 return "NONE"
             else:
-                return condition
+                return x
         else:
             return "NONE"
 
     @property
     def SD_schedule(self):
         if "schedule" in self.metadata.columns:
-            schedule = self.metadata["schedule"]
-            if schedule=="LD":
+            x = self.metadata["schedule"].item()
+            if x=="LD":
                 return "NONE"
             else:
-                return schedule
+                return x
         else:
             return "NONE"
 
