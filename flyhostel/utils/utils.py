@@ -1013,3 +1013,38 @@ def experiment_is_complete(df):
         identity_column="identity"
     n_ids = len(df[identity_column].unique())
     return number_of_animals==n_ids
+
+
+def trim_dataset(df1, t_index):
+    """
+    Make sure there are no timestamps in df1
+    less than the min in t_index
+    or greater than the max in t_index
+    """
+    
+    t_min=t_index["t"].min()
+    t_max=t_index["t"].max()
+
+
+    df1["__keep__"]=True
+    df1.loc[(df1["t"] < t_min), "__keep__"]=False
+
+    n_rows=(df1["__keep__"]==False).sum()
+    if n_rows>0:
+        print(f"load_data_for_social_regression: trimming {n_rows} rows from dataset before ZT = {t_min/3600}")
+        df1=df1.loc[df1["__keep__"]==True]
+
+    df1.loc[(df1["t"] > t_max), "__keep__"]=False
+    n_rows=(df1["__keep__"]==False).sum()
+    if n_rows>0:
+        print(f"load_data_for_social_regression: trimming {n_rows} rows from dataset after ZT = {t_max/3600}")
+        df1=df.loc[df1["__keep__"]==True]
+
+    del df1["__keep__"]
+
+
+    # verify no asleep data is missing
+    if df1["asleep"].isna().any():
+        import ipdb; ipdb.set_trace()
+
+    return df1
