@@ -243,7 +243,38 @@ class SleepLoader:
 
         t_index=self.sleep[["frame_number", "t"]]
         df=trim_dataset(df, t_index)
-        assert not df["asleep"].isna().any(), f"{self} has missing asleep data"
+
+        ####
+        # if t is Na somewhere, check that it is only at the beginning and/or end of the file,
+        # and each block is not longer than the chunksize
+        isna = df["t"].isna().to_numpy()
+        n = len(isna)
+        valid = np.flatnonzero(~isna)
+
+        if valid.size == 0:
+            raise ValueError(f"{self}: all {n} rows have t = NaN")
+
+        first, last = valid[0], valid[-1]
+        n_leading = first
+        n_trailing = n - 1 - last
+
+        interior = np.flatnonzero(isna[first:last + 1]) + first
+        if interior.size:
+            raise ValueError(
+                f"{self}: {interior.size} NaN t values interspersed with valid rows, "
+                f"e.g. at rows {interior[:10].tolist()}"
+            )
+
+        for label, count in (("leading", n_leading), ("trailing", n_trailing)):
+            if count > self.chunksize:
+                raise ValueError(
+                    f"{self}: {count} {label} NaN t rows exceed chunksize ({self.chunksize})"
+                )
+
+        df = df.loc[~isna]
+        ######
+
+        assert not df["asleep"].isna().any(), f"{self} has missing asleep data. {df.loc[df['asleep'].isna()]}"
 
         df.insert(1, "experiment", self.experiment)
         for meta_var in meta_vars:
