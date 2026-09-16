@@ -55,7 +55,10 @@ from flyhostel.utils import (
     load_meta_info,
     load_metadata,
 )
-from flyhostel.utils.pose_export import get_pose_file_
+from flyhostel.utils.pose_export import (
+    get_pose_file_,
+    get_pose_file_path
+)
 
 from flyhostel.utils.cvat import (
     experiment_is_validated,
@@ -767,6 +770,8 @@ class FlyHostelLoader(
         pose_file=get_pose_file_(self.experiment, self.identity, pose_name=pose_name, **kwargs)
         return pose_file
 
+    def get_pose_file_path(self, pose_name):
+        return get_pose_file_path(self.experiment, self.identity, pose_name=pose_name)
     
     def manage_backup_copies(self, file, fail=False):
         if validate_h5py_file(file):
