@@ -41,10 +41,13 @@ class SleepLoader:
 
     def load_sleep_data(
             self,
-            min_time=None, max_time=None,
+            min_time=None,
+            max_time=None,
             min_time_immobile=300,
             bin_size=300,
-            errors="raise"
+            errors="raise",
+            complete_cases=True,
+
         ):
 
         """
@@ -99,10 +102,8 @@ class SleepLoader:
         self.sleep=dataset
         self.sleep["asleep"]=self.sleep["inactive_rule"]
         
-        fn_isna=self.sleep["frame_number"].isna()
-        if fn_isna.any():
-            logger.warning("%s rows droped due to missing frame_number annotation", fn_isna.sum())
-        self.sleep=self.sleep.loc[~fn_isna]
+        if complete_cases:
+            fn_isna=self.sleep["frame_number"].isna()
 
         self.sleep["frame_number"]=self.sleep["frame_number"].astype(int)
         return None
