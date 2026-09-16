@@ -13,6 +13,7 @@ from flyhostel.data.sleep import (
 
 from flyhostel.data.interactions.classifier.inter_orientation import calculate_angles_with_vertical_batch
 from flyhostel.utils.pose_export import load_frame_numbers
+from flyhostel.utils import trim_dataset
 
 logger=logging.getLogger(__name__)
 
@@ -223,8 +224,11 @@ class SleepLoader:
 
         df=pd.merge_asof(df, self.sleep[["frame_number", "asleep"]], on="frame_number", direction="forward", tolerance=int(self.framerate)*2)
 
-        df.insert(1, "experiment", self.experiment)
+        t_index=self.sleep[["frame_number", "t"]]
+        df=trim_dataset(df, t_index)
+        assert not df["asleep"].isna().any(), f"{self} has missing asleep data"
 
+        df.insert(1, "experiment", self.experiment)
         for meta_var in meta_vars:
             df[meta_var]=self.metadata[meta_var].item()
 
