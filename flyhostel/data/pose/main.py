@@ -825,7 +825,12 @@ def filter_loaders(loaders, metadata):
     skip_experiment=False
     for meta_prop, value in metadata.items():
         try:
-            val=loaders[0].metadata[meta_prop].iloc[0]
+            val=getattr(
+                loaders[0],
+                meta_prop,
+                loaders[0].metadata[meta_prop].iloc[0]
+            )
+
         except KeyError as error:
             logger.warning("%s not available for %s", meta_prop, loaders[0].experiment)
             # logger.error(error)
