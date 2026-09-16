@@ -208,9 +208,26 @@ class SleepLoader:
             head=f["tracks"][0, :, bps.index("head"), :].T
             abdomen=f["tracks"][0, :, bps.index("abdomen"), :].T
             centroids = f["anchor"][:] + self.square_width//2
-            t = f["t"][:]
-            assert (np.diff(t)>0).all(), "Repeated timestamps found. Did h5py corrupt some small time deltas?"
-            points=np.stack([head, abdomen], axis=1)
+            ds = f["t"]
+            if ds.dtype != np.float64:
+                raise ValueError(
+                    f"{self} {path}: 't' stored as {ds.dtype}; timestamps are quantized "
+                    "(file written before the float64 fix). Regenerate it."
+                )
+
+            t = ds[:]
+
+        # t = t[~np.isnan(t)]
+        diff = np.diff(t)
+        bad = np.flatnonzero(diff <= 0)
+        if bad.size:
+            raise ValueError(
+                f"{self} {path}: {bad.size} non-increasing timestamps, "
+                f"e.g. t={t[bad[:10] + 1]}"
+            )          
+
+        points=np.stack([head, abdomen], axis=1)
+
         assert points.shape[1] == 2
         assert points.shape[2] == 2
         angle=calculate_angles_with_vertical_batch(points)
