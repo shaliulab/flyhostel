@@ -221,9 +221,8 @@ class SleepLoader:
         df.insert(0, "id", self.ids[0])
         df["orientation"]=angle
 
-        df=df.merge(self.sleep[["id", "frame_number", "asleep"]], on=["id", "frame_number"], how="left")
-        df["asleep"] = df["asleep"].ffill(limit=int(self.framerate))
-        assert df["asleep"].isna().mean() < 0.01
+        df=pd.merge_asof(df, self.sleep[["frame_number", "asleep"]], on="frame_number", direction="forward", tolerance=int(self.framerate)*2)
+
         df.insert(1, "experiment", self.experiment)
 
         for meta_var in meta_vars:
