@@ -14,11 +14,6 @@ import pandas as pd
 import numpy as np
 
 from flyhostel.data.pose.pose import FilterPose
-from flyhostel.utils import (
-    load_roi_width,
-    restore_cache,
-    save_cache
-)
 from flyhostel.data.pose.movie_old import make_pose_movie
 from flyhostel.data.pose.constants import MIN_TIME, MAX_TIME
 from imgstore.interface import VideoCapture
@@ -54,6 +49,10 @@ from flyhostel.utils import (
     dunder_to_slash,
     load_meta_info,
     load_metadata,
+    load_roi_width,
+    restore_cache,
+    save_cache,
+    trim_dataset
 )
 from flyhostel.utils.pose_export import (
     get_pose_file_,
@@ -455,6 +454,7 @@ class FlyHostelLoader(
         t_index["frame_number"]=np.array(t_index["frame_number"].values, np.int64)
         t_index["t_round"]=1*(t_index["t"]//1)
         t_index=t_index[["frame_number", "t_round"]].groupby("t_round").first().reset_index().rename({"t_round": "t"}, axis=1)
+        df=trim_dataset(df, t_index)
         df=df.merge(t_index, on="t", how="left")
         return df
 
