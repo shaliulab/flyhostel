@@ -387,7 +387,8 @@ class FlyHostelLoader(
         elif self.metadata["condition"].isna().item() or self.metadata["condition"].item()=="LD":
             return "LD"
         else:
-            self.metadata["condition"].item()
+            return self.metadata["condition"].item()
+
 
     @property
     def is_validated(self):
