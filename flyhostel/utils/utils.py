@@ -1041,10 +1041,4 @@ def trim_dataset(df1, t_index):
         df1=df1.loc[df1["__keep__"]==True]
 
     del df1["__keep__"]
-
-
-    # verify no asleep data is missing
-    if df1["asleep"].isna().any():
-        import ipdb; ipdb.set_trace()
-
     return df1
