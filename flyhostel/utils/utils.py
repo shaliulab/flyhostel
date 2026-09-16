@@ -1038,7 +1038,7 @@ def trim_dataset(df1, t_index):
     n_rows=(df1["__keep__"]==False).sum()
     if n_rows>0:
         print(f"load_data_for_social_regression: trimming {n_rows} rows from dataset after ZT = {t_max/3600}")
-        df1=df.loc[df1["__keep__"]==True]
+        df1=df1.loc[df1["__keep__"]==True]
 
     del df1["__keep__"]
 
