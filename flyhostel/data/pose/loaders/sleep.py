@@ -105,6 +105,9 @@ class SleepLoader:
         
         if complete_cases:
             fn_isna=self.sleep["frame_number"].isna()
+            if fn_isna.any():
+                logger.warning("%s rows droped due to missing frame_number annotation", fn_isna.sum())
+            self.sleep=self.sleep.loc[~fn_isna]
 
         self.sleep["frame_number"]=self.sleep["frame_number"].astype(int)
         return None
