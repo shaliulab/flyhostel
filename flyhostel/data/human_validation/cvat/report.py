@@ -60,13 +60,14 @@ def make_report(folder, identity_tracks, roi0_annotations, identity_annotations,
         os.path.join(folder, "fragment_crossing_fraction.csv")
     )
     impure_tracks=qc2(identity_tracks)
+    impure_tracks.to_csv("impure_tracks.csv")
 
     if impure_tracks.shape[0] > 0:
         logger.error("%s fragments have more than 1 identity", impure_tracks.drop_duplicates(["chunk", "fragment"]).shape[0])
         logger.error("Fragments:")
 
         counts=impure_tracks.groupby(["fragment", "local_identity", "chunk"]).size().reset_index(name="count")
-        loser_lids=counts.groupby(["chunk", "fragment"]).apply(lambda df: df.loc[df["count"]==df["count"].min()]).reset_index(drop=True)
+        loser_lids=counts.groupby(["chunk", "fragment"], group_keys=False).apply(lambda df: df.loc[df["count"]==df["count"].min()]).reset_index(drop=True)
         loser_lids=loser_lids.merge(impure_tracks[["chunk", "fragment", "frame_idx", "local_identity"]], on=["chunk", "fragment", "local_identity"])
         logger.error("\n%s", loser_lids)
         logger.error("\n%s", counts)

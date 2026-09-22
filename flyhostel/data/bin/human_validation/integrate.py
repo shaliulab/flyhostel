@@ -1,10 +1,25 @@
 import argparse
 import math
-from flyhostel.utils import get_basedir
+import shlex
+import sys
+import sqlite3
+
+from flyhostel.utils import get_basedir, get_dbfile
 from flyhostel.data.human_validation.cvat.main import (
     integrate_human_annotations,
     save_human_annotations
 )
+
+
+def write_validation_call(dbfile, cmd):
+    with sqlite3.connect(dbfile) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS VALIDATION_CALL (command TEXT, value TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO VALIDATION_CALL (command, value) VALUES (?, ?)",
+            ("integrate", cmd),
+        )
 
 def get_parser():
 
@@ -18,6 +33,8 @@ def get_parser():
     return ap
 
 def main():
+
+    cmd = shlex.join(sys.orig_argv)
 
     ap=get_parser()
     ap.add_argument("--number-of-rows", type=int, default=1, help="If images in cvat are a grid, how many rows the grid has")
@@ -53,6 +70,9 @@ def main():
         reference_hour=args.reference_hour,
     )
 
+    dbfile=get_dbfile(get_basedir(args.experiment))
+    write_validation_call(dbfile, cmd)
+    
 
 def save():
 

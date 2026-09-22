@@ -1,3 +1,4 @@
+# cvat.courtship.py
 import os.path
 import math
 import subprocess
@@ -379,7 +380,7 @@ def replace_courtship_identities(data, all_intervals_ok_labels,
                     & (data["frame_number"].between(chunk_start, chunk_end)),
                     ["frame_number", "local_identity"],
                 ]
-                .groupby("frame_number")["local_identity"]
+                .groupby("frame_number", group_keys=False)["local_identity"]
                 .apply(set)
                 .to_dict()
             )
@@ -631,6 +632,49 @@ class EngagementMarkerError(ValueError):
     """Raised when a courtship bout is missing required engagement markers."""
 
 
+def _describe_markers(markers, box, tolerance=0.0):
+    """markers: iterable of (frame, local_identity, x, y). box: (x1, y1, x2, y2)."""
+    x1, y1, x2, y2 = box
+    by_frame = {}
+    for frame, lid, x, y in markers:
+        margin = min(x - x1, x2 - x, y - y1, y2 - y)  # <0 outside, ~0 flush with edge
+        by_frame.setdefault(int(frame), []).append((int(lid), float(x), float(y), float(margin)))
+
+    lines = []
+    for frame in sorted(by_frame):
+        entries = sorted(by_frame[frame], key=lambda e: e[3])  # closest to the edge first
+        lids = [e[0] for e in entries]
+        lines.append(f"      frame {frame}: {len(entries)} marker(s) {lids}")
+        for lid, x, y, margin in entries:
+            where = "OUTSIDE box" if margin < -tolerance else ("flush with edge" if margin <= tolerance else "inside")
+            lines.append(f"        lid {lid} at ({x:.1f}, {y:.1f}), {margin:+.1f} px from nearest edge, {where}")
+    return "\n".join(lines)
+
+def _containment_margin(marker, box):
+    """Signed distance from the marker bbox to the nearest COURTSHIP edge.
+    Positive: fully inside, with that much room to spare. Negative: sticking out."""
+    ax1, ay1, ax2, ay2 = marker
+    cx1, cy1, cx2, cy2 = box
+    return min(ax1 - cx1, ay1 - cy1, cx2 - ax2, cy2 - ay2)
+
+
+def _format_markers_at_frame(entries, tolerance):
+    """entries: list of (local_id, ax1, ay1, ax2, ay2, margin), closest to the edge first."""
+    lines = []
+    for local_id, ax1, ay1, ax2, ay2, margin in sorted(entries, key=lambda e: e[5]):
+        if margin < 0:
+            where = "STICKS OUT past the box edge"
+        elif margin <= tolerance:
+            where = f"flush with the box edge (accepted only because tolerance={tolerance})"
+        else:
+            where = "well inside"
+        lines.append(
+            f"          label {local_id} at ({ax1:.1f}, {ay1:.1f})-({ax2:.1f}, {ay2:.1f}), "
+            f"{margin:+.1f} px from nearest edge, {where}"
+        )
+    return lines
+
+
 def parse_engagement_markers(annotations, intervals, chunksize,
                              expected_per_chunk=2, tolerance=0.0):
     """
@@ -727,8 +771,11 @@ def parse_engagement_markers(annotations, intervals, chunksize,
     # Per (interval_id, chunk), accumulate marker labels AND track the set
     # of raw-annotated frames at which markers were found (for the "real
     # frame, not interpolated" requirement).
-    by_chunk = {}  # (interval_id, chunk) -> set of local_ids
-    marker_frames = {}  # (interval_id, chunk) -> set of frame_numbers
+
+    by_chunk = {}         # (interval_id, chunk) -> set of local_ids (union, for the output)
+    marker_frames = {}    # (interval_id, chunk) -> set of frame_numbers
+    markers_at = {}       # (interval_id, chunk) -> {frame -> [(local_id, x1,y1,x2,y2, margin), ...]}
+    near_misses = {}      # (interval_id, chunk) -> {frame -> [...same shape...]}
 
     for ann in annotations["annotations"]:
         if ann["category_id"] == courtship_cat_id:
@@ -746,23 +793,35 @@ def parse_engagement_markers(annotations, intervals, chunksize,
             continue  # not at a raw COURTSHIP frame; cannot be a marker
 
         x, y, w, h = ann["bbox"]
-        ax1, ay1, ax2, ay2 = x, y, x + w, y + h
+        marker_box = (x, y, x + w, y + h)
 
-        parent_iid = None
+        # best candidate by containment margin, so a rejected marker can still be
+        # reported against the box it was probably meant for
+        parent_iid, parent_margin = None, None
+        best_iid, best_margin = None, None
         for (track_id, cx1, cy1, cx2, cy2) in courtship_by_frame[fn]:
-            if (cx1 - tolerance <= ax1
-                    and cy1 - tolerance <= ay1
-                    and ax2 <= cx2 + tolerance
-                    and ay2 <= cy2 + tolerance):
-                parent_iid = courtship_track_to_interval.get(int(track_id))
-                break
-        if parent_iid is None:
-            continue  # checkpoint annotation outside any COURTSHIP
+            margin = _containment_margin(marker_box, (cx1, cy1, cx2, cy2))
+            iid = courtship_track_to_interval.get(int(track_id))
+            if best_margin is None or margin > best_margin:
+                best_iid, best_margin = iid, margin
+            if margin >= -tolerance and parent_iid is None and iid is not None:
+                parent_iid, parent_margin = iid, margin
 
         chunk = fn // chunksize
+        if parent_iid is None:
+            # overlaps a box but was not accepted: worth naming when a chunk looks empty
+            if best_iid is not None and best_margin is not None and best_margin > -50:
+                near_misses.setdefault((best_iid, chunk), {}).setdefault(fn, []).append(
+                    (local_id, *marker_box, best_margin)
+                )
+            continue
+
         key = (parent_iid, chunk)
         by_chunk.setdefault(key, set()).add(local_id)
         marker_frames.setdefault(key, set()).add(fn)
+        markers_at.setdefault(key, {}).setdefault(fn, []).append(
+            (local_id, *marker_box, parent_margin)
+        )
 
     # --- Validate: which chunks does each bout actually span? --------------
     # `intervals` is dense (one row per integer frame), so its (interval_id,
@@ -814,9 +873,10 @@ def parse_engagement_markers(annotations, intervals, chunksize,
     # Per (interval_id, chunk) marker-count validation (unchanged).
     for key in sorted(expected_keys):
         iid, chunk = key
-        markers = by_chunk.get(key, set())
-        if not markers:
-            errors.append(
+        per_frame = markers_at.get(key, {})
+
+        if not per_frame:
+            msg = (
                 f"  bout {iid}, {_range_str(iid, chunk)}: COURTSHIP keyframe(s) "
                 f"exist at frame(s) {sorted(keyframes_by_key[key])}, but NO "
                 f"engagement markers were found inside the box there.\n"
@@ -825,18 +885,70 @@ def parse_engagement_markers(annotations, intervals, chunksize,
                 f"      (Markers drawn on a non-keyframe, or sticking out past the "
                 f"COURTSHIP edge, are ignored.)"
             )
+            rejected = near_misses.get(key, {})
+            if rejected:
+                msg += "\n      Rejected marker(s) near this bout's box:"
+                for fn in sorted(rejected):
+                    msg += f"\n        frame {fn}:\n" + "\n".join(
+                        _format_markers_at_frame(rejected[fn], tolerance)
+                    )
+            errors.append(msg)
             continue
-        if len(markers) != expected_per_chunk:
-            errors.append(
-                f"  bout {iid}, {_range_str(iid, chunk)}: found {len(markers)} "
-                f"marker(s) {sorted(markers)} at frame(s) "
-                f"{sorted(marker_frames[key])}, expected {expected_per_chunk}.\n"
-                f"      Fix: add or delete markers on those frames so exactly "
-                f"{expected_per_chunk} are inside the COURTSHIP box. If you drew "
-                f"more, check whether one is flush with / outside the box edge "
-                f"(tolerance={tolerance} px)."
-            )
 
+        # (a) every frame that carries markers must carry exactly the expected number
+        bad_frames = {fn: e for fn, e in per_frame.items() if len(e) != expected_per_chunk}
+        if bad_frames:
+            msg = (
+                f"  bout {iid}, {_range_str(iid, chunk)}: {len(bad_frames)} frame(s) "
+                f"with the wrong number of markers (expected {expected_per_chunk} each).\n"
+                f"      Frames to open: {sorted(bad_frames)}"
+            )
+            for fn in sorted(bad_frames):
+                entries = bad_frames[fn]
+                labels = sorted(e[0] for e in entries)
+                msg += (
+                    f"\n        frame {fn}: {len(entries)} marker(s) {labels}"
+                    f" -> {'delete' if len(entries) > expected_per_chunk else 'add'} "
+                    f"{abs(len(entries) - expected_per_chunk)}\n"
+                    + "\n".join(_format_markers_at_frame(entries, tolerance))
+                )
+                if len(entries) > expected_per_chunk:
+                    msg += "\n          (the first line above is the most likely extra one)"
+            ok_frames = {fn: e for fn, e in per_frame.items() if fn not in bad_frames}
+            if ok_frames:
+                msg += "\n      Frames that are fine: " + ", ".join(
+                    f"{fn} {sorted(e[0] for e in ok_frames[fn])}" for fn in sorted(ok_frames)
+                )
+            rejected = near_misses.get(key, {})
+            if rejected:
+                msg += "\n      Also rejected near this box (not counted above):"
+                for fn in sorted(rejected):
+                    msg += f"\n        frame {fn}:\n" + "\n".join(
+                        _format_markers_at_frame(rejected[fn], tolerance)
+                    )
+            errors.append(msg)
+            continue
+
+        # (b) local identities are consistent within a chunk, so every marker frame
+        #     of this chunk must carry the same label set
+        label_sets = {fn: frozenset(e[0] for e in entries) for fn, entries in per_frame.items()}
+        distinct = set(label_sets.values())
+        if len(distinct) > 1:
+            msg = (
+                f"  bout {iid}, {_range_str(iid, chunk)}: marker frames disagree on which "
+                f"flies are engaged, although each has {expected_per_chunk} markers.\n"
+                f"      Local identities are constant within a chunk, so all these frames "
+                f"must carry the same labels."
+            )
+            for fn in sorted(label_sets):
+                msg += f"\n        frame {fn}: {sorted(label_sets[fn])}"
+            msg += (
+                f"\n      Fix: open those frames and correct whichever one has the wrong "
+                f"label(s). Union seen across the chunk: {sorted(by_chunk[key])}."
+            )
+            errors.append(msg)
+            continue
+        
     # (Whole-track-missing check can now go away — the spanned-vs-seen
     # check above subsumes it, with a more useful error message.)
     if errors:
@@ -869,6 +981,7 @@ def prepare_data_for_identity_annnotation_with_courtship(experiment, data):
 
     data = mark_courtship(data, intervals)
     all_intervals_ok_labels = mark_ok_labels(annotations, intervals, chunksize)
+    # import ipdb; ipdb.set_trace()
 
     data = replace_courtship_identities(
         data,
@@ -879,10 +992,16 @@ def prepare_data_for_identity_annnotation_with_courtship(experiment, data):
     )
 
     data = annotate_validated_fragments(data)
-    assert (
+    if not (
         data.loc[data["validated_fragment"] == True, "local_identity"]
         == data.loc[data["validated_fragment"] == True, "fragment_identity"]
-    ).all()
+    ).all():
+        li = data.loc[data["validated_fragment"] == True, "local_identity"]
+        fi = data.loc[data["validated_fragment"] == True, "fragment_identity"]
+        x = data.loc[data["validated_fragment"] == True].loc[li.values!=fi.values]
+        x=x[["frame_number", "chunk", "fragment", "fragment_identity", "local_identity"]].groupby(["chunk", "fragment"]).first()
+        print(x)
+        raise ValueError("Please check the fragments above")
     data = remove_blobs_associated_to_courtship(data)
 
     return data, all_intervals_ok_labels, all_intervals_engaged_labels

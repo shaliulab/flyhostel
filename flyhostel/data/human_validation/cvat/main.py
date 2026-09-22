@@ -1,3 +1,5 @@
+# cvat.main.py
+
 import time
 import os.path
 import traceback
@@ -245,6 +247,7 @@ def integrate_data(
 
     # Propagate human-made identities through the fragment structure found by the machine 
     logger.debug("Propagate human-made identities through the fragment structure")
+    identity_tracks.to_csv("identity_tracks.csv")
     machine_data_with_identity_annotations=machine_data.drop(["validated", "local_identity"], axis=1).merge(
         identity_tracks[["chunk", "fragment", "local_identity"]].drop_duplicates(),
         on=["chunk", "fragment"],
@@ -534,6 +537,8 @@ def integrate_human_annotations(
         new_data["local_identity"]=[np.nan if np.isnan(x) else int(x) for x in new_data["local_identity"]]
         new_data["is_a_crossing"]=new_data["is_a_crossing"].astype(bool)
 
+        new_data = new_data.loc[~new_data["local_identity"].isna()]
+        new_data["fragment"]=new_data["fragment"].astype(np.float64)
     
         if multisex:
             new_data, all_intervals_ok_labels, all_intervals_engaged_labels = \
@@ -544,8 +549,7 @@ def integrate_human_annotations(
             all_intervals_ok_labels = {}
             all_intervals_engaged_labels = {}
 
-        new_data = new_data.loc[~new_data["local_identity"].isna()]
-        new_data["fragment"]=new_data["fragment"].astype(np.float64)
+
     
         safe_cudf(new_data)
         new_data_cudf = cudf.DataFrame(new_data)
