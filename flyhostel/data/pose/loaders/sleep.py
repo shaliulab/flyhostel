@@ -202,7 +202,7 @@ class SleepLoader:
         
         frame_numbers=load_frame_numbers(path, self.chunksize)
         with h5py.File(path, "r") as f:
-            assert "anchor" in f.keys()
+            assert "anchor" in f.keys(), f"anchor key missing in {path}"
             assert f["anchor"].shape[0]==f["tracks"].shape[3]
             bps=[bp.decode() for bp in f["node_names"][:]]
             head=f["tracks"][0, :, bps.index("head"), :].T
