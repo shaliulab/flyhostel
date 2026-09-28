@@ -68,7 +68,15 @@ def get_pixels_per_mm(*args, **kwargs):
 
 def get_number_of_animals(experiment):
     tokens = experiment.split("_")
-    number_of_animals=int(tokens[1].rstrip("X"))
+
+    try:
+        token=tokens[1]
+    except IndexError as error:
+        logger.error("Cannot get number_of_animals for %s", experiment)
+        raise error
+    
+
+    number_of_animals=int(token.rstrip("X"))
     return number_of_animals
 
 def get_zt_from_chunk(experiment, chunk, **kwargs):

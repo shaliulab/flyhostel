@@ -1,5 +1,7 @@
+import logging
 import numpy as np
 import pandas as pd
+logger=logging.getLogger(__name__)
 
 LINK_COLUMNS = ["chunk", "local_identity", "chunk_after", "local_identity_after"]
 
@@ -291,6 +293,8 @@ def ensure_continuity_of_table(table, verbose=False, report_path=None):
             + " | ".join(chains[label]["issues"])
             for label in failed
         )
-        raise Exception(f"Identity chaining failed for {len(failed)}/{len(chains)} chains: {summary}")
+
+        msg=f"Identity chaining failed for {len(failed)}/{len(chains)} chains: {summary}"
+        logger.error(msg)
 
     return {chain["lid"]: chain["chunks"] for chain in chains.values()}

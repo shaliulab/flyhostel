@@ -451,6 +451,12 @@ class FlyHostelLoader(
 
 
     @classmethod
+    def from_metadata_row(cls, row):
+        loader=cls(experiment=row["experiment"], identity=row["identity"])
+        return loader       
+
+
+    @classmethod
     def from_metadata(cls, flyhostel_number, number_of_animals, flyhostel_date, flyhostel_time, identity):
         experiment = f"FlyHostel{flyhostel_number}_{number_of_animals}X_{flyhostel_date}_{flyhostel_time}"
         loader=cls(experiment=experiment, identity=identity)

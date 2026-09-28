@@ -53,6 +53,64 @@ def _parse_bridges(annotated_table, chunks):
     return bridges
 
 
+def _expand_bridges(bridges, engaged_labels, log):
+    """Route each bridge through the engaged local identities of the chunks it spans.
+
+    A bridge (c, l) -> (ca, la) becomes per-boundary links c -> c+1 -> ... -> ca.
+    In the chunks between, the pair shares the COURTSHIP centroid, so pairing
+    sorted-with-sorted is harmless; the last link lands on the annotated target.
+    Requires markers whose engaged set at each chunk matches what the bridge carries.
+    Bridges that can't be routed are kept as plain bridges, with a warning saying why.
+    """
+    if not engaged_labels:
+        return [], set()
+
+    groups = {}
+    for b in bridges:
+        groups.setdefault((b.chunk, b.chunk_after), []).append(b)
+
+    records, expanded = [], set()
+    for (start, end), group in sorted(groups.items()):
+        carried = {b: b.local_identity for b in group}  # bridge -> its local identity in chunk k
+        steps, failure = [], None
+
+        for k in range(start, end - 1):
+            current = set(carried.values())
+            next_set, seen = None, []
+            for interval_id, info in engaged_labels.items():
+                per_chunk = info["engaged_per_chunk"]
+                here = {int(l) for l in per_chunk.get(k, ())}
+                there = {int(l) for l in per_chunk.get(k + 1, ())}
+                if here:
+                    seen.append((interval_id, sorted(here)))
+                if here == current and len(there) == len(group):
+                    next_set = sorted(there)
+                    break
+            if next_set is None:
+                failure = (
+                    f"no engagement markers continue {sorted(current)} from chunk {k} to {k + 1} "
+                    f"(markers at chunk {k}: {seen or 'none'})"
+                )
+                break
+            mapping = dict(zip(sorted(current), next_set))
+            for b in group:
+                steps.append((k, carried[b], mapping[carried[b]], 0.0))
+                carried[b] = mapping[carried[b]]
+
+        if failure:
+            logger.warning("Bridge %s -> %s kept as a plain bridge: %s. The pair will have "
+                           "no identity in the chunks in between.", start, end, failure)
+            continue
+
+        for b in group:
+            steps.append((end - 1, carried[b], b.local_identity_after, 0.0))
+        for chunk, src, tgt, _ in steps:
+            log.write(f"{chunk} - {src} -> {chunk + 1} - {tgt} (bridge {start}->{end} routed through markers)\n")
+        records.extend(steps)
+        expanded.update(group)
+
+    return records, expanded
+
 class _ChainTracker:
     """One chain per fly, holding the local identity that fly currently has.
 
@@ -317,6 +375,13 @@ def make_identity_table(lid_table, annotated_table, chunks,
         _, first_lids = _local_identities(lid_table, chunks[0], "last")
         tracker = _ChainTracker(chunks[0], first_lids, log)
 
+        routed_records, routed_bridges = _expand_bridges(bridges, all_intervals_engaged_labels, log)
+        # identities of chunk k+1 claimed by a routed bridge: keep free flies off them
+        routed_targets = {}
+        for chunk_, _, tgt, _ in routed_records:
+            routed_targets.setdefault(chunk_ + 1, set()).add(tgt)
+    
+
         for chunk in tqdm(chunks[:-1]):
             next_chunk = chunk + 1
             if next_chunk not in chunk_set:
@@ -337,7 +402,7 @@ def make_identity_table(lid_table, annotated_table, chunks,
 
             # identities reserved in next_chunk by a bridge landing there
             reserved = {b.local_identity_after for b in bridges if b.chunk_after == next_chunk}
-            used = set(reserved)
+            used = set(reserved) | routed_targets.get(next_chunk, set())
 
             # bridges leaving from this chunk: park their chains, they are already linked
             for bridge in [b for b in bridges if b.chunk == chunk]:
@@ -388,6 +453,8 @@ def make_identity_table(lid_table, annotated_table, chunks,
                 records.append((chunk, local_identity, local_identity_after, min_distance))
                 tracker.advance(chain, local_identity_after)
 
+    records.extend(routed_records)
+
     identity_table = pd.DataFrame.from_records(
         records, columns=["chunk", "local_identity", "local_identity_after", "distance"]
     )
@@ -397,6 +464,12 @@ def make_identity_table(lid_table, annotated_table, chunks,
     identity_table["priority"] = 2
     identity_table.to_csv("identity_table_before_annotated_table.csv")
 
+    if annotated_table is not None and routed_bridges:
+        routed_keys = {(b.chunk, b.local_identity) for b in routed_bridges}
+        keep = [(int(c), int(l)) not in routed_keys
+                for c, l in zip(annotated_table["chunk"], annotated_table["local_identity"])]
+        annotated_table = annotated_table.loc[keep]
+        
     if annotated_table is not None:
         identity_table = _merge_annotations(identity_table, annotated_table, excused)
 

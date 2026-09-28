@@ -27,7 +27,8 @@ class PELoader:
     def load_pe_data(
             self,
             min_time=None, max_time=None,
-            errors="raise"
+            errors="raise",
+            **kwargs,
         ):
 
         """
@@ -72,5 +73,15 @@ class PELoader:
         data["zt"]=(data["t"]//3600)
         data.insert(0, "experiment", self.experiment)
         data.insert(0, "id", self.ids[0])
-        self.pe=data
 
+        for col_name in kwargs:
+            if col_name not in data.columns:
+                logger.warning("%s not in data", col_name)
+                continue
+
+            data = data.query(
+                f"`{col_name}` >= @kwargs_value",
+                local_dict={"kwargs_value": kwargs[col_name]}
+            )
+
+        self.pe=data

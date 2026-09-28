@@ -563,7 +563,20 @@ def integrate_human_annotations(
             all_intervals_engaged_labels=all_intervals_engaged_labels,
             verbose=False,
         )
-    
+
+        if "synthetic_courtship" in out.columns:
+            courting = out.loc[out["synthetic_courtship"].fillna(False).astype(bool)]
+            if courting["in_frame_index"].isna().any():
+                raise ValueError("Courtship rows without in_frame_index:\n"
+                                f"{courting.loc[courting['in_frame_index'].isna()].head()}")
+            per_frame = courting.groupby(["interval_id", "frame_number"])["identity"].nunique()
+            short = per_frame[per_frame < 2]
+            if len(short):
+                raise ValueError(
+                    f"{len(short)} courtship frame(s) with fewer than 2 identities, e.g.\n"
+                    f"{short.head(10)}"
+                )
+                
     except Exception as error:
         raise error
 
