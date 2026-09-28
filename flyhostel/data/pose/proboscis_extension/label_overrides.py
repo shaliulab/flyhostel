@@ -173,6 +173,11 @@ def apply_overrides(df, ov):
     new = dict(zip(zip(ov["start_fn"].astype(int), ov["end_fn"].astype(int)),
                    ov["label"]))
     hit = np.array([k in new for k in key], dtype=bool)
+    if "label_reason" in df.columns:
+        df.loc[hit, "label_reason"] = [
+            f"rescued by label_overrides: regular train of visible episodes at a PE "
+            f"pace (pipeline said {orig})"
+            for orig in df.loc[hit, "label_pipeline"]]
     df.loc[hit, "label"] = [new[k] for k, h in zip(key, hit) if h]
     df["label_source"] = np.where(hit, "override", "pipeline")
     n_unmatched = len(set(new) - set(key))
