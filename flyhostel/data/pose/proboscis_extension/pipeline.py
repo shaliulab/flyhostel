@@ -20,7 +20,8 @@ def pipeline_for_fly(fly, n_jobs):
     pe_features_for_fly(fly)
     extract_burst_traces_for_fly(fly, output = ".", n_jobs=n_jobs)
     make_burst_clips_for_fly(fly, upscale=1, output=".", n_jobs=n_jobs)
-    
+    write_overrides(fly, output = ".")
+
 
 def main():
     ap = argparse.ArgumentParser()

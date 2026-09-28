@@ -6,9 +6,21 @@ of the burst's visible episodes, and record the rescue as a small table NEXT TO 
 feather instead of editing the feather:
 
     pe_bouts/{fly}_pe_bouts.feather            <- pipeline output, never modified
-    pe_bouts/{fly}_pe_bouts.overrides.csv      <- fly,burst_id,start_fn,end_fn,label
+    pe_bouts/{fly}_pe_bouts.overrides.csv      <- one row per CANDIDATE bout
 
-Readers call `read_pe_bouts(path)`, which applies the table on the fly.
+The table lists EVERY bout that could have been rescued (pipeline label in
+OVERRIDE_TARGET_LABELS), not only the rescued ones, so you can see why each one was or
+wasn't. Columns:
+    fly, burst_id, start_fn, end_fn, label   label = what the bout BECOMES if it passes
+    pass                                     True only if every criterion passes
+    has_episodes                             the burst had >= 1 visible episode
+    pass_cv_dur, pass_cv_period, pass_med_period, pass_n_events, pass_frac,
+    pass_mean_dur                            one boolean per criterion
+    rs_n_events, rs_cv_dur, rs_cv_period, rs_med_period_s, rs_mean_event_dur_s,
+    n_bouts, n_pe, n_target, frac_pe_or_target, frac_pe_or_target_dur
+                                             the values the criteria were applied to
+
+Readers call `read_pe_bouts(path)`, which applies ONLY the rows with pass == True.
 
 THE RULE
 --------
@@ -50,15 +62,21 @@ logger = logging.getLogger(__name__)
 # ---- the rule (set these from the audit; see the check in the chat) -------
 OVERRIDE_TARGET_LABELS = ("pe_near_food",)
 OVERRIDE_LABEL = "pe"
-MAX_CV_DUR = 0.20
-MAX_CV_PERIOD = 0.20
+MAX_CV_DUR = 0.30
+MAX_CV_PERIOD = 0.30
 MIN_MED_PERIOD_S = 2.5
 MIN_EVENTS = 4
 MAX_MEAN_DUR_S = None        # e.g. 2.0 to also cap mean episode duration; None = off
 MIN_FRAC_PE_OR_TARGET = 0.80 # share of the burst's bouts that are pe or target labels
 FRAC_BASIS = "count"         # "count": share of bouts; "duration": share of bout time
 
-OVERRIDE_COLUMNS = ["fly", "burst_id", "start_fn", "end_fn", "label"]
+CRITERIA = ["pass_cv_dur", "pass_cv_period", "pass_med_period", "pass_n_events",
+            "pass_frac", "pass_mean_dur"]
+VALUE_COLUMNS = ["rs_n_events", "rs_cv_dur", "rs_cv_period", "rs_med_period_s",
+                 "rs_mean_event_dur_s", "n_bouts", "n_pe", "n_target",
+                 "frac_pe_or_target", "frac_pe_or_target_dur"]
+OVERRIDE_COLUMNS = (["fly", "burst_id", "start_fn", "end_fn", "label", "pass",
+                     "has_episodes"] + CRITERIA + VALUE_COLUMNS)
 TRACE_COLUMNS = ["burst_id", "frame_number", "dist_mm", "prob_conf"]
 
 
@@ -108,26 +126,49 @@ def label_composition(bouts):
     return comp.drop(columns=["_dur_all", "_dur_yes"])
 
 
-def rule_mask(df):
-    """Boolean Series: which rows (bursts, or bouts carrying burst-level columns)
-    satisfy the rule. NaN features never pass, because NaN comparisons are False.
+def rule_criteria(df):
+    """Evaluate each criterion of the rule separately.
 
-    Needs the rs_* features AND the label fraction from ``label_composition``. The
-    fraction is REQUIRED rather than skipped when missing: silently dropping it would
-    mean validating one rule on the audit and deploying another.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Bursts (or bouts carrying burst-level columns) with the rs_* features from
+        ``burst_event_features`` and the fractions from ``label_composition``.
+
+    Returns
+    -------
+    pd.DataFrame of bool, index aligned with ``df``, one column per CRITERIA entry:
+        pass_cv_dur      rs_cv_dur       <= MAX_CV_DUR
+        pass_cv_period   rs_cv_period    <= MAX_CV_PERIOD
+        pass_med_period  rs_med_period_s  > MIN_MED_PERIOD_S
+        pass_n_events    rs_n_events     >= MIN_EVENTS
+        pass_frac        frac (FRAC_BASIS) >= MIN_FRAC_PE_OR_TARGET
+        pass_mean_dur    rs_mean_event_dur_s <= MAX_MEAN_DUR_S  (always True when
+                         MAX_MEAN_DUR_S is None, i.e. the criterion is switched off)
+    A NaN value FAILS its criterion (NaN comparisons are False): e.g. a burst with a
+    single episode has no period, so pass_cv_period and pass_med_period are False.
+
+    The fraction is REQUIRED rather than skipped when missing: silently dropping it
+    would mean validating one rule on the audit and deploying another.
     """
     frac_col = ("frac_pe_or_target" if FRAC_BASIS == "count"
                 else "frac_pe_or_target_dur")
     if frac_col not in df.columns:
         raise KeyError(f"rule needs '{frac_col}' — merge label_composition(bouts) first")
-    m = ((df["rs_cv_dur"] <= MAX_CV_DUR)
-         & (df["rs_cv_period"] <= MAX_CV_PERIOD)
-         & (df["rs_med_period_s"] > MIN_MED_PERIOD_S)
-         & (df["rs_n_events"] >= MIN_EVENTS)
-         & (df[frac_col] >= MIN_FRAC_PE_OR_TARGET))
-    if MAX_MEAN_DUR_S is not None:
-        m &= df["rs_mean_event_dur_s"] <= MAX_MEAN_DUR_S
-    return m.fillna(False).astype(bool)
+    c = pd.DataFrame(index=df.index)
+    c["pass_cv_dur"] = df["rs_cv_dur"] <= MAX_CV_DUR
+    c["pass_cv_period"] = df["rs_cv_period"] <= MAX_CV_PERIOD
+    c["pass_med_period"] = df["rs_med_period_s"] > MIN_MED_PERIOD_S
+    c["pass_n_events"] = df["rs_n_events"] >= MIN_EVENTS
+    c["pass_frac"] = df[frac_col] >= MIN_FRAC_PE_OR_TARGET
+    c["pass_mean_dur"] = (True if MAX_MEAN_DUR_S is None
+                          else df["rs_mean_event_dur_s"] <= MAX_MEAN_DUR_S)
+    return c[CRITERIA].fillna(False).astype(bool)
+
+
+def rule_mask(df):
+    """Boolean Series: rows passing EVERY criterion of ``rule_criteria``."""
+    return rule_criteria(df).all(axis=1)
 
 
 def overrides_path(bouts_feather):
@@ -140,7 +181,7 @@ def overrides_path(bouts_feather):
 # write
 # --------------------------------------------------------------------------
 def compute_overrides(bouts, traces, fly, fps):
-    """Apply the rule to one fly.
+    """Evaluate the rule for every candidate bout of one fly.
 
     Parameters
     ----------
@@ -153,34 +194,45 @@ def compute_overrides(bouts, traces, fly, fps):
 
     Returns
     -------
-    (overrides, burst_features)
-        overrides : one row per relabelled bout, OVERRIDE_COLUMNS
-        burst_features : the rs_* features of every candidate burst plus a
-                         ``qualifies`` column, for inspection
+    (table, burst_table)
+        table : one row per CANDIDATE bout (label in OVERRIDE_TARGET_LABELS), with
+                OVERRIDE_COLUMNS. ``pass`` marks the ones to relabel.
+        burst_table : the same values and criteria at one row per candidate burst,
+                      for inspection.
     """
     cand = bouts[bouts["label"].isin(OVERRIDE_TARGET_LABELS)]
-    bursts = set(cand["burst_id"].astype(int))
-    tr = traces[traces["burst_id"].isin(bursts)]
+    cand = cand[["burst_id", "start_fn", "end_fn"]].astype(int)
+    if cand.empty:
+        return pd.DataFrame(columns=OVERRIDE_COLUMNS), pd.DataFrame()
 
+    # rs_* features for every candidate burst that has at least one visible episode
+    bursts = set(cand["burst_id"])
     rows = []
-    for bid, g in tr.groupby("burst_id"):
+    for bid, g in traces[traces["burst_id"].isin(bursts)].groupby("burst_id"):
         r = burst_event_features(g, fps)
         if r is not None:
             rows.append(dict(burst_id=int(bid), **r["features"]))
-    if not rows:
-        return pd.DataFrame(columns=OVERRIDE_COLUMNS), pd.DataFrame()
+    feats = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["burst_id"])
 
-    fb = pd.DataFrame(rows)
+    # one row per candidate burst: features (NaN if no episodes) + label composition
+    bt = pd.DataFrame({"burst_id": sorted(bursts)})
+    bt["has_episodes"] = bt["burst_id"].isin(set(feats["burst_id"]))
+    bt = bt.merge(feats, on="burst_id", how="left")
     comp = label_composition(bouts).drop(columns=["fly"], errors="ignore")
-    fb = fb.merge(comp, on="burst_id", how="left")
-    fb["qualifies"] = rule_mask(fb)
-    ok = set(fb.loc[fb["qualifies"], "burst_id"])
+    bt = bt.merge(comp, on="burst_id", how="left")
+    for col in VALUE_COLUMNS:                      # bursts without episodes -> NaN
+        if col not in bt.columns:
+            bt[col] = np.nan
 
-    out = cand[cand["burst_id"].astype(int).isin(ok)][["burst_id", "start_fn", "end_fn"]]
-    out = out.astype({"burst_id": int, "start_fn": int, "end_fn": int})
-    out.insert(0, "fly", fly)
-    out["label"] = OVERRIDE_LABEL
-    return out[OVERRIDE_COLUMNS].reset_index(drop=True), fb
+    crit = rule_criteria(bt)
+    bt = pd.concat([bt, crit], axis=1)
+    bt["pass"] = crit.all(axis=1)
+
+    table = cand.merge(bt[["burst_id", "pass", "has_episodes"] + CRITERIA + VALUE_COLUMNS],
+                       on="burst_id", how="left")
+    table.insert(0, "fly", fly)
+    table["label"] = OVERRIDE_LABEL
+    return table[OVERRIDE_COLUMNS].reset_index(drop=True), bt
 
 
 def write_overrides(fly, output="."):
@@ -204,14 +256,18 @@ def write_overrides(fly, output="."):
     bouts = pd.read_feather(bouts_path)                       # RAW, never overridden
     traces = pd.read_feather(traces_path, columns=TRACE_COLUMNS)
 
-    out, fb = compute_overrides(bouts, traces, fly, fps)
+    table, bt = compute_overrides(bouts, traces, fly, fps)
     path = overrides_path(bouts_path)
-    out.to_csv(path, index=False)
+    table.to_csv(path, index=False)
 
-    n_cand = int(bouts["label"].isin(OVERRIDE_TARGET_LABELS).sum())
-    n_b = int(fb["qualifies"].sum()) if len(fb) else 0
-    print(f"  [overrides] {fly}: {len(out)}/{n_cand} {'/'.join(OVERRIDE_TARGET_LABELS)} "
-          f"bouts -> {OVERRIDE_LABEL} ({n_b} bursts) -> {path}")
+    n_pass = int(table["pass"].sum()) if len(table) else 0
+    n_bp = int(bt["pass"].sum()) if len(bt) else 0
+    print(f"  [overrides] {fly}: {n_pass}/{len(table)} "
+          f"{'/'.join(OVERRIDE_TARGET_LABELS)} bouts pass -> {OVERRIDE_LABEL} "
+          f"({n_bp}/{len(bt)} bursts) -> {path}")
+    if len(bt):
+        fails = {c: int((~bt[c]).sum()) for c in CRITERIA}
+        print(f"  [overrides]   bursts failing each criterion: {fails}")
     return path
 
 
@@ -247,8 +303,24 @@ def apply_overrides(df, ov):
     return df, n_unmatched
 
 
+def _passing(ov, path=""):
+    """Keep only the rows to apply: ``pass == True``.
+
+    Parsed as text so a column read back as strings can't slip through
+    (``bool("False")`` is True). A table without a ``pass`` column predates this
+    format, when only passing rows were written, so all its rows apply.
+    """
+    if "pass" not in ov.columns:
+        logger.info("%s: no 'pass' column (old format) — applying every row", path)
+        return ov
+    return ov[ov["pass"].astype(str).str.strip().str.lower() == "true"]
+
+
 def read_pe_bouts(path, apply=True):
     """Read a pe_bouts feather, applying its override table when one exists.
+
+    Only rows with ``pass == True`` are applied; the other rows are there to
+    explain the decision, not to relabel anything.
 
     Use this wherever labels feed the BIOLOGY or the GUI. Do NOT use it (or pass
     ``apply=False``) when building training data for pnf_splitter or the audits:
@@ -264,7 +336,7 @@ def read_pe_bouts(path, apply=True):
     op = overrides_path(path)
     if not os.path.exists(op):
         return df
-    ov = pd.read_csv(op)
+    ov = _passing(pd.read_csv(op), op)
     if ov.empty:
         df = df.copy()
         df["label_pipeline"] = df["label"]

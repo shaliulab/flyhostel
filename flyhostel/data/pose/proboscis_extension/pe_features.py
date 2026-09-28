@@ -26,7 +26,11 @@ DESIGN — why two feature levels, and how solitary PEs are handled:
 
 import ast
 import os
+import logging
+import h5py
+import shutil
 import yaml
+
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
@@ -39,7 +43,8 @@ from .proboscis_candidates import (
     compute_geometry, EXT_FRAC, PROD_THRESH, PARAMS,
     resolve_video_paths, gate_masks
 )
-
+from .label_overrides import write_overrides
+logger = logging.getLogger(__name__)
 
 # ==========================================================================
 # ||||||||||||||||||  MANUAL PARAMETERS (not data-derived)  ||||||||||||||||||
@@ -111,7 +116,7 @@ REARLEGS = ("rRL", "rLL")
 FOOD_RING_MM   = 2   # proboscis within this of the food boundary -> feeding.   unit: mm
                         #   (CALIBRATE: histogram prob_food_min_mm for hand-labelled
                         #    feed vs pe; put the cut in the gap.)
-NEAR_FOOD_MODE = "ring" # "ring"           : |signed distance| <= FOOD_RING_MM
+NEAR_FOOD_MODE = "inside_or_ring" # "ring"           : |signed distance| <= FOOD_RING_MM
                         #                    (near the perimeter, in or out)
                         # "inside_or_ring" : signed distance <= FOOD_RING_MM
                         #                    (also counts the proboscis DEEP INSIDE the
@@ -155,6 +160,7 @@ def burst_features(df, fps):
         n_bouts       = ("start_fn", "size"),
         burst_start   = ("start_fn", "min"),
         burst_end     = ("end_fn",   "max"),
+        burst_t_start = ("t_start",  "min"),
         n_pe          = ("label",    lambda s: int((s == "pe").sum())),
         max_pe_score  = ("pe_score", "max"),
         med_pe_score  = ("pe_score", "median"),
@@ -224,6 +230,60 @@ def relabel_with_burst_context(df):
 # signals: gated extension (mm) + body & leg speed (mm/s), full length
 # ==========================================================================
 
+def _align_t(t, n_frames, track=TRACK, label=""):
+    """Reduce the stored ``t`` array to one timestamp per pose frame.
+
+    Accepts (n_frames,), (1, n_frames), (n_frames, 1), or a track axis in either
+    position. Raises rather than guessing when no axis matches ``n_frames``: a
+    misaligned time axis would silently give every bout the wrong timestamp.
+    """
+    t = np.squeeze(np.asarray(t, dtype=float))
+    if t.ndim == 2:
+        if t.shape[1] == n_frames:       # (n_tracks, n_frames)
+            t = t[track]
+        elif t.shape[0] == n_frames:     # (n_frames, n_tracks)
+            t = t[:, track]
+        else:
+            raise ValueError(f"{label}: 't' has shape {t.shape}, no axis matches the "
+                             f"pose's {n_frames} frames")
+    if t.ndim != 1 or t.shape[0] != n_frames:
+        raise ValueError(f"{label}: 't' has shape {t.shape} but the pose has "
+                         f"{n_frames} frames — they must align row for row")
+    return t
+
+
+def load_timestamps(h5_path, n_frames, track=TRACK):
+    """Per-frame timestamps from the pose h5's ``t`` dataset, on the same frame axis
+    as ``load_arrays`` (and therefore ``dist_mm``). Returned AS STORED — no unit
+    conversion; ``report_timestamps`` shows what the units are."""
+    with h5py.File(h5_path, "r") as f:
+        if "t" not in f:
+            raise KeyError(f"{h5_path}: no 't' dataset")
+        t = f["t"][:]
+    return _align_t(t, n_frames, track, os.path.basename(h5_path))
+
+
+def report_timestamps(t, fps, label=""):
+    """Log the time range and median frame interval, and whether that looks like
+    seconds (~1/fps) or milliseconds (~1000/fps). Warns if ``t`` ever decreases,
+    which would mean the pose rows are not in time order."""
+    ok = np.isfinite(t)
+    if ok.sum() < 2:
+        logger.warning("%s: 't' has fewer than 2 finite values", label)
+        return
+    dt = np.diff(t[ok])
+    med = float(np.median(dt))
+    guess = ("seconds" if np.isclose(med, 1 / fps, rtol=0.1) else
+             "milliseconds" if np.isclose(med, 1000 / fps, rtol=0.1) else
+             "UNKNOWN units — check")
+    logger.warning("%s: t %.3f .. %.3f, median frame interval %.6g (fps %g -> %s); "
+                   "%.2f%% NaN", label, t[ok][0], t[ok][-1], med, fps, guess,
+                   100 * (1 - ok.mean()))
+    if (dt < 0).any():
+        logger.warning("%s: 't' decreases at %d places — rows are not time-ordered",
+                       label, int((dt < 0).sum()))
+        
+
 def project_thorax_to_arena(loader, thorax, frame_numbers):
     square_width=loader.square_width
     square_height=loader.square_height
@@ -250,6 +310,8 @@ def signals_from_h5(loader, params, track=TRACK):
     path = loader.get_pose_file_h5py("raw")
 
     locs, sc, nodes, inst = load_arrays(path)
+    t = load_timestamps(path, locs.shape[0], track)
+    report_timestamps(t, loader.framerate, os.path.basename(path))
     frame_numbers = load_frame_numbers(path, loader.chunksize)
     g = compute_geometry(locs, sc, nodes, inst)
     exp = os.path.basename(path).split("__")[0]
@@ -335,7 +397,7 @@ def signals_from_h5(loader, params, track=TRACK):
         assert prob_food_mm.size == thorax_arena_xy.shape[0]
 
     return dict(dist_mm=dist_mm, prob_conf=v["pc"], body_speed=body_speed, leg_speed=leg_speed, rear_leg_speed=rear_leg_speed,
-                leg_prob_mm=leg_prob_mm, prob_food_mm=prob_food_mm,
+                leg_prob_mm=leg_prob_mm, prob_food_mm=prob_food_mm, t=t,
                 ext_min_mm=ext_min_mm, fps=fps, ppm=ppm, n_frames=dist_mm.size,
                 first_fn=get_first_frame_number(path, loader.chunksize))
 
@@ -629,6 +691,7 @@ def bout_features(loader, params, track=TRACK, tier_frames=None):
 
         rows.append(dict(
             frame_number=int(pk + first_fn), start_fn=int(s + first_fn), end_fn=int(e - 1 + first_fn),
+            t=float(sig["t"][pk]), t_start=float(sig["t"][s]), t_end=float(sig["t"][e - 1]),
             burst_id=int(b), n_in_burst=int(n_in_burst), is_solitary=(n_in_burst == 1),
             dur_s=dur_s, peak_dist_mm=peak_mm, baseline_mm=baseline,
             amp_mm=peak_mm - baseline,
@@ -900,7 +963,21 @@ def pe_features_for_fly(fly):
     identity=int(identity)
     tier_frames = load_tier_frames(fly, "likely")
     loader=FlyHostelLoader(experiment, identity)
-    pose_file=loader.get_pose_file_h5py("raw")
+    pose_file=loader.get_pose_file_path("raw")
+    if not os.path.exists(pose_file):
+        loader.load_centroid_data(cache="/flyhostel_data/cache")
+        pose_file=loader.get_pose_file_h5py("raw", dt=loader.dt)
+
+    else:
+        with h5py.File(pose_file) as f:
+            keys=f.keys()
+        if "t" not in keys:
+            os.remove(pose_file)
+            loader.load_centroid_data(cache="/flyhostel_data/cache")
+            
+            pose_file=loader.get_pose_file_h5py("raw", dt=loader.dt)
+        else:
+            pose_file=loader.get_pose_file_h5py("raw")
 
     try:
         df = label_bouts(bout_features(loader, params, tier_frames=tier_frames))
@@ -953,6 +1030,6 @@ if __name__ == "__main__":
     args=ap.parse_args()
 
     out=pe_features_for_fly(args.fly)
-    
+
     print(f"\n{len(out)} bouts over {out['fly'].nunique()} flies -> pe_bouts.feather")
     print(out["label"].value_counts())
