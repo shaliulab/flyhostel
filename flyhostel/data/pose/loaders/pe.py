@@ -1,6 +1,7 @@
 import logging
 import os.path
 import pandas as pd
+from flyhostel.data.pose.proboscis_extension.label_overrides import read_pe_bouts
 
 logger=logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class PELoader:
             return None
         
 
-        data=pd.read_feather(pe_trace)
+        data=read_pe_bouts(pe_trace)
         
         if self.dt is None:
             self.load_centroid_data(cache="/flyhostel_data/cache")
