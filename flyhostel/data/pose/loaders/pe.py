@@ -55,15 +55,9 @@ class PELoader:
         if not os.path.exists(pe_trace):
             logger.error("%s not found", pe_trace)
             return None
-        
-
+       
         data=read_pe_bouts(pe_trace)
-        
-        if self.dt is None:
-            self.load_centroid_data(cache="/flyhostel_data/cache")
-
         data=data.query("label == 'pe'")
-        data=data.merge(self.dt[["frame_number", "t"]], how="left", on="frame_number")
         
         if min_time is not None:
             data=data.query("t >= @min_time")
