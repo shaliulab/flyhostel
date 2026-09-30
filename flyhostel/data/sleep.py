@@ -55,7 +55,7 @@ def sleep_annotation_rf(data, time_window_length=1, min_time_immobile=300, thres
 
     # Downstream functions could be informed of a very brief high speed behavior by keeping the max centroid_speed of the window
     # not just the sum which makes it the brief peak "blurry" if the fly is not moving the rest of the window
-    aggregation={feature: agg_function}
+    aggregation={feature: agg_function, "frame_number": lambda x: x.iloc[0]}
     if "centroid_speed" in data.columns:
         aggregation["centroid_speed"]=np.sum
     if "walk" in data.columns:
