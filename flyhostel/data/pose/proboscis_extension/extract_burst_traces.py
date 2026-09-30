@@ -140,7 +140,9 @@ def extract_burst_traces(bouts, h5_path, out_feather="burst_traces.feather",
     # frames map to a bout via (burst_id, bout_in_burst); frames between bouts or in the
     # padding have bout_in_burst = NaN and get NaN metrics (correct: not in a bout).
     frame_level = {"frame_number", "t_s", "dist_mm", "prob_conf", "local_frame",
-                   "video_file", "is_peak", "chunk", "identity", "local_identity"}
+                   "video_file", "is_peak", "chunk", "identity", "local_identity",
+                   "t", "t_start", "t_end", "burst_t_start"}
+    
     metric_cols = [c for c in idx.columns
                    if c not in frame_level and c not in ("burst_id", "bout_in_burst", "bout_uid")]
     bout_metrics = idx[["burst_id", "bout_in_burst"] + metric_cols].drop_duplicates(
