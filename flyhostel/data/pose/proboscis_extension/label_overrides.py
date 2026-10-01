@@ -331,6 +331,8 @@ def read_pe_bouts(path, apply=True):
     burst_pe_score) are NOT recomputed; they still describe the pipeline labels.
     """
     df = pd.read_feather(path)
+    assert "t" in df.columns, f"t missing in {path}"
+
     if not apply:
         return df
     op = overrides_path(path)
