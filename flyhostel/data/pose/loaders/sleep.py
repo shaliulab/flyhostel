@@ -135,7 +135,10 @@ class SleepLoader:
         feather_file=glob.glob(feather_file_r)
     
         if len(feather_file)>1:
-            logger.warning("More than 1 feather file detected for %s", self.datasetnames[0])
+            logger.warning("More than 1 feather file detected for %s: %s", self.datasetnames[0], feather_file)
+            feather_file=sorted(feather_file, key=os.path.getmtime)[::-1][:1]
+            logger.warning("Keeping %s", feather_file[0])
+
         # no hits found
         elif len(feather_file)==0:
             return feather_file_r
@@ -148,7 +151,6 @@ class SleepLoader:
             del dataset["t_round"]
         else:
             dataset["t"]=dataset["t_round"]
-        dataset=self.annotate_frame_number_in_dataset(dataset)
         return dataset
         
 
