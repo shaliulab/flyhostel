@@ -74,7 +74,7 @@ LAG_MIN=-1800*3
 LAG_MAX=+1800*3
 
 def coupling_analysis(
-        dt_bin, number_of_animals, metadata, n_mins, figure_name, coupling_FUNs=COUPLING_FUNS, group_FUNs=GROUP_FUNS, bin_size=300, summary_FUN="mean", lag_min=LAG_MIN, lag_max=LAG_MAX
+        dt_bin, number_of_animals, metadata, n_mins, figure_name, coupling_FUNs=COUPLING_FUNS, group_FUNs=GROUP_FUNS, bin_size=300, feature="inactive_rule", summary_FUN="mean", lag_min=LAG_MIN, lag_max=LAG_MAX
     ):
     """
     Quantify coupling of sleep rhythms in groups of animals
@@ -133,7 +133,7 @@ def coupling_analysis(
 
     coupling_df=annotator(
         dt_bin, lags=lags,
-        feature="inactive_rule",
+        feature=feature,
         summary_FUN=summary_FUN,
         FUNs=coupling_FUNs,
         group_FUNs=group_FUNs,
