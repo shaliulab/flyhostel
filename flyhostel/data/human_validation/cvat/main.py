@@ -47,6 +47,10 @@ MEMORY = Memory("/tmp/joblib_cache", verbose=0)
 
 
 def select_frame_interval(data, frames_from_annotation, first_frame_number, last_frame_number):
+    """
+    Give a validation dataset, figure out what are the first and last frames that the user validated
+    to finalize the interval selection
+    """
 
     if frames_from_annotation:
         if first_frame_number is None or last_frame_number is None:
@@ -160,7 +164,7 @@ def load_data(
         last_frame_number=last_frame_number
     )
 
-    return (identity_machine, roi_0_machine), (identity_annotations, roi0_annotations), annotations_df
+    return (identity_machine, roi_0_machine), (identity_annotations, roi0_annotations), annotations_df, (first_frame_number, last_frame_number)
 
 
 def integrate_data(
@@ -179,7 +183,7 @@ def integrate_data(
 
     chunksize=get_chunksize(experiment)
     if use_cache:
-        (identity_machine, roi_0_machine), (identity_annotations, roi0_annotations), annotations_df=load_data_cached(
+        (identity_machine, roi_0_machine), (identity_annotations, roi0_annotations), annotations_df, (first_frame_number, last_frame_number)=load_data_cached(
             experiment,
             tasks,
             first_frame_number=first_frame_number,
@@ -189,7 +193,7 @@ def integrate_data(
         )
 
     else:
-        (identity_machine, roi_0_machine), (identity_annotations, roi0_annotations), annotations_df=load_data(
+        (identity_machine, roi_0_machine), (identity_annotations, roi0_annotations), annotations_df, (first_frame_number, last_frame_number)=load_data(
             experiment,
             tasks,
             first_frame_number=first_frame_number,
@@ -517,6 +521,10 @@ def integrate_human_annotations(
         redownload=redownload,
         **kwargs
     )
+
+    assert first_frame_number is not None
+    assert last_frame_number is not None
+        
     
     new_data=manual_validations(experiment, updated_data, machine_data, first_frame_number=first_frame_number, last_frame_number=last_frame_number, **report_data, folder=folder)
 
