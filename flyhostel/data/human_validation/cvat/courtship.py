@@ -49,6 +49,78 @@ reusing the old one, or the time between the two bouts will be treated as courts
 
 """
 
+def report_intruders_in_courtship_boxes(data, all_intervals_engaged_labels, chunksize,
+                                        min_frames=1, path="courtship_intruders.csv"):
+    """Flag flies inside a COURTSHIP box that are not the engaged pair for that chunk.
+
+    A third fly walking through the box is normal — it just must not be deleted along
+    with the pair. A third fly that stays inside for a long stretch is more likely a
+    marker naming the wrong local identity, or a box drawn too large.
+
+    Returns one row per (bout, chunk, local_identity, run of consecutive frames).
+    """
+    if not all_intervals_engaged_labels:
+        return pd.DataFrame()
+
+    inside = data.loc[data["courtship"] == True, ["interval_id", "frame_number", "local_identity", "x", "y"]]
+    if inside.empty:
+        return pd.DataFrame()
+
+    inside = inside.copy()
+    inside["chunk"] = (inside["frame_number"] // chunksize).astype(int)
+
+    engaged_rows = [
+        {"interval_id": interval_id, "chunk": int(chunk), "local_identity": int(lid), "engaged": True}
+        for interval_id, info in all_intervals_engaged_labels.items()
+        for chunk, ids in info["engaged_per_chunk"].items()
+        for lid in ids
+    ]
+    engaged = pd.DataFrame(engaged_rows)
+
+    merged = inside.merge(engaged, on=["interval_id", "chunk", "local_identity"], how="left")
+    intruders = merged.loc[merged["engaged"].isna()].drop(columns="engaged")
+    if intruders.empty:
+        logger.info("No intruders found inside COURTSHIP boxes")
+        return pd.DataFrame()
+
+    # collapse consecutive frames of the same fly into runs
+    intruders = intruders.sort_values(["interval_id", "chunk", "local_identity", "frame_number"])
+    key = ["interval_id", "chunk", "local_identity"]
+    new_run = (
+        (intruders[key] != intruders[key].shift()).any(axis=1)
+        | (intruders["frame_number"].diff() != 1)
+    )
+    intruders["run"] = new_run.cumsum()
+
+    runs = (
+        intruders.groupby(["interval_id", "chunk", "local_identity", "run"])
+        .agg(first_frame=("frame_number", "min"),
+             last_frame=("frame_number", "max"),
+             n_frames=("frame_number", "size"),
+             x=("x", "mean"),
+             y=("y", "mean"))
+        .reset_index()
+        .drop(columns="run")
+        .sort_values("n_frames", ascending=False)
+    )
+    runs["engaged_in_chunk"] = [
+        sorted(all_intervals_engaged_labels[iid]["engaged_per_chunk"].get(chunk, set()))
+        for iid, chunk in zip(runs["interval_id"], runs["chunk"])
+    ]
+
+    runs = runs.loc[runs["n_frames"] >= min_frames]
+    if runs.empty:
+        return runs
+
+    runs.to_csv(path, index=False)
+    total = int(runs["n_frames"].sum())
+    logger.warning(
+        "%d fly/frame(s) inside a COURTSHIP box are not the engaged pair, in %d run(s). "
+        "Longest runs (see %s):\n%s",
+        total, len(runs), path,
+        runs.head(10).to_string(index=False),
+    )
+    return runs
 
 def parse_frame_number(x):
     return int(x.split("_")[0])
@@ -476,28 +548,25 @@ def annotate_validated_fragments(data):
     return data
 
 
+def remove_blobs_associated_to_courtship(data, all_intervals_engaged_labels=None, chunksize=None):
+    """Remove blobs belonging to the engaged flies inside a bout; keep everyone else.
 
-def remove_blobs_associated_to_courtship(data):
+    Engaged local identities are known per (bout, chunk) from the markers, so a free
+    fly that merely walks across the COURTSHIP box is no longer deleted for it.
     """
-    Remove blobs that are either
-      1) a crossing blob produced by a courtship event, or
-      2) non-crossing blobs from flies in an ongoing courtship heavy-contact
-         that happen to be briefly distinguishable.
-
-    Synthetic-centroid rows produced by replace_courtship_identities are
-    spared regardless: they represent the (assumed) positions of courting
-    flies and are the whole reason we kept identity information through
-    the bout.
-    """
-    fragment_ok = (
-        (data["validated_fragment"] == True)
-        | data["fragment"].isna()  # singleton, can't be placed in a fragment
-    )
-    # Treat missing synthetic_courtship as False so the column is optional.
     synthetic = data.get("synthetic_courtship", pd.Series(False, index=data.index))
     synthetic = synthetic.fillna(False).astype(bool)
 
-    selector = synthetic | (~(data["courtship"]) & (fragment_ok | (~data["has_courtship"])))
+    engaged = pd.Series(False, index=data.index)
+    if all_intervals_engaged_labels and chunksize:
+        chunk_of = data["frame_number"] // chunksize
+        for interval_id, info in all_intervals_engaged_labels.items():
+            in_bout = data["interval_id"] == interval_id
+            for chunk, ids in info["engaged_per_chunk"].items():
+                engaged |= in_bout & (chunk_of == int(chunk)) & data["local_identity"].isin(sorted(ids))
+
+    fragment_ok = (data["validated_fragment"] == True) | data["fragment"].isna()
+    selector = synthetic | ~(engaged & data["courtship"] & ~fragment_ok)
 
     data.loc[~selector].to_csv("courtship_discarded.csv")
     return data.loc[selector]
@@ -1035,7 +1104,14 @@ def prepare_data_for_identity_annnotation_with_courtship(experiment, data):
         x=x[["frame_number", "chunk", "fragment", "fragment_identity", "local_identity"]].groupby(["chunk", "fragment"]).first()
         print(x)
         raise ValueError("Please check the fragments above")
-    data = remove_blobs_associated_to_courtship(data)
+
+    report_intruders_in_courtship_boxes(
+        data, all_intervals_engaged_labels, chunksize,
+    )
+    data = remove_blobs_associated_to_courtship(
+        data, all_intervals_engaged_labels=all_intervals_engaged_labels, chunksize=chunksize,
+    )
+
     data = fill_missing_in_frame_index(data)
     
 
