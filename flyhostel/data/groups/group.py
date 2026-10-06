@@ -414,6 +414,12 @@ class FlyHostelGroup(InteractionDetector):
             if os.path.exists(interactions_file):
                 files.append(interactions_file)
 
+            prob_extension_folder = os.path.join(self.basedir, ".", "flyhostel", "proboscis_extensions")
+            proboscis_files1 = glob.glob(os.path.join(prob_extension_folder, "*_traces.feather"))
+            proboscis_files2 = glob.glob(os.path.join(prob_extension_folder, "pe_bouts", "*"))
+            proboscis_files=proboscis_files1+proboscis_files2
+            files+=proboscis_files            
+
         rsync_files_from(files, new_basedir, dry_run=dry_run)
 
         if not debug:
