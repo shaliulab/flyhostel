@@ -46,7 +46,10 @@ class MetadataExporter(ABC):
         
         # this information should be read from index_information table in index.db
         (idtrackerai_conf_path, self._idtrackerai_conf), (self._flyhostel_id, self._number_of_animals, self._date_time) = parse_experiment_properties(basedir=self._basedir)
-        self._arena = parse_experiment_name(get_experiment_identifier(os.path.abspath(self._basedir)))["arena"]
+        # resolve the metadata file itself (not just basedir) so that it works
+        # when metadata.yaml is a symlink staged in a nextflow work directory
+        self._experiment = parse_experiment_name(get_experiment_identifier(os.path.dirname(os.path.realpath(self._store_metadata_path))))
+        self._arena = self._experiment["arena"]
         # with open(idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
         #     self._idtrackerai_conf_str = filehandle.read()
 
@@ -82,7 +85,7 @@ class MetadataExporter(ABC):
         """
 
         machine_id = "0" * 32
-        machine_name = parse_experiment_name(get_experiment_identifier(os.path.abspath(self._basedir)))["flyhostel"]
+        machine_name = self._experiment["flyhostel"]
 
         created_utc=self._store_metadata["created_utc"].split(".")[0]
         dt = datetime.datetime.strptime(created_utc, "%Y-%m-%dT%H:%M:%S")
