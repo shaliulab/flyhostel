@@ -21,8 +21,10 @@ def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
     basedir = os.path.dirname(store_path)
     (_, _), (flyhostel_id, number_of_animals, date_time) = parse_experiment_properties()
     # FlyHostelN_NX_YYYY-MM-DD_HH-MM-SS[_arenaN].db
-    dbfile_basename = get_experiment_identifier(os.path.realpath(basedir)) + ".db"
-    assert dbfile_basename.startswith(f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}")
+    # resolve the metadata file itself (not just its folder) so that it works
+    # when metadata.yaml is a symlink staged in a nextflow work directory
+    dbfile_basename = get_experiment_identifier(os.path.dirname(os.path.realpath(store_path))) + ".db"
+    assert dbfile_basename.startswith(f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}"), f"{dbfile_basename} does not match pattern"
 
     dbfile = os.path.join(basedir, dbfile_basename)
     basedir=os.path.realpath(basedir)
