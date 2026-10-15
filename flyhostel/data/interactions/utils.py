@@ -7,9 +7,11 @@ import datetime
 import pandas as pd
 import numpy as np
 
-from flyhostel.data.deg import parse_chunk, parse_experiment, parse_local_identity, read_label_file_raw
+from flyhostel.data.deg import parse_chunk, parse_experiment, parse_local_identity, read_label_file_raw, split_entry
 from flyhostel.utils import (
     get_chunksize,
+    make_id,
+    match_experiment,
 )
 from .constants import METADATA_PIPELINE_FILE
 
@@ -20,9 +22,11 @@ def read_label_file_rejections(labels_file, chunksize):
 
     local_identity=parse_local_identity(data_entry, chunksize=chunksize)
     identity=int(data_entry.split("_")[-1])
-    
-    first_frame_number=int(data_entry.split("_")[5])
-    last_frame_number=int(data_entry.split("_")[6])
+
+    # experiment_rejections_first-frame_last-frame_local-identity_identity
+    _, rest=split_entry(data_entry)
+    first_frame_number=int(rest[1])
+    last_frame_number=int(rest[2])
 
     assert chunk == first_frame_number//chunksize
     
@@ -35,7 +39,7 @@ def read_label_file_rejections(labels_file, chunksize):
     labels["identity"]=identity
     labels["data_entry"]=data_entry
     labels["frame"]=labels["frame_number"]-first_frame_number
-    labels.insert(0, "id", experiment[:26] + "|" + str(identity).zfill(2))
+    labels.insert(0, "id", make_id(experiment, identity))
     return labels
 
 
@@ -43,7 +47,7 @@ def load_metadata(data_dir, only_videos=True):
     metadata_pipeline=pd.read_csv(METADATA_PIPELINE_FILE, header=None)
     
     entries=[os.path.basename(os.path.dirname(f)) for f in glob.glob(f"{data_dir}/*/*.mp4")]
-    metadata=pd.DataFrame.from_records([("_".join(entry.split("_")[:4]), int(entry.split("_")[-1])) for entry in entries], columns=["experiment", "identity"])
+    metadata=pd.DataFrame.from_records([(match_experiment(entry), int(entry.split("_")[-1])) for entry in entries], columns=["experiment", "identity"])
     metadata.drop_duplicates(inplace=True)
     metadata_pipeline.columns=["basedir", "experiment", "number_of_animals", "complete", "select"]
     metadata_pipeline=metadata_pipeline.loc[metadata_pipeline["select"]=="SELECT"]

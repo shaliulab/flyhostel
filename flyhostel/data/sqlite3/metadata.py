@@ -19,6 +19,7 @@ from .constants import (
 
 )
 from .utils import parse_experiment_properties
+from flyhostel.utils.experiment import get_experiment_identifier, parse_experiment_name
 from imgstore.constants import STORE_MD_FILENAME
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 
@@ -45,6 +46,7 @@ class MetadataExporter(ABC):
         
         # this information should be read from index_information table in index.db
         (idtrackerai_conf_path, self._idtrackerai_conf), (self._flyhostel_id, self._number_of_animals, self._date_time) = parse_experiment_properties(basedir=self._basedir)
+        self._arena = parse_experiment_name(get_experiment_identifier(os.path.abspath(self._basedir)))["arena"]
         # with open(idtrackerai_conf_path, "r", encoding="utf8") as filehandle:
         #     self._idtrackerai_conf_str = filehandle.read()
 
@@ -80,7 +82,7 @@ class MetadataExporter(ABC):
         """
 
         machine_id = "0" * 32
-        machine_name = os.path.basename(os.path.dirname(os.path.dirname(self._basedir)))
+        machine_name = parse_experiment_name(get_experiment_identifier(os.path.abspath(self._basedir)))["flyhostel"]
 
         created_utc=self._store_metadata["created_utc"].split(".")[0]
         dt = datetime.datetime.strptime(created_utc, "%Y-%m-%dT%H:%M:%S")
@@ -164,6 +166,8 @@ class MetadataExporter(ABC):
 
         path=path.replace(" ", "_")
         cmd = f'{DOWNLOAD_FLYHOSTEL_METADATA} --metadata {path} --flyhostel-id {self._flyhostel_id} --date-time {self._date_time} --number-of-animals {self._number_of_animals}'
+        if self._arena is not None:
+            cmd += f' --arena {self._arena}'
         cmd_list = shlex.split(cmd)
         process = subprocess.Popen(cmd_list)
         process.communicate()

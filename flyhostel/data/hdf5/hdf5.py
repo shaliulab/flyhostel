@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from flyhostel.data.yolov7 import letterbox
+from flyhostel.utils.experiment import get_experiment_identifier, parse_experiment_name
 
 
 class HDF5VideoMaker(ABC):
@@ -220,7 +221,7 @@ class HDF5ImagesReader:
             raise Exception(f"{number_of_sources} sources detected")
 
         experiment_metadata=_extract_store_metadata(metadata)
-        number_of_animals=int(os.path.basename(os.path.dirname(os.path.dirname(metadata))).split("X")[0])
+        number_of_animals=parse_experiment_name(get_experiment_identifier(os.path.dirname(os.path.abspath(metadata))))["number_of_animals"]
         reader=cls(hdf5_files=sources, number_of_animals=number_of_animals, chunks=chunks, **kwargs)
         reader.metadata = os.path.realpath(metadata)
         reader._experiment_metadata = experiment_metadata

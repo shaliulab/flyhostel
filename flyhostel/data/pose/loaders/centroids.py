@@ -9,6 +9,7 @@ from ethoscopy import link_meta_index, load_flyhostel, behavpy, flyhostel_sleep_
 from ethoscopy import flyhostel_sleep_annotation as flyhostel_sleep_annotation_primitive
 from ethoscopy.flyhostel import compute_xy_dist_log10x1000
 from ethoscopy.load import update_metadata
+from flyhostel.utils import get_id_prefix
 
 logger=logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=N
         assert experiment is not None
         update_metadata(meta_loc)
         meta = link_meta_index(meta_loc, remote, local, source="flyhostel", verbose=verbose)
-        meta=meta.loc[meta["id"].str.startswith(experiment[:26])]
+        meta=meta.loc[meta["id"].str.startswith(get_id_prefix(experiment))]
         if identity is not None:
             meta=meta.loc[meta["identity"]==str(int(identity))]
             n_after=meta.shape[0]

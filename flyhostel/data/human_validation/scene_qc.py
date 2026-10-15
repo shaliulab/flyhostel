@@ -28,6 +28,7 @@ from flyhostel.utils import (
     get_dbfile,
     get_chunksize,
     get_number_of_animals,
+    get_id_prefix,
 )
 
 pd.set_option("display.max_rows", 1000)
@@ -297,7 +298,7 @@ def annotate_scene_quality(experiment, folder, n_jobs=-2, sample_size=None):
         cache=True
     )
 
-    tracking_data["id"]=experiment[:26] + "|" + tracking_data["identity"].astype(str).str.zfill(2)
+    tracking_data["id"]=get_id_prefix(experiment) + "|" + tracking_data["identity"].astype(str).str.zfill(2)
     manifests=sorted(glob.glob(f"{folder}/movies/{experiment}*jsonl"))
     if sample_size is not None:
         manifests=manifests[:sample_size]

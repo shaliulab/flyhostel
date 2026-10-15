@@ -4,6 +4,7 @@ import glob
 from .idtrackerai import IdtrackeraiExporter
 from .constants import PRESETS, BEHAVIORS, NODES
 from .utils import parse_experiment_properties
+from flyhostel.utils.experiment import get_experiment_identifier
 
 def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
     """
@@ -19,7 +20,9 @@ def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
 
     basedir = os.path.dirname(store_path)
     (_, _), (flyhostel_id, number_of_animals, date_time) = parse_experiment_properties()
-    dbfile_basename = f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}.db"
+    # FlyHostelN_NX_YYYY-MM-DD_HH-MM-SS[_arenaN].db
+    dbfile_basename = get_experiment_identifier(os.path.realpath(basedir)) + ".db"
+    assert dbfile_basename.startswith(f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}")
 
     dbfile = os.path.join(basedir, dbfile_basename)
     basedir=os.path.realpath(basedir)

@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import cv2
 import numpy as np
 import pandas as pd
+from flyhostel.utils.experiment import experiment_to_relpath, match_experiment
 
 def draw_pose_on_axis(pose_data, fns, h5inds, params, pad=80):
     """
@@ -24,8 +25,7 @@ def draw_pose_on_axis(pose_data, fns, h5inds, params, pad=80):
     chunk = frame_number // chunksize
 
     animal=params["animals"][h5inds[0]]
-    tokens = animal.split("_")
-    prefix=os.path.sep.join(tokens[:2] + ["_".join(tokens[2:4])])
+    prefix=experiment_to_relpath(match_experiment(animal))
    
     video_path = f"{os.environ['FLYHOSTEL_VIDEOS']}/{prefix}/{str(chunk).zfill(6)}.mp4"
     cap = cv2.VideoCapture(video_path)

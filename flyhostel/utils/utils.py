@@ -16,6 +16,10 @@ import cv2
 from matplotlib import cm
 logger=logging.getLogger(__name__)
 from .cvat import get_basedir, get_dbfile, get_experiment_identifier
+from .experiment import (
+    match_experiment, parse_experiment_name, split_arena, experiment_to_relpath,
+    get_id_prefix, make_id, experiment_from_id, normalize_arena, make_experiment_name,
+)
 
 
 if sys.version_info > (3, 8):
@@ -249,8 +253,11 @@ def get_sqlite_file(animal):
 
     logger.warning("Deprecated. Please replace with get_dbfile")
 
-    tokens = animal.split("_")[:4]
-    sqlite_files = glob.glob(f"{os.environ['FLYHOSTEL_VIDEOS']}/{tokens[0]}/{tokens[1]}/{tokens[2]}_{tokens[3]}/{'_'.join(tokens)}.db")
+    experiment = match_experiment(animal)
+    if experiment is None:
+        tokens = animal.split("_")[:4]
+        experiment = "_".join(tokens)
+    sqlite_files = glob.glob(f"{os.environ['FLYHOSTEL_VIDEOS']}/{experiment_to_relpath(experiment)}/{experiment}.db")
     assert len(sqlite_files) == 1
     sqlite_file=sqlite_files[0]
 
@@ -341,14 +348,13 @@ def parse_identity(id):
 def get_local_identities_from_experiment(experiment, frame_number):
     raise NotImplementedError
 
-    tokens = experiment.split("_")
-    experiment_path=os.path.sep.join([tokens[0], tokens[1], "_".join(tokens[2:4])])
+    experiment_path=experiment_to_relpath(experiment)
     basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], experiment_path)
     if not os.path.exists(basedir):
         basedirs=glob.glob(basedir+"*")
         assert len(basedirs) == 1, f"{basedir} not found"
         basedir=basedirs[0]
-        experiment = "_".join(basedir.split(os.path.sep))
+        experiment = get_experiment_identifier(basedir)
 
 
     dbfile = os.path.join(basedir, experiment + ".db")
@@ -575,7 +581,7 @@ def build_interaction_video_key(experiment, row, interaction_name="rejections"):
 
 
 def animal_to_id(individual):
-    return individual[:26] + "|" + individual.split("__")[1]
+    return get_id_prefix(match_experiment(individual)) + "|" + individual.split("__")[1]
 
 
 import io
@@ -895,8 +901,7 @@ def rsync_files_from_less_verbose(
 
 
 def dunder_to_slash(experiment):
-    tokens = experiment.split("_")
-    return tokens[0] + "/" + tokens[1] + "/" + "_".join(tokens[2:4])
+    return experiment_to_relpath(experiment)
 
 def prepare_batches(data, batch_size, n_jobs):
 

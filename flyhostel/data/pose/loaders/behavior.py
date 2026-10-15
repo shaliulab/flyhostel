@@ -2,15 +2,13 @@ import logging
 import os.path
 import pandas as pd
 from tqdm.auto import tqdm
+from flyhostel.utils.experiment import experiment_to_relpath
 logger=logging.getLogger(__name__)
 
 def get_behavior_feather_file_path(experiment, identity):
-    tokens=experiment.split("_")
     basedir=os.path.join(
         os.environ["FLYHOSTEL_VIDEOS"],
-        tokens[0],
-        tokens[1],
-        "_".join(tokens[2:4])
+        experiment_to_relpath(experiment)
     )
 
     feather_path=os.path.join(

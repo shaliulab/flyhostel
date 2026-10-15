@@ -16,6 +16,7 @@ from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_dur
 from flyhostel.data.pose.constants import inactive_states
 from flyhostel.data.pose.ml_classifier import load_one_animal
 from flyhostel.utils import get_chunksize, get_wavelet_downsample
+from flyhostel.utils.experiment import experiment_to_relpath
 
 logger=logging.getLogger(__name__)
 try:
@@ -57,8 +58,7 @@ def get_bout_length_percentile_from_project(project_path, percentile=1, behavior
 
 
 def generate_path_to_output_folder(experiment, identity):
-    tokens=experiment.split("_")
-    key=os.path.sep.join([tokens[0], tokens[1], "_".join(tokens[2:4])])
+    key=experiment_to_relpath(experiment)
     basedir=os.path.join(FLYHOSTEL_VIDEOS, key)
     output_folder=os.path.join(basedir, "motionmapper", str(identity).zfill(2))
     return output_folder

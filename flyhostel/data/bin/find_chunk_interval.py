@@ -5,6 +5,7 @@ import sqlite3
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.utils.pose_export import load_concatenation_table
 from flyhostel.utils import get_number_of_animals
+from flyhostel.utils.experiment import get_experiment_identifier
 from flyhostel.utils.cvat import (
     experiment_is_validated,
 )
@@ -32,7 +33,7 @@ def main():
 def find_chunk_interval(experiment, basedir, flyhostel_db, concatenation_table_name):
     number_of_animals=get_number_of_animals(experiment)
 
-    experiment2="_".join(basedir.split(os.path.sep)[-3:])
+    experiment2=get_experiment_identifier(basedir)
     assert experiment == experiment2
 
 

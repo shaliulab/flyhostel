@@ -27,6 +27,7 @@ from flyhostel.utils import (
     get_local_identities,
 )
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS
+from flyhostel.utils.experiment import get_experiment_identifier
 from ethoscopy.flyhostel import load_centroids
 sleap_integration=logging.getLogger("sleap_integration")
 
@@ -176,7 +177,7 @@ def load_pose_dataset(
         single_animal=False, pose_name="raw", bodyparts=BODYPARTS, downsample=1
     ):
 
-    experiment="_".join(basedir.split('/')[-3:])
+    experiment=get_experiment_identifier(basedir)
     number_of_animals=int(experiment.split("_")[1].replace("X",""))
     framerate=get_framerate(experiment)
     chunksize=get_chunksize(experiment)
@@ -520,7 +521,7 @@ try:
             downsample=downsample
         )
 
-        experiment="_".join(basedir.split('/')[-3:])
+        experiment=get_experiment_identifier(basedir)
 
         chunksize=get_chunksize(experiment)
         framerate=get_framerate(experiment)

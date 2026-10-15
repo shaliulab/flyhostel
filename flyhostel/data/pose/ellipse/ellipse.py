@@ -8,6 +8,7 @@ import sqlite3
 import cv2
 import numpy as np
 import pandas as pd
+from flyhostel.utils.experiment import get_experiment_identifier
 from tqdm.auto import tqdm
 
 from imgstore.interface import VideoCapture
@@ -103,7 +104,7 @@ def compute_ellipse_parameters(df_pose):
 
 
 def load_idtrackerai_config(basedir):
-    dbfile = os.path.join(basedir, "_".join(basedir.split(os.path.sep)[-3:]) + ".db")
+    dbfile = os.path.join(basedir, get_experiment_identifier(basedir) + ".db")
     with sqlite3.connect(dbfile) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM METADATA WHERE field = 'idtrackerai_conf';")

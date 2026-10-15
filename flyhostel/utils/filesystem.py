@@ -3,7 +3,7 @@ import sqlite3
 import glob
 import os.path
 import logging
-from flyhostel.utils import get_dbfile
+from flyhostel.utils import get_dbfile, get_id_prefix, match_experiment
 logger=logging.getLogger(__name__)
 
 class FilesystemInterface(ABC):
@@ -54,7 +54,7 @@ class FilesystemInterface(ABC):
     @staticmethod
     def make_ids(datasetnames):
         identities = [
-            d[:26] +  "|" + d[-2:]
+            get_id_prefix(match_experiment(d)) +  "|" + d[-2:]
             for d in datasetnames
         ]
         return identities

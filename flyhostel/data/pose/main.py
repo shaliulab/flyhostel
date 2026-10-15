@@ -53,7 +53,8 @@ from flyhostel.utils import (
     load_roi_width,
     restore_cache,
     save_cache,
-    trim_dataset
+    trim_dataset,
+    parse_experiment_name,
 )
 from flyhostel.utils.pose_export import (
     get_pose_file_,
@@ -497,9 +498,10 @@ class FlyHostelLoader(
 
 
     def get_simple_metadata(self):
-        number_of_animals=int(os.path.basename(self.experiment).split("_")[1].replace("X", ""))
-        flyhostel_number=int(os.path.basename(self.experiment).split("_")[0].replace("FlyHostel", ""))
-        flyhostel_date, flyhostel_time=os.path.basename(self.experiment).split("_")[2:4]
+        fields=parse_experiment_name(os.path.basename(self.experiment))
+        number_of_animals=fields["number_of_animals"]
+        flyhostel_number=fields["flyhostel_id"]
+        flyhostel_date, flyhostel_time=fields["date"], fields["time"]
 
         animal=f"{self.experiment}__{str(self.identity).zfill(2)}"
         id=self.make_ids(self.datasetnames)
@@ -510,6 +512,7 @@ class FlyHostelLoader(
             "flyhostel_number": [flyhostel_number],
             "flyhostel_date": [flyhostel_date],
             "flyhostel_time": [flyhostel_time],
+            "arena": [fields["arena"] or 0],
             "experiment": [self.experiment],
             "animal": [animal],
             "basedir": [self.basedir],

@@ -5,7 +5,7 @@ import logging
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
-from flyhostel.utils import get_dbfile, get_local_identities, get_single_animal_video, get_chunksize, get_basedir
+from flyhostel.utils import get_dbfile, get_local_identities, get_single_animal_video, get_chunksize, get_basedir, get_sqlite_file, experiment_from_id
 
 logger=logging.getLogger(__name__)
 
@@ -47,6 +47,17 @@ def cross_with_video_data(experiment, dt):
     dt["video"]=[video.replace("//", "/") for video in dt["video"]]
     return dt
 
+def id_to_animal_pattern(id):
+    """
+    Resolve the id to its full experiment name if possible,
+    otherwise fall back to a glob pattern on the truncated prefix
+    """
+    experiment=experiment_from_id(id)
+    if experiment is not None:
+        return experiment
+    return id.split("|")[0] + "*"
+
+
 class CrossVideo(ABC):
     """
     Link or cross pose data with flyhostel database to incorporate path to .mp4 videos used to generate the pose 
@@ -56,7 +67,7 @@ class CrossVideo(ABC):
     @staticmethod
     def get_dbfile(dt):
         animal=dt["id1"].iloc[0]
-        dbfile=get_sqlite_file(animal.split("|")[0] + "*")
+        dbfile=get_sqlite_file(id_to_animal_pattern(animal))
         return dbfile
     
     
@@ -64,7 +75,7 @@ class CrossVideo(ABC):
         dt["identity1"] = [int(e.split("|")[1]) for e in dt["id1"]]
         dt["identity2"] = [int(e.split("|")[1]) for e in dt["id2"]]
         dt["id1"].iloc[0].split("|")[0]
-        dt["dbfile"]=[get_sqlite_file(animal.split("|")[0] + "*") for animal in dt["id1"]]
+        dt["dbfile"]=[get_sqlite_file(id_to_animal_pattern(animal)) for animal in dt["id1"]]
         dt.sort_values("bp_distance_mm", inplace=True)
         dbfile=dt.iloc[0]["dbfile"]
 

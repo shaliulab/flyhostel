@@ -23,6 +23,7 @@ from bsoid_app.cli.utils import (
 )
 
 from flyhostel.data.pose.constants import *
+from flyhostel.utils.experiment import experiment_to_relpath
 
 from .utils import load_animals
 
@@ -35,8 +36,7 @@ def extend_index(indices, animals):
     for animal_id, animal in enumerate(animals):
         experiment, identity = animal.split("__")
         identity = int(identity)   
-        tokens = experiment.split("_")
-        basedir = os.environ["FLYHOSTEL_VIDEOS"] + "/"+ "/".join([tokens[0], tokens[1], "_".join(tokens[2:4])])
+        basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], experiment_to_relpath(experiment))
         flyhostel_db = glob.glob(f"{basedir}/FlyHostel*.db")[0]
     
         with sqlite3.connect(flyhostel_db) as conn:

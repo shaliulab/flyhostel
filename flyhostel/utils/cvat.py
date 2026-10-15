@@ -6,6 +6,7 @@ import datetime
 import json
 import requests
 from flyhostel.data.human_validation.cvat.constants import CVAT_BASE, _require_cvat
+from .experiment import get_experiment_identifier, experiment_to_relpath
 logger=logging.getLogger(__name__)
 
 
@@ -186,9 +187,6 @@ def get_project_id_from_name(experiment, errors="raise"):
 
     
 
-def get_experiment_identifier(basedir):
-    return "_".join(basedir.rstrip(os.path.sep).split(os.path.sep)[-3:])
-
 def get_dbfile(basedir):
     dbfile=os.path.join(
         basedir,
@@ -199,8 +197,7 @@ def get_dbfile(basedir):
     return dbfile
 
 def get_basedir(experiment):
-    tokens = experiment.split("_")
-    basedir=os.path.join(os.environ['FLYHOSTEL_VIDEOS'], tokens[0], tokens[1], '_'.join(tokens[2:4]))
+    basedir=os.path.join(os.environ['FLYHOSTEL_VIDEOS'], experiment_to_relpath(experiment))
     return basedir
 
 

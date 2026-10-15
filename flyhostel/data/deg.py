@@ -12,6 +12,8 @@ from flyhostel.utils import (
     get_basedir,
     get_local_identities_from_experiment,
     get_chunksize,
+    match_experiment,
+    make_id,
 )
 from flyhostel.data.pose.ethogram.utils import annotate_bout_duration, annotate_bouts
 
@@ -22,14 +24,27 @@ LABELS=["walk", "background", "groom", "feed", "inactive+rejection", "inactive+p
 SOCIAL_BEHAVIORS=["rejection", "touch", "interactor", "interactee"]
 RESTORE_FROM_CACHE_ENABLED=False
 
+def split_entry(data_entry):
+    """
+    Split a data entry into the experiment it belongs to
+    (which may end in _arenaN) and the remaining underscore-separated tokens
+    """
+    experiment=match_experiment(data_entry)
+    if experiment is None:
+        return None, None
+    rest=data_entry[len(experiment):].lstrip("_")
+    return experiment, rest.split("_") if rest else []
+
+
 def parse_rejections_entry(data_entry, chunksize, verbose=True):
-    tokens = data_entry.split("_")
-    tokens=tokens[:4] + [int(tokens[5])//chunksize] + [int(tokens[7])]
-    if len(tokens) != 6:
+    # experiment_rejections_first-frame_last-frame_local-identity_identity
+    experiment, rest = split_entry(data_entry)
+    if experiment is None or len(rest) != 5:
         if verbose:
             logger.error(f"Invalid entry: {data_entry}")
         return False, None
 
+    tokens=experiment.split("_") + [int(rest[1])//chunksize] + [int(rest[3])]
     return True, tokens
 
 
@@ -37,12 +52,13 @@ def parse_entry(data_entry, **kwargs):
     if "rejections" in data_entry:
         return parse_rejections_entry(data_entry, **kwargs)
 
-    tokens = data_entry.split("_")
-    if len(tokens) != 6:
+    # experiment_chunk_local-identity
+    experiment, rest = split_entry(data_entry)
+    if experiment is None or len(rest) != 2:
         logger.error(f"Invalid entry: {data_entry}")
         return False, None
 
-    return True, tokens
+    return True, experiment.split("_") + rest
 
 def parse_experiment(data_entry, **kwargs):
     ret, tokens = parse_entry(data_entry, **kwargs)
@@ -160,7 +176,7 @@ class DEGLoader:
 
         for data_entry in entries:
 
-            experiment_entry="_".join(data_entry.split("_")[:4])
+            experiment_entry=match_experiment(data_entry)
 
             if data_entry=="split.yaml":
                 pb.update(1)
@@ -180,7 +196,7 @@ class DEGLoader:
                 logger.debug("dbfile missing for entry: %s", data_entry)
                 pb.update(1)
                 continue
-            except IndexError:
+            except (IndexError, TypeError):
                 logger.error("Invalid entry: %s", data_entry)
                 pb.update(1)
                 continue
@@ -321,7 +337,7 @@ class DEGLoader:
             return None
 
         else:
-            id = self.experiment[:26] + "|" + str(self.identity).zfill(2)
+            id = make_id(self.experiment, self.identity)
             logger.info(f"id {id}: Number of label.csv found {labels.shape[0]}")
             animal = self.experiment + "__" + str(self.identity).zfill(2)
             labels["id"]=id

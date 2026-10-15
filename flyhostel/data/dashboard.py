@@ -14,6 +14,14 @@ import numpy as np
 import cv2
 import h5py
 
+from flyhostel.utils.experiment import experiment_to_relpath, make_experiment_name as _experiment
+
+
+def _basedir(flyhostel_id, number_of_animals, date_time, arena=None):
+    return os.path.join(
+        os.environ["FLYHOSTEL_VIDEOS"],
+        experiment_to_relpath(_experiment(flyhostel_id, number_of_animals, date_time, arena))
+    )
 def validate_file_exists_and_its_non_zero(path):
     return os.path.exists(path) and os.path.getsize(path) > 0
 
@@ -32,9 +40,9 @@ def validate_ai_file(path):
         return False
 
 
-def validate_idtrackerai_preprocessing(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end):
+def validate_idtrackerai_preprocessing(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end, arena=None):
 
-    basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], f"FlyHostel{flyhostel_id}", f"{number_of_animals}X", date_time)
+    basedir = _basedir(flyhostel_id, number_of_animals, date_time, arena)
     validated=True
 
     for chunk in range(chunk_start, chunk_end+1):
@@ -46,8 +54,8 @@ def validate_idtrackerai_preprocessing(flyhostel_id, number_of_animals, date_tim
     return validated
 
 
-def validate_idtrackerai_integration(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end):
-    basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], f"FlyHostel{flyhostel_id}", f"{number_of_animals}X", date_time)
+def validate_idtrackerai_integration(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end, arena=None):
+    basedir = _basedir(flyhostel_id, number_of_animals, date_time, arena)
     validated=True
 
     for chunk in range(chunk_start, chunk_end+1):
@@ -59,8 +67,8 @@ def validate_idtrackerai_integration(flyhostel_id, number_of_animals, date_time,
     return validated
 
 
-def validate_idtrackerai_crossings_detection_and_fragmentation(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end):
-    basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], f"FlyHostel{flyhostel_id}", f"{number_of_animals}X", date_time)
+def validate_idtrackerai_crossings_detection_and_fragmentation(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end, arena=None):
+    basedir = _basedir(flyhostel_id, number_of_animals, date_time, arena)
     validated=True
 
     for chunk in range(chunk_start, chunk_end+1):
@@ -72,8 +80,8 @@ def validate_idtrackerai_crossings_detection_and_fragmentation(flyhostel_id, num
     return validated
 
 
-def validate_idtrackerai_tracking(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end):
-    basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], f"FlyHostel{flyhostel_id}", f"{number_of_animals}X", date_time)
+def validate_idtrackerai_tracking(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end, arena=None):
+    basedir = _basedir(flyhostel_id, number_of_animals, date_time, arena)
     validated=True
 
     for chunk in range(chunk_start, chunk_end+1):
@@ -85,11 +93,11 @@ def validate_idtrackerai_tracking(flyhostel_id, number_of_animals, date_time, ch
     return validated
 
 
-def validate_flyhostel_export(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end):
+def validate_flyhostel_export(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end, arena=None):
 
     results_folder = glob.glob(os.path.join(os.environ["FLYHOSTEL_RESULTS"], "*"))[0]
-    filename=f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}.db"
-    dbfile = os.path.join(results_folder, f"FlyHostel{flyhostel_id}", f"{number_of_animals}X", date_time, filename)
+    experiment=_experiment(flyhostel_id, number_of_animals, date_time, arena)
+    dbfile = os.path.join(results_folder, experiment_to_relpath(experiment), f"{experiment}.db")
 
     validated = validate_file_exists_and_its_non_zero(dbfile)
     if not validated:
@@ -128,9 +136,9 @@ def validate_video(path, expected_frame_count):
     return validated
 
 
-def validate_flyhostel_make_video(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end):
+def validate_flyhostel_make_video(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end, arena=None):
 
-    basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], f"FlyHostel{flyhostel_id}", f"{number_of_animals}X", date_time)
+    basedir = _basedir(flyhostel_id, number_of_animals, date_time, arena)
     store_folder = os.path.join(basedir, "flyhostel", "single_animal")
     metadata_file=os.path.join(store_folder, "metadata.yaml")
 
@@ -150,13 +158,13 @@ def validate_flyhostel_make_video(flyhostel_id, number_of_animals, date_time, ch
             return validated
 
 
-def validate_deepethogram_prediction(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end):
+def validate_deepethogram_prediction(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end, arena=None):
 
     data_dir = os.path.join(os.environ["DEEPETHOGRAM_PROJECT_PATH"], "DATA")
     validated=True
 
     for chunk in range(chunk_start, chunk_end+1):
-        key=f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}_{str(chunk).zfill(6)}"
+        key=f"{_experiment(flyhostel_id, number_of_animals, date_time, arena)}_{str(chunk).zfill(6)}"
         filename=f"{key}_00_outputs.h5"
         output_file=os.path.join(data_dir, key, filename)
         if not os.path.exists(output_file):
@@ -199,7 +207,7 @@ def validate_experiment_(chunk_start, chunk_end, **kwargs):
     return data
 
 
-def validate_experiment(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end):
+def validate_experiment(flyhostel_id, number_of_animals, date_time, chunk_start, chunk_end, arena=None):
 
     starts=list(range(chunk_start, chunk_end+1, 50))
     ends=starts[1:] + [chunk_end+1]
@@ -208,14 +216,14 @@ def validate_experiment(flyhostel_id, number_of_animals, date_time, chunk_start,
     data=[]
     for start, end in intervals:
         print(start, end)
-        data.append(validate_experiment_(start,end-1, flyhostel_id=flyhostel_id, number_of_animals=number_of_animals, date_time=date_time))
+        data.append(validate_experiment_(start,end-1, flyhostel_id=flyhostel_id, number_of_animals=number_of_animals, date_time=date_time, arena=arena))
 
     data=pd.concat(data)
     #str_data=data.to_csv(index=False).strip('\n').split('\n')
     #for row in str_data:
     #    print(row)
 
-    csv_file = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], f"FlyHostel{flyhostel_id}", f"{number_of_animals}X", date_time, "status.csv")
+    csv_file = os.path.join(_basedir(flyhostel_id, number_of_animals, date_time, arena), "status.csv")
     data.to_csv(csv_file, index=False)
     # return data
 

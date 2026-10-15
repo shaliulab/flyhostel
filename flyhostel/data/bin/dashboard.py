@@ -6,21 +6,22 @@ import warnings
 import joblib
 
 from flyhostel.data.dashboard import validate_experiment
+from flyhostel.utils.experiment import get_experiment_identifier, parse_experiment_name
 
 
 def parse_metadata_path(metadata):
-    flyhostel_id=int(re.search("FlyHostel([0-9])", metadata).group(1))
-    number_of_animals=int(re.search("([0-9])X", metadata).group(1))
-    date_time=re.search("[0-9]X/([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9])", metadata).group(1)
-
-    return flyhostel_id, number_of_animals, date_time
+    """
+    .../FlyHostelN/NX/YYYY-MM-DD_HH-MM-SS[/arenas/N]/metadata.yaml
+    """
+    fields=parse_experiment_name(get_experiment_identifier(os.path.dirname(os.path.abspath(metadata))))
+    return fields["flyhostel_id"], fields["number_of_animals"], fields["date_time"], fields["arena"]
  
 
 def process_entry(entry, chunk_start, chunk_end):
     if os.path.exists(entry):
         print(f"Processing {entry}")
-        flyhostel_id, number_of_animals, date_time = parse_metadata_path(entry)
-        validate_experiment(flyhostel_id=flyhostel_id, number_of_animals=number_of_animals, date_time=date_time, chunk_start=chunk_start, chunk_end=chunk_end)
+        flyhostel_id, number_of_animals, date_time, arena = parse_metadata_path(entry)
+        validate_experiment(flyhostel_id=flyhostel_id, number_of_animals=number_of_animals, date_time=date_time, chunk_start=chunk_start, chunk_end=chunk_end, arena=arena)
     else:
         warnings.warn(f"{entry} not found")
 
@@ -32,6 +33,7 @@ def main():
     ap.add_argument("--flyhostel-id")
     ap.add_argument("--number-of-animals")
     ap.add_argument("--date-time")
+    ap.add_argument("--arena", type=int, default=None, help="Arena of a multi-arena recording (basedir/arenas/N)")
     ap.add_argument("--metadata")
     ap.add_argument("--index")
     ap.add_argument("--chunk-start", default=50, type=int)
@@ -53,11 +55,12 @@ def main():
         return
 
     elif args.metadata is not None:
-        flyhostel_id, number_of_animals, date_time = parse_metadata_path(args.metadata)
+        flyhostel_id, number_of_animals, date_time, arena = parse_metadata_path(args.metadata)
      
     else:
         flyhostel_id=args.flyhostel_id
         number_of_animals=args.number_of_animals
         date_time=args.date_time
+        arena=args.arena
 
-    validate_experiment(flyhostel_id=flyhostel_id, number_of_animals=number_of_animals, date_time=date_time, chunk_start=args.chunk_start, chunk_end=args.chunk_end)
+    validate_experiment(flyhostel_id=flyhostel_id, number_of_animals=number_of_animals, date_time=date_time, chunk_start=args.chunk_start, chunk_end=args.chunk_end, arena=arena)

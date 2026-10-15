@@ -12,6 +12,7 @@ from imgstore.interface import VideoCapture
 from imgstore.stores.utils.mixins.extract import _extract_store_metadata
 from flyhostel.data.yolov7 import letterbox
 from flyhostel.utils.filters import one_pass_filter_1d
+from flyhostel.utils.experiment import get_experiment_identifier, parse_experiment_name
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,7 @@ class MP4Reader:
     @classmethod
     def from_store_path(cls, consumer, store_path, chunks=None, **kwargs):
 
-        number_of_animals=int(os.path.basename(os.path.dirname(os.path.dirname(store_path))).split("X")[0])
+        number_of_animals=parse_experiment_name(get_experiment_identifier(os.path.dirname(os.path.abspath(store_path))))["number_of_animals"]
         flyhostel_dataset = glob.glob(os.path.join(os.path.dirname(store_path), "FlyHostel*db"))
         assert flyhostel_dataset, f"FlyHostel dataset not found for experiment {store_path}"
         flyhostel_dataset=flyhostel_dataset[0]
