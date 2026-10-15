@@ -12,5 +12,6 @@ def main():
     args=ap.parse_args()
     label_constructor(number_of_animals=args.number_of_animals, tags=[
         ("FMB",  "#000000"),
+        ("NEW-FRAGMENT", "#ffffff"),
         ("COURTSHIP", "#ff0000"),        
     ], output_json=args.output)

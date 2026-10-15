@@ -27,6 +27,7 @@ from flyhostel.data.human_validation.cvat.contour_utils import (
     select_by_contour,
 )
 from flyhostel.data.human_validation.cvat.utils import annotate_crossings
+from flyhostel.data.human_validation.cvat.fragments import reassign_fragments
 from flyhostel.utils.utils import get_chunksize, get_experiment_identifier, get_dbfile
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,9 @@ DEFAULT_FIRST_CHUNK = 50
 
 # Annotation-text vocabulary used in the CVAT validation GUI
 TAG_FRAGMENT_MUST_BREAK = "FMB"
+# The fragment under the tag gets a new id from this frame until the end of the chunk,
+# in the machine data too. Use it when the machine gave one fragment id to two flies
+TAG_NEW_FRAGMENT = "NEW-FRAGMENT"
 TAG_COPY = "COPY"
 TAG_SPATIAL_COPY = "SPATIAL-COPY"
 TAG_CROSSING = "CROSSING"
@@ -63,6 +67,7 @@ class CrossingState:
     roi0_rows: list = field(default_factory=list)
     identity_rows: list = field(default_factory=list)
     fragments_must_break: list = field(default_factory=list)
+    fragment_reassignments: list = field(default_factory=list)
     annotations_to_copy: set = field(default_factory=set)
     annotations_to_spatial_copy: set = field(default_factory=set)
     crossings: list = field(default_factory=list)
@@ -106,6 +111,12 @@ def process_text_annotations(rec, annotation, metadata, annot_idx, state: Crossi
 
     elif text == TAG_CROSSING:
         state.crossings.append((frame_number, fragment))
+
+    elif text == TAG_NEW_FRAGMENT:
+        state.fragment_reassignments.append((frame_number, fragment, rec["x"], rec["y"]))
+        # the tag marks a fly, it is not a fly itself: adding it as a blob
+        # would duplicate the fragment in this frame
+        return None, None
 
     if text == TAG_DONE:
         return None, None
@@ -472,12 +483,19 @@ def _merge_with_originals(roi0_corrected, identity_corrected, annotations_df):
            merge(identity_corrected, annotations_df, ident_cols)
 
 
-def _apply_fragment_breaks(roi0_corrected, fragments_must_break, chunksize):
+def _apply_fragment_breaks(roi0_corrected, fragments_must_break, chunksize, roi_0_machine=None):
     """Re-number fragments after each requested FMB break point within its chunk."""
     if not fragments_must_break:
         return roi0_corrected
 
-    max_frag = roi0_corrected.groupby("chunk").agg({"fragment": np.max}).reset_index()
+    # new ids must not collide with machine fragments absent from the annotated frames
+    tables = [roi0_corrected[["chunk", "fragment"]]]
+    if roi_0_machine is not None:
+        tables.append(pd.DataFrame({
+            "chunk": roi_0_machine["frame_number"] // chunksize,
+            "fragment": roi_0_machine["fragment"],
+        }))
+    max_frag = pd.concat(tables, axis=0).groupby("chunk").agg({"fragment": np.max}).reset_index()
 
     for frame_number, fragment in fragments_must_break:
         chunk = frame_number // chunksize
@@ -538,7 +556,8 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     Reconcile human CVAT annotations with machine-generated tracking data.
 
     `annotations_df` contains the fields exported in `load_task_annotations`.
-    Returns (identity_corrected, roi0_corrected, score_dist).
+    Returns (identity_corrected, roi0_corrected, roi_0_machine, score_dist).
+    roi_0_machine is returned because NEW-FRAGMENT tags rename fragments in the machine data too.
     """
     # Load the idtrackerai preprocessing config (thresholds, ROI, etc.) for this experiment.
     config = load_idtrackerai_config(basedir)
@@ -603,7 +622,14 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
     # so frames after the break get a fresh fragment number within that chunk. If the
     # fragment is None, just nullify the fragment on that single frame.
     roi0_corrected = _apply_fragment_breaks(
-        roi0_corrected, state.fragments_must_break, chunksize,
+        roi0_corrected, state.fragments_must_break, chunksize, roi_0_machine,
+    )
+
+    # NEW-FRAGMENT: the tagged fly's fragment gets a new id from the tagged frame until
+    # the end of the chunk, in both the human and the machine data, so identities don't
+    # propagate from one fly to another through a fragment the machine gave to both.
+    roi_0_machine, roi0_corrected = reassign_fragments(
+        roi_0_machine, roi0_corrected, state.fragment_reassignments, chunksize,
     )
 
     # CROSSING: mark frames flagged as crossings in identity_corrected (using
@@ -625,7 +651,8 @@ def cross_machine_human(basedir, identity_machine, roi_0_machine, annotations_df
                                             last_frame_number, chunksize)
 
     # Add a stable "{frame_number}_{in_frame_index}" id used by downstream joins,
-    # then return both tables plus the (currently empty) score_dist.
+    # then return both tables, the machine ROI table, and the (currently empty) score_dist.
     return _add_annotation_ids(identity_corrected), \
            _add_annotation_ids(roi0_corrected), \
+           roi_0_machine, \
            score_dist
