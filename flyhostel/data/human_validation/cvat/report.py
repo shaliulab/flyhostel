@@ -233,3 +233,147 @@ def jump_report_from_outputs(experiment, folder):
     chunksize=get_chunksize(experiment)
     pixels_per_mm=get_pixels_per_mm(experiment)
     jump_report(out, folder, number_of_animals=number_of_animals, chunksize=chunksize, pixels_per_mm=pixels_per_mm)
+
+
+MAX_JUMP_MM=1
+
+
+def find_problem_frames(out, number_of_animals, max_jump):
+    """
+    Problems left in the validated tracking, one row per frame and problem
+
+    A frame has a problem if
+        * an identity is missing or appears more than once
+        * a blob has no identity
+        * an identity moves more than max_jump pixels since the previous frame
+
+    Arguments
+        * out (pd.DataFrame): validated tracking with frame_number, identity, x, y
+        * number_of_animals (int)
+        * max_jump (float): in pixels
+
+    Returns
+        pd.DataFrame with columns frame_number, problem
+    """
+    problems=[]
+    out=out[["frame_number", "identity", "x", "y"]]
+
+    no_identity=out.loc[out["identity"].isna(), ["frame_number"]].drop_duplicates()
+    no_identity["problem"]="blob without identity"
+    problems.append(no_identity)
+
+    identified=out.loc[~out["identity"].isna()].copy()
+    identified["identity"]=identified["identity"].astype(np.int64)
+    counts=identified.groupby(["frame_number", "identity"]).size().unstack("identity", fill_value=0)
+    counts=counts.reindex(columns=range(1, number_of_animals+1), fill_value=0)
+    counts=counts.reindex(out["frame_number"].unique(), fill_value=0)
+    for identity in counts.columns:
+        for selector, problem in [(counts[identity]==0, "missing"), (counts[identity]>1, "duplicated")]:
+            frames=counts.index[selector.values]
+            problems.append(pd.DataFrame({"frame_number": frames, "problem": f"identity {identity} {problem}"}))
+
+    # jumps, only between consecutive frames of identities that appear once in both
+    single=identified.loc[~identified.duplicated(["frame_number", "identity"], keep=False)]
+    single=single.sort_values(["identity", "frame_number"])
+    same_track=(single["identity"].diff()==0) & (single["frame_number"].diff()==1)
+    distance=np.sqrt(single["x"].diff()**2 + single["y"].diff()**2)
+    jumps=single.loc[same_track & (distance>max_jump)]
+    problems.append(pd.DataFrame({
+        "frame_number": jumps["frame_number"].values,
+        "problem": [f"identity {int(i)} jumps" for i in jumps["identity"]],
+    }))
+
+    problems=pd.concat(problems, axis=0)
+    problems["frame_number"]=problems["frame_number"].astype(np.int64)
+    return problems.sort_values(["frame_number", "problem"]).reset_index(drop=True)
+
+
+def find_problem_blocks(problems, cvat_frames):
+    """
+    Group the frames with problems into blocks of consecutive frames of a CVAT task
+
+    Arguments
+        * problems (pd.DataFrame): output of find_problem_frames
+        * cvat_frames (dict): frame_number -> [task, job, task frame],
+            as in the index of idtrackerai_validator_server.cvat.build_index
+
+    Returns
+        pd.DataFrame with one row per block: task, job, task_frame (of the first frame),
+        first_frame_number, last_frame_number, n_frames, problems
+    """
+    columns=["task", "job", "task_frame", "first_frame_number", "last_frame_number", "n_frames", "problems"]
+    index=pd.DataFrame(
+        [(int(fn), *location) for fn, location in cvat_frames.items()],
+        columns=["frame_number", "task", "job", "task_frame"]
+    )
+    frames=index.merge(problems, on="frame_number", how="inner")
+    if frames.shape[0]==0:
+        return pd.DataFrame(columns=columns)
+
+    frames=frames.groupby(["task", "job", "task_frame", "frame_number"])["problem"].apply(list).reset_index()
+    frames=frames.sort_values(["task", "task_frame"]).reset_index(drop=True)
+    new_block=(frames["task"].diff()!=0) | (frames["task_frame"].diff()!=1)
+    frames["block"]=new_block.cumsum()
+
+    blocks=[]
+    for _, block in frames.groupby("block"):
+        first=block.iloc[0]
+        summary=pd.Series([p for problems in block["problem"] for p in problems]).value_counts(sort=False)
+        blocks.append((
+            first["task"], first["job"], first["task_frame"],
+            first["frame_number"], block["frame_number"].iloc[-1], block.shape[0],
+            ", ".join(f"{problem} ({count} frame{'' if count == 1 else 's'})" for problem, count in summary.items()),
+        ))
+    return pd.DataFrame.from_records(blocks, columns=columns)
+
+
+def cvat_problem_report(out, folder, experiment, number_of_animals, chunksize, pixels_per_mm):
+    """
+    Print the CVAT link to the first frame of every block of CVAT frames
+    that still has a problem after integrating the human annotations,
+    and save the blocks to <folder>/cvat_problem_blocks.csv
+    """
+    from idtrackerai_validator_server.cvat import build_index, configured, public_base, frame_url
+
+    if not configured():
+        logger.warning("CVAT is not configured, cannot list the CVAT frames with problems")
+        return None
+
+    try:
+        cvat_frames=build_index(experiment)["frames"]
+    except Exception as error:
+        logger.warning("Cannot list the CVAT frames of %s: %s", experiment, error)
+        return None
+
+    # only frames covered by this integration (and the frame before, to detect jumps)
+    first_frame_number=out["frame_number"].min()
+    last_frame_number=out["frame_number"].max()
+    cvat_frames={
+        fn: location for fn, location in cvat_frames.items()
+        if first_frame_number <= int(fn) <= last_frame_number
+    }
+    frame_numbers=set(int(fn) for fn in cvat_frames)
+    frame_numbers|=set(fn-1 for fn in frame_numbers)
+    out=out.loc[out["frame_number"].isin(frame_numbers)]
+
+    problems=find_problem_frames(out, number_of_animals, max_jump=pixels_per_mm*MAX_JUMP_MM)
+    # CVAT frames absent from the output have no flies at all
+    empty=sorted(set(int(fn) for fn in cvat_frames) - set(out["frame_number"].unique()))
+    problems=pd.concat([problems, pd.DataFrame({"frame_number": empty, "problem": "no flies"})], axis=0)
+
+    blocks=find_problem_blocks(problems, cvat_frames)
+    base_url=public_base()
+    blocks["url"]=[
+        frame_url(base_url, row["task"], row["job"], row["task_frame"])
+        for _, row in blocks.iterrows()
+    ]
+    blocks.to_csv(os.path.join(folder, "cvat_problem_blocks.csv"))
+
+    print(f"{blocks.shape[0]} blocks of CVAT frames still have problems after validation")
+    for _, row in blocks.iterrows():
+        chunk=row["first_frame_number"]//chunksize
+        print(
+            f"Frames {row['first_frame_number']}-{row['last_frame_number']} "
+            f"(chunk {chunk}, {row['n_frames']} frames): {row['problems']}\n    {row['url']}"
+        )
+    return blocks

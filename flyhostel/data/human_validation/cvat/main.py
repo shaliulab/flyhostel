@@ -32,7 +32,7 @@ from flyhostel.data.human_validation.cvat.utils import load_machine_data, get_db
 from flyhostel.data.human_validation.cvat.fragments import make_identity_singletons, make_identity_tracks
 from flyhostel.data.human_validation.cvat.identity import annotate_identity
 from flyhostel.data.human_validation.cvat.sqlite3 import write_validated_identity, write_validated_roi0, write_validated_concatenation
-from flyhostel.data.human_validation.cvat.report import make_report, jump_report
+from flyhostel.data.human_validation.cvat.report import make_report, jump_report, cvat_problem_report
 from flyhostel.data.human_validation.cvat.validation_csv import apply_validation_csv_file
 from .courtship import prepare_data_for_identity_annnotation_with_courtship
 logger=logging.getLogger(__name__)
@@ -592,6 +592,7 @@ def integrate_human_annotations(
     # reports
     pixels_per_mm=get_pixels_per_mm(experiment)
     jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm, images_subfolder=images_subfolder)
+    cvat_problem_report(out, folder, experiment, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm)
     df_identity=out[["frame_number", "in_frame_index", "local_identity", "identity", "validated"]].reset_index(drop=True)
 
     groupby=df_identity.groupby("local_identity")
