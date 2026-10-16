@@ -77,7 +77,6 @@ def _load_data_cached(
     number_of_rows=1,
     number_of_cols=1,
     frames_from_annotation=False,
-    reference_hour=13,
     first_frame_number=None,
     last_frame_number=None,
     image_format="v1",
@@ -90,7 +89,6 @@ def _load_data_cached(
         number_of_rows=number_of_rows,
         number_of_cols=number_of_cols,
         frames_from_annotation=frames_from_annotation,
-        reference_hour=reference_hour,
         first_frame_number=first_frame_number,
         last_frame_number=last_frame_number,
         image_format=image_format,
@@ -116,7 +114,6 @@ def load_data(
     number_of_rows=1,
     number_of_cols=1,
     frames_from_annotation=False,
-    reference_hour=13,
     first_frame_number=None,
     last_frame_number=None,
     image_format="v1",
@@ -138,14 +135,12 @@ def load_data(
 
     first_frame_number, last_frame_number=select_frame_interval(annotations_df, frames_from_annotation, first_frame_number, last_frame_number)
 
-    assert ~np.isnan(reference_hour)
-
-    
     first_chunk = first_frame_number // chunksize
     last_chunk = last_frame_number // chunksize
 
-    first_zt=get_zt_from_chunk(experiment, first_chunk, reference_hour=reference_hour*3600)
-    last_zt=get_zt_from_chunk(experiment, last_chunk, reference_hour=reference_hour*3600)
+    # ZT is computed with the reference_hour stored in the experiment's metadata
+    first_zt=get_zt_from_chunk(experiment, first_chunk)
+    last_zt=get_zt_from_chunk(experiment, last_chunk)
 
     print(f"Selected first and last frame numbers: {first_frame_number} ({first_chunk}) ZT = {first_zt} - {last_frame_number} ({last_chunk}) ZT = {last_zt}")
 

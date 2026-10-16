@@ -111,7 +111,6 @@ def main():
     ap=get_parser()
     ap.add_argument("--number-of-rows", type=int, default=1, help="If images in cvat are a grid, how many rows the grid has")
     ap.add_argument("--number-of-cols", type=int, default=1, help="If images in cvat are a grid, how many rows the grid has")
-    ap.add_argument("--reference-hour", type=int, default=13, help="Lights on time in GTM")
     ap.add_argument("--redownload", action="store_true", default=False, required=False)
     ap.add_argument("--use-cache", action="store_true", default=False, required=False)
     ap.add_argument("--log-file", type=str, default=None, help="File where everything printed to the screen is also saved. Default: <folder>/integrate_<timestamp>.log")
@@ -154,7 +153,6 @@ def integrate(args, folder, cmd):
         frames_from_annotation=args.frames_from_annotation,
         multisex=args.multisex,
         use_cache=args.use_cache,
-        reference_hour=args.reference_hour,
     )
 
     dbfile=get_dbfile(get_basedir(args.experiment))
