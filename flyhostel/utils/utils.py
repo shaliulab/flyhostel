@@ -603,11 +603,11 @@ def load_metadata(dbfile, identity):
     metadata=pd.read_csv(io.StringIO(metadata_str)).iloc[:, 1:]
 
     try:
-        metadata_single_animal=metadata.loc[metadata["identity"]==identity]
+        metadata_single_animal=metadata.loc[metadata["identity"]==identity].copy()
         if metadata_single_animal.shape[0]==0:
             raise KeyError
     except KeyError:
-        metadata_single_animal=metadata.loc[metadata["region_id"]==identity]
+        metadata_single_animal=metadata.loc[metadata["region_id"]==identity].copy()
     
     if metadata_single_animal.shape[0]!=1:
         logger.error("%s rows for identity %s in %s", metadata_single_animal.shape[0], identity, dbfile)
