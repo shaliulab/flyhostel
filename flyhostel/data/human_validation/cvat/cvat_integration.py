@@ -39,6 +39,8 @@ def get_zipfile_for_task(path, task_number):
 
 
 DEBUG=True
+# label of pre-populated detections (yolov7-cvat predict); boxes still carrying it are ignored
+UNASSIGNED_LABEL="UNASSIGNED"
 def download_task_annotations_to_zip(task_number, path = ".", redownload=False, dry_run=False):
     """
     
@@ -173,6 +175,9 @@ def load_task_annotations(annotations, images, categories, basedir, frame_width=
         category=categories.loc[
             categories["id"]==annotation["category_id"], "name"
         ].item()
+        if category == UNASSIGNED_LABEL:
+            # predictions uploaded by yolov7-cvat that the annotator did not give an identity
+            continue
         try:
             local_identity=int(category)
             text=None

@@ -1,5 +1,7 @@
 import argparse
 from flyhostel.data.human_validation.cvat.label_constructor import label_constructor
+from flyhostel.data.human_validation.cvat.cvat_integration import UNASSIGNED_LABEL
+from flyhostel.data.human_validation.cvat.courtship import COURTSHIP_LABEL
 
 def get_parser():
     ap=argparse.ArgumentParser()
@@ -13,5 +15,6 @@ def main():
     label_constructor(number_of_animals=args.number_of_animals, tags=[
         ("FMB",  "#000000"),
         ("NEW-FRAGMENT", "#ffffff"),
-        ("COURTSHIP", "#ff0000"),        
+        (UNASSIGNED_LABEL, "#ffffff"),
+        (COURTSHIP_LABEL, "#ff0000"),        
     ], output_json=args.output)

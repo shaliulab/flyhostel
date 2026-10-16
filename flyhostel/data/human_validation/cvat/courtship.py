@@ -26,6 +26,7 @@ from flyhostel.data.human_validation.cvat.cvat_integration import (
     get_zipfile_for_task
 )
 
+COURTSHIP_LABEL="COURTSHIP"
 COURTSHIP_BOUT_ISI = None
 logger=logging.getLogger(__name__)
 
@@ -379,7 +380,7 @@ def load_intervals(experiment, annotations=None, tasks=None, isi=COURTSHIP_BOUT_
     original_width, original_height = get_resolution(experiment)
     framerate = get_framerate(experiment)
 
-    intervals = detect_continuous_bouts(annotations, "COURTSHIP", isi, framerate)
+    intervals = detect_continuous_bouts(annotations, COURTSHIP_LABEL, isi, framerate)
     mult_x = original_width / annotations["images"][0]["width"]
     mult_y = original_height / annotations["images"][0]["height"]
     intervals["x1"] *= mult_x
@@ -641,7 +642,7 @@ def mark_engaged_labels(annotations, intervals):
     # We need this so that when a marker is contained in a COURTSHIP at some
     # frame, we know which bout interval_id to attribute it to.
     courtship_cat_id = next(
-        c["id"] for c in annotations["categories"] if c["name"] == "COURTSHIP"
+        c["id"] for c in annotations["categories"] if c["name"] == COURTSHIP_LABEL
     )
 
     # Build a per-frame list of (track_id, x1, y1, x2, y2) for COURTSHIPs
@@ -834,7 +835,7 @@ def parse_engagement_markers(annotations, intervals, chunksize,
         for img in annotations["images"]
     }
 
-    courtship_match = [c for c in annotations["categories"] if c["name"] == "COURTSHIP"]
+    courtship_match = [c for c in annotations["categories"] if c["name"] == COURTSHIP_LABEL]
     if not courtship_match:
         return {}  # no COURTSHIP category → no bouts → nothing to validate
     courtship_cat_id = courtship_match[0]["id"]
