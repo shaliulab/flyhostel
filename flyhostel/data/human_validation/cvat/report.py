@@ -235,7 +235,9 @@ def jump_report_from_outputs(experiment, folder):
     jump_report(out, folder, number_of_animals=number_of_animals, chunksize=chunksize, pixels_per_mm=pixels_per_mm)
 
 
-MAX_JUMP_MM=1
+# jumps between consecutive frames larger than this (mm) are reported by cvat_problem_report
+# None: jumps are not reported (most are real fast movements, or nothing can be fixed in CVAT)
+MAX_JUMP_MM=None
 
 
 def find_problem_frames(out, number_of_animals, max_jump=None):
@@ -332,11 +334,13 @@ def find_problem_blocks(problems, cvat_frames):
     return pd.DataFrame.from_records(blocks, columns=columns)
 
 
-def cvat_problem_report(out, folder, experiment, number_of_animals, chunksize, pixels_per_mm):
+def cvat_problem_report(out, folder, experiment, number_of_animals, chunksize, pixels_per_mm, max_jump_mm=MAX_JUMP_MM):
     """
     Print the CVAT link to the first frame of every block of CVAT frames
     that still has a problem after integrating the human annotations,
     and save the blocks to <folder>/cvat_problem_blocks.csv
+
+    Jumps are only reported if max_jump_mm is not None
     """
     from idtrackerai_validator_server.cvat import build_index, configured, public_base, frame_url
 
@@ -361,7 +365,8 @@ def cvat_problem_report(out, folder, experiment, number_of_animals, chunksize, p
     frame_numbers|=set(fn-1 for fn in frame_numbers)
     out=out.loc[out["frame_number"].isin(frame_numbers)]
 
-    problems=find_problem_frames(out, number_of_animals, max_jump=pixels_per_mm*MAX_JUMP_MM)
+    max_jump=None if max_jump_mm is None else pixels_per_mm*max_jump_mm
+    problems=find_problem_frames(out, number_of_animals, max_jump=max_jump)
     # CVAT frames absent from the output have no flies at all
     empty=sorted(set(int(fn) for fn in cvat_frames) - set(out["frame_number"].unique()))
     problems=pd.concat([problems, pd.DataFrame({"frame_number": empty, "problem": "no flies"})], axis=0)
