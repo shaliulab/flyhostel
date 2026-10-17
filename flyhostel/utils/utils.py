@@ -619,6 +619,24 @@ def load_metadata(dbfile, identity):
     metadata_single_animal["number_of_animals"]=make_int_or_str(metadata_single_animal["number_of_animals"])
     return metadata_single_animal
 
+def load_reference_hour(dbfile, identity):
+    """
+    Lights-on hour (GMT) of the experiment: the reference_hour of the animal with this identity or,
+    when no animal has it (identities are only written to the metadata once the experiment is validated),
+    the reference_hour shared by all animals of the experiment
+    """
+    with sqlite3.connect(dbfile) as conn:
+        metadata_str=pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'ethoscope_metadata'", con=conn)["value"].values.tolist()[0]
+    metadata=pd.read_csv(io.StringIO(metadata_str))
+    if (metadata["identity"].astype(str)==str(identity)).sum()==1 or (metadata["region_id"].astype(str)==str(identity)).sum()==1:
+        return float(load_metadata(dbfile, identity)["reference_hour"].item())
+
+    hours=metadata["reference_hour"].dropna().astype(float).unique()
+    if len(hours)!=1:
+        raise ValueError(f"Identity {identity} not in the metadata of {dbfile} and no single reference_hour to fall back to: {hours.tolist()}")
+    return hours[0]
+
+
 def load_meta_info(dbfile, identity, reference_hour=None):
     """
     Arguments:
@@ -638,8 +656,7 @@ def load_meta_info(dbfile, identity, reference_hour=None):
         start_time=start_time%(24*3600)
         
     if reference_hour is None:
-        metadata_single_animal=load_metadata(dbfile, identity)
-        reference_hour=(metadata_single_animal["reference_hour"]*3600).item()
+        reference_hour=load_reference_hour(dbfile, identity)*3600
 
     meta_info={"t_after_ref": start_time-reference_hour, "start_time": original_start-reference_hour} # seconds
     return meta_info
