@@ -375,7 +375,13 @@ class FlyHostelGroup(InteractionDetector):
                     validation_files=self.download_annotations_from_cvat(validation_folder, dry_run=False)
                 except Exception as error:
                     logger.error(error)
-                    validation_files=[]
+                    # CVAT unreachable or the project is gone:
+                    # still back up the annotations downloaded before
+                    validation_files=sorted(glob.glob(os.path.join(validation_folder, "*_annotations.zip")))
+                    logger.warning(
+                        "Could not download the CVAT annotations of %s, backing up the %s zip files already in %s",
+                        self.experiment, len(validation_files), validation_folder
+                    )
                     status="NO_CVAT_VALIDATION_FOUND"
 
             # handmade
