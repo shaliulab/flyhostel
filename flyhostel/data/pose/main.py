@@ -228,10 +228,18 @@ class FlyHostelBackup:
 
         table = get_local_identities(self.dbfile, frame_numbers=frame_numbers).reset_index(drop=True)
         for chunk in pose_chunks:
-            hit=table.query("chunk == @chunk and identity == @self.identity")["local_identity"]
-            if hit.shape[0]==1:
-                local_identity=hit.item()
-
+            hit=table.query("chunk == @chunk and identity == @self.identity")["local_identity"].unique()
+            if len(hit)==1:
+                local_identity=hit[0]
+            else:
+                # the fly is not (only once) in the first frame of the chunk
+                local_identity=self._first_local_identity_in_chunk(chunk)
+            if local_identity is None:
+                logger.warning(
+                    "%s: no local identity of identity %s in chunk %s, its pose is not backed up",
+                    self.experiment, self.identity, chunk
+                )
+            else:
                 mp4_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4")
                 slp_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4.predictions.slp")
                 h5_file=os.path.join(self.basedir, ".", "flyhostel", "single_animal", str(local_identity).zfill(3), str(chunk).zfill(6) + ".mp4.predictions.h5")
@@ -248,6 +256,42 @@ class FlyHostelBackup:
 
         files_to_backup = pose_files + behavior_files
         return rsync_files_from(files_to_backup, new_basedir, dry_run=dry_run)
+
+
+    def _first_local_identity_in_chunk(self, chunk):
+        """
+        Local identity of the fly in the first frame of the chunk where it is found
+        once in IDENTITY, or None
+
+        Validated experiments (CONCATENATION_VAL) map identities per chunk, not per frame,
+        so there is nothing to search. Single animal experiments ignore the identity:
+        it is 1 in the first chunk and 0 afterwards
+        """
+        with sqlite3.connect(f"file:{self.dbfile}?mode=ro", uri=True) as conn:
+            cur=conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='CONCATENATION_VAL';")
+            if cur.fetchone() is not None:
+                return None
+
+            query="SELECT frame_number, local_identity FROM IDENTITY WHERE frame_number >= ? AND frame_number < ?"
+            args=[chunk*self.chunksize, (chunk+1)*self.chunksize]
+            if get_number_of_animals(self.experiment) > 1:
+                query+=" AND identity = ?"
+                args.append(self.identity)
+            cur.execute(query + " ORDER BY frame_number;", args)
+
+            frame_number=None
+            local_identities=[]
+            for row in cur:
+                if row[0]!=frame_number:
+                    if len(local_identities)==1:
+                        return local_identities[0]
+                    frame_number=row[0]
+                    local_identities=[]
+                local_identities.append(row[1])
+            if len(local_identities)==1:
+                return local_identities[0]
+        return None
 
 
 class FlyHostelLoader(
