@@ -53,7 +53,32 @@ def qc2(lid_fragment_index):
 
     return impure_fragments
 
-def make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize):
+def cvat_frame_urls(experiment, frame_numbers):
+    """
+    CVAT link to each frame number (None if the frame is not in any CVAT task of the experiment)
+    """
+    from idtrackerai_validator_server.cvat import build_index, configured, public_base, frame_url
+
+    frame_numbers=list(frame_numbers)
+    if experiment is None or not configured():
+        logger.warning("CVAT is not configured, cannot link the CVAT frames")
+        return [None]*len(frame_numbers)
+
+    try:
+        cvat_frames=build_index(experiment)["frames"]
+    except Exception as error:
+        logger.warning("Cannot list the CVAT frames of %s: %s", experiment, error)
+        return [None]*len(frame_numbers)
+
+    cvat_frames={int(fn): location for fn, location in cvat_frames.items()}
+    base_url=public_base()
+    return [
+        frame_url(base_url, *cvat_frames[int(fn)]) if int(fn) in cvat_frames else None
+        for fn in frame_numbers
+    ]
+
+
+def make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize, experiment=None):
 
     fragment_crossing_fraction=qc1(roi0_annotations, identity_annotations, chunksize)
     fragment_crossing_fraction.to_csv(
@@ -69,7 +94,14 @@ def make_report(folder, identity_tracks, roi0_annotations, identity_annotations,
         counts=impure_tracks.groupby(["fragment", "local_identity", "chunk"]).size().reset_index(name="count")
         loser_lids=counts.groupby(["chunk", "fragment"], group_keys=False).apply(lambda df: df.loc[df["count"]==df["count"].min()]).reset_index(drop=True)
         loser_lids=loser_lids.merge(impure_tracks[["chunk", "fragment", "frame_idx", "local_identity"]], on=["chunk", "fragment", "local_identity"])
-        logger.error("\n%s", loser_lids)
+
+        # link every row to the first CVAT frame where its (least frequent) local identity occurs in the fragment
+        first_frames=loser_lids.groupby(["chunk", "fragment", "local_identity"])["frame_idx"].min().reset_index()
+        frame_numbers=(first_frames["chunk"]*chunksize + first_frames["frame_idx"]).astype(np.int64)
+        first_frames["url"]=cvat_frame_urls(experiment, frame_numbers)
+        loser_lids=loser_lids.merge(first_frames.drop("frame_idx", axis=1), on=["chunk", "fragment", "local_identity"], how="left")
+        loser_lids.to_csv(os.path.join(folder, "impure_tracks_loser_lids.csv"))
+        logger.error("\n%s", loser_lids.to_string())
         logger.error("\n%s", counts)
 
     impure_tracks.to_csv(

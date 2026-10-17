@@ -416,7 +416,7 @@ def manual_validations(experiment, updated_data, machine_data, first_frame_numbe
     new_data["frame_idx"]=new_data["frame_number"]%chunksize
     new_data=assign_in_frame_indices(new_data, number_of_animals, experiment=experiment)
 
-    make_report(folder, new_data=new_data, number_of_animals=number_of_animals, chunksize=chunksize, **report_data)
+    make_report(folder, new_data=new_data, number_of_animals=number_of_animals, chunksize=chunksize, experiment=experiment, **report_data)
 
     if first_frame_number is not None:
         new_data=new_data.loc[(new_data["frame_number"]>=first_frame_number)]
