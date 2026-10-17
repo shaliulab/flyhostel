@@ -238,7 +238,7 @@ def jump_report_from_outputs(experiment, folder):
 MAX_JUMP_MM=1
 
 
-def find_problem_frames(out, number_of_animals, max_jump):
+def find_problem_frames(out, number_of_animals, max_jump=None):
     """
     Problems left in the validated tracking, one row per frame and problem
 
@@ -277,11 +277,16 @@ def find_problem_frames(out, number_of_animals, max_jump):
     single=single.sort_values(["identity", "frame_number"])
     same_track=(single["identity"].diff()==0) & (single["frame_number"].diff()==1)
     distance=np.sqrt(single["x"].diff()**2 + single["y"].diff()**2)
-    jumps=single.loc[same_track & (distance>max_jump)]
-    problems.append(pd.DataFrame({
-        "frame_number": jumps["frame_number"].values,
-        "problem": [f"identity {int(i)} jumps" for i in jumps["identity"]],
-    }))
+
+    if max_jump is not None:
+        jumps=single.loc[same_track & (distance>max_jump)]
+
+        extra_problems=pd.DataFrame({
+            "frame_number": jumps["frame_number"].values,
+            "problem": [f"identity {int(i)} jumps" for i in jumps["identity"]],
+        })
+
+        problems.append(extra_problems)
 
     problems=pd.concat(problems, axis=0)
     problems["frame_number"]=problems["frame_number"].astype(np.int64)
