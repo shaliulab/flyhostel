@@ -130,16 +130,16 @@ def write_idtrackerai_conf(basedir):
 def ethoscope_metadata_rows():
     """One row per fly as found in the FlyHostel metadata sheet, plus a fly of another experiment"""
     header = [
-        "", "machine_id", "machine_name", "date", "time", "flyhostel_number", "number_of_animals",
+        "", "machine_id", "machine_name", "date", "flyhostel_number", "number_of_animals",
         "flyhostel_date", "flyhostel_time", "identity", "region_id", "reference_hour", "genotype", "sex",
     ]
     rows = [
-        [str(i), f"FlyHostel{FLYHOSTEL_ID}", f"{NUMBER_OF_ANIMALS}X", "2026-01-01", "14-00-00",
+        [str(i), f"FlyHostel{FLYHOSTEL_ID}", f"{NUMBER_OF_ANIMALS}X", "2026-01-01",
          str(FLYHOSTEL_ID), str(NUMBER_OF_ANIMALS), "2026-01-01", "14-00-00", str(identity), "NONE",
          str(REFERENCE_HOUR), "CS", "FEM"]
         for i, identity in enumerate((1, 2))
     ]
-    rows.append(["2", "FlyHostel9", "1X", "2025-01-01", "10-00-00", "9", "1", "2025-01-01", "10-00-00",
+    rows.append(["2", "FlyHostel9", "1X", "2025-01-01", "9", "1", "2025-01-01", "10-00-00",
                  "NONE", "NONE", "8", "CS", "FEM"])
     return header, rows
 
