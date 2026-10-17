@@ -4,7 +4,7 @@ import glob
 from .idtrackerai import IdtrackeraiExporter
 from .constants import PRESETS, BEHAVIORS, NODES
 from .utils import parse_experiment_properties
-from flyhostel.utils.experiment import get_experiment_identifier
+from flyhostel.utils.experiment import get_experiment_identifier, parse_experiment_name
 
 def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
     """
@@ -24,7 +24,12 @@ def export_dataset(store_path, chunks, reset=True, framerate=None, tables=None):
     # resolve the metadata file itself (not just its folder) so that it works
     # when metadata.yaml is a symlink staged in a nextflow work directory
     dbfile_basename = get_experiment_identifier(os.path.dirname(os.path.realpath(store_path))) + ".db"
-    assert dbfile_basename.startswith(f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}"), f"{dbfile_basename} does not match pattern"
+    fields=parse_experiment_name(dbfile_basename[:-len(".db")])
+    assert fields["flyhostel_id"]==flyhostel_id and fields["date_time"]==date_time, f"{dbfile_basename} does not match pattern"
+    # in multi arena experiments, the idtrackerai conf holds the number of animals of one arena
+    # while the experiment name holds the number of animals in the whole flyhostel
+    if fields["arena"] is None:
+        assert fields["number_of_animals"]==number_of_animals, f"{dbfile_basename} does not match pattern"
 
     dbfile = os.path.join(basedir, dbfile_basename)
     basedir=os.path.realpath(basedir)

@@ -73,6 +73,13 @@ def get_pixels_per_mm(*args, **kwargs):
 
 
 def get_number_of_animals(experiment):
+    """
+    Return the number of animals tracked in the experiment
+
+    In multi arena experiments (FlyHostel1_4X_2026-10-13_17-00-00_arena2) the NX token
+    refers to the whole flyhostel, so the number of animals of the arena
+    is read from its idtrackerai conf (or, if not available, from its dbfile)
+    """
     tokens = experiment.split("_")
 
     try:
@@ -80,10 +87,26 @@ def get_number_of_animals(experiment):
     except IndexError as error:
         logger.error("Cannot get number_of_animals for %s", experiment)
         raise error
-    
 
-    number_of_animals=int(token.rstrip("X"))
-    return number_of_animals
+    _, arena=split_arena(experiment)
+    if arena is None:
+        number_of_animals=int(token.rstrip("X"))
+        return number_of_animals
+
+    return get_number_of_animals_in_arena(experiment)
+
+
+def get_number_of_animals_in_arena(experiment):
+    basedir=get_basedir(experiment)
+    conf_files=sorted(glob.glob(os.path.join(basedir, "20*.conf")))
+    if conf_files:
+        with open(conf_files[0], "r", encoding="utf8") as filehandle:
+            idtrackerai_conf=yaml.load(filehandle, yaml.SafeLoader)
+    else:
+        dbfile=get_dbfile(basedir)
+        idtrackerai_conf=json.loads(load_metadata_prop("idtrackerai_conf", dbfile=dbfile))
+
+    return int(idtrackerai_conf["_number_of_animals"]["value"])
 
 def get_zt_from_chunk(experiment, chunk, **kwargs):
 
@@ -1010,7 +1033,11 @@ def load_experiments(
     """
     metadata_beh=pd.read_csv(ANIMALS_CSV, header=None)
     metadata_beh.columns=["experiment", "basedir", "identity", "date_completed", "status", "select"]
-    metadata_beh["number_of_animals"]=metadata_beh["basedir"].str.slice(34, 35).astype(int)
+    number_of_animals_per_experiment={
+        experiment: get_number_of_animals(experiment)
+        for experiment in metadata_beh["experiment"].unique()
+    }
+    metadata_beh["number_of_animals"]=metadata_beh["experiment"].map(number_of_animals_per_experiment)
     metadata_beh=metadata_beh.loc[metadata_beh["select"]=="SELECT"]
     metadata_inters=pd.read_csv(GROUPS_CSV, header=None)
     metadata_inters.columns=["basedir", "experiment", "number_of_animals", "status", "select"]

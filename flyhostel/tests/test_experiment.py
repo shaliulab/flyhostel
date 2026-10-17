@@ -113,3 +113,37 @@ def test_arena_zero_is_standard_basedir():
     assert experiment_from_id("FH1_6X_230523_14-00_arena0|01") == SINGLE
     assert normalize_arena(float("nan")) is None
     assert normalize_arena("2") == 2
+
+
+def _arena_basedir(root, experiment):
+    basedir=root / experiment_to_relpath(experiment)
+    basedir.mkdir(parents=True)
+    return basedir
+
+
+def test_number_of_animals_in_arena(tmp_path, monkeypatch):
+    import json
+    import sqlite3
+    from flyhostel.utils import get_identities, get_number_of_animals
+
+    monkeypatch.setenv("FLYHOSTEL_VIDEOS", str(tmp_path))
+    # the NX token of single arena experiments is the number of animals
+    assert get_number_of_animals(SINGLE) == 6
+
+    # arena 1 has 1 fly, read from its idtrackerai conf
+    arena1=ARENA.replace("arena2", "arena1")
+    basedir=_arena_basedir(tmp_path, arena1)
+    (basedir / "2026-10-13_17-00-00.conf").write_text(json.dumps({"_number_of_animals": {"value": 1}}))
+    assert get_number_of_animals(arena1) == 1
+    assert get_identities(arena1) == [0]
+
+    # arena 2 has 2 flies, read from its dbfile because there is no conf
+    basedir=_arena_basedir(tmp_path, ARENA)
+    with sqlite3.connect(basedir / f"{ARENA}.db") as conn:
+        conn.execute("CREATE TABLE METADATA (field TEXT, value TEXT);")
+        conn.execute(
+            "INSERT INTO METADATA VALUES ('idtrackerai_conf', ?);",
+            (json.dumps({"_number_of_animals": {"value": 2}}),)
+        )
+    assert get_number_of_animals(ARENA) == 2
+    assert get_identities(ARENA) == [1, 2]
