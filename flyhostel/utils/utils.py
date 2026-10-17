@@ -4,6 +4,8 @@ import logging
 import os.path
 import yaml
 import re
+import datetime
+import io
 import shutil
 import glob
 import sys
@@ -584,7 +586,6 @@ def animal_to_id(individual):
     return get_id_prefix(match_experiment(individual)) + "|" + individual.split("__")[1]
 
 
-import io
 def make_int_or_str(values):
     out=[]
     for val in values:
@@ -593,6 +594,20 @@ def make_int_or_str(values):
         except ValueError:
             out.append(val)
     return out
+
+
+def get_experiment_start(basedir):
+    _DATETIME_DIR = re.compile(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}")
+
+    parts = os.path.normpath(basedir).split(os.sep)
+    matches = [p for p in parts if _DATETIME_DIR.fullmatch(p)]
+
+    if len(matches) == 0:
+        raise ValueError(f"No folder matching YYYY-MM-DD_HH-MM-SS found in {basedir}")
+    if len(matches) > 1:
+        raise ValueError(f"Multiple datetime folders found in {basedir}: {matches}")
+
+    return datetime.datetime.strptime(matches[0], "%Y-%m-%d_%H-%M-%S")
 
 
 def load_metadata(dbfile, identity):
