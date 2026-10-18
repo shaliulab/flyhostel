@@ -47,10 +47,11 @@ ROI = [[20, 20], [380, 20], [380, 380], [20, 380]]
 # cv2.boundingRect of ROI is inclusive of both edges
 ROI_WIDTH = 361
 
-# store created at 13:00 UTC, lights on (ZT0) at 11:00 UTC
-CREATED_UTC = "2026-01-01T13:00:00"
+# store created at 14:00 UTC, the time in the folder name (DATE_TIME), from which frame_time counts.
+# lights on (ZT0) at 11:00 UTC
+CREATED_UTC = "2026-01-01T14:00:00"
 REFERENCE_HOUR = 11
-T_AFTER_REF = (13 - REFERENCE_HOUR) * 3600
+T_AFTER_REF = (14 - REFERENCE_HOUR) * 3600
 
 FLY1_Y = 150
 FLY2_XY = (300, 280)

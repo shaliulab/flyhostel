@@ -10,6 +10,7 @@ from ethoscopy import flyhostel_sleep_annotation as flyhostel_sleep_annotation_p
 from ethoscopy.flyhostel import compute_xy_dist_log10x1000
 from ethoscopy.load import update_metadata
 from flyhostel.utils import get_id_prefix
+from flyhostel.utils.utils import load_meta_info
 
 logger=logging.getLogger(__name__)
 
@@ -19,6 +20,11 @@ remote = '/flyhostel_data/videos'
 local = '/flyhostel_data/videos'
 flyhostel_cache='/flyhostel_data/cache'
 time_window_length=10
+
+def t_after_ref_from_dbfile(dbfile, reference_hour):
+    """Seconds between ZT0 and frame_time = 0, computed like in the rest of flyhostel (see load_meta_info)"""
+    return load_meta_info(dbfile, identity=None, reference_hour=reference_hour*3600)["t_after_ref"]
+
 
 def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=None, max_time=None, time_system="zt", n_jobs=1, verbose=False, reference_hour=np.nan, **kwargs):
     
@@ -61,7 +67,8 @@ def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=N
 
     data, meta_info = load_flyhostel(
         meta, min_time = min_time, max_time = max_time, cache = flyhostel_cache, n_jobs=n_jobs,
-        time_system=time_system, reference_hour=reference_hour, **kwargs
+        time_system=time_system, reference_hour=reference_hour,
+        t_after_ref_fn=t_after_ref_from_dbfile, **kwargs
     )
 
     assert data.shape[0] > 0, "No data found!"

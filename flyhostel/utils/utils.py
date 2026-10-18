@@ -128,7 +128,142 @@ def get_zt_from_chunk(experiment, chunk, **kwargs):
     start_time=load_meta_info(dbfile, identity, **kwargs)["t_after_ref"]
     zt = round((start_time + t) / 3600, 2)
     return zt
-    
+
+
+def parse_zt0(value):
+    """
+    Time of the day of ZT0 (lights on), as HH:MM, HH:MM:SS or hours (float)
+    Returns a datetime.timedelta since midnight
+    """
+    if isinstance(value, str):
+        for fmt in ("%H:%M:%S", "%H:%M"):
+            try:
+                t=datetime.datetime.strptime(value, fmt)
+                return datetime.timedelta(hours=t.hour, minutes=t.minute, seconds=t.second)
+            except ValueError:
+                pass
+        try:
+            value=float(value)
+        except ValueError:
+            raise ValueError(f"ZT0 must be HH:MM, HH:MM:SS or hours, got {value}")
+    return datetime.timedelta(hours=float(value))
+
+
+def _load_recording_start(basedir, dbfile=None):
+    """
+    created_utc of the recording and frame_time (ms) of its first frame
+    Read from the dbfile if available, otherwise from the imgstore (metadata.yaml and first chunk .npz)
+    """
+    if dbfile is not None and os.path.exists(dbfile):
+        with sqlite3.connect(dbfile) as conn:
+            created=float(conn.execute("SELECT value FROM METADATA WHERE field = 'date_time';").fetchone()[0])
+            first_frame_time=conn.execute(
+                "SELECT frame_time FROM STORE_INDEX WHERE frame_number = (SELECT MIN(frame_number) FROM STORE_INDEX);"
+            ).fetchone()[0]
+        created=datetime.datetime.utcfromtimestamp(created)
+    else:
+        with open(os.path.join(basedir, "metadata.yaml"), "r", encoding="utf8") as filehandle:
+            created_utc=yaml.load(filehandle, yaml.SafeLoader)["__store"]["created_utc"]
+        created=datetime.datetime.strptime(str(created_utc).split(".")[0], "%Y-%m-%dT%H:%M:%S")
+        chunk_files=sorted(glob.glob(os.path.join(basedir, "[0-9]" * 6 + ".npz")))
+        if not chunk_files:
+            raise ValueError(f"No chunk .npz files found in {basedir}")
+        first_frame_time=np.load(chunk_files[0])["frame_time"][0]
+
+    return created, float(first_frame_time)
+
+
+def get_frame_time_origin(basedir, dbfile=None):
+    """
+    Time (UTC) at which frame_time = 0, i.e. the experiment start in the folder name (YYYY-MM-DD_HH-MM-SS)
+
+    The recording starts some time after this origin (created_utc), and frame_time counts from the origin.
+    If the folder name does not agree with created_utc and the first frame_time
+    (e.g. the folder was renamed), fall back to created_utc rounded down to the hour
+    """
+    folder_start=get_experiment_start(basedir)
+    try:
+        created, first_frame_time=_load_recording_start(basedir, dbfile=dbfile)
+    except Exception as error:
+        logger.warning("Cannot check the start of %s against the recording (%s). Using the folder name", basedir, error)
+        return folder_start
+
+    recording_origin=created - datetime.timedelta(milliseconds=first_frame_time)
+    if abs((recording_origin - folder_start).total_seconds()) < 3600:
+        return folder_start
+
+    origin=created.replace(minute=0, second=0, microsecond=0)
+    logger.warning(
+        "Folder name of %s (%s) does not match the recording (created %s, first frame at %.1f min). Using %s as start",
+        basedir, folder_start, created, first_frame_time / 60000, origin
+    )
+    return origin
+
+
+def get_zt0_ms(basedir, zt0, dbfile=None):
+    """
+    ms between the start of the experiment (see get_frame_time_origin) and the last ZT0 at or before it
+    i.e. what to subtract from a frame_time to get the ZT in ms
+    ZT is counted continuously from there, so ZT values above 24 refer to the following day(s)
+
+    zt0 must be in the same timezone as the folder name (UTC)
+    """
+    experiment_start=get_frame_time_origin(basedir, dbfile=dbfile)
+    zt0=datetime.datetime.combine(experiment_start.date(), datetime.time()) + parse_zt0(zt0)
+    if zt0 > experiment_start:
+        zt0 -= datetime.timedelta(days=1)
+    return (zt0 - experiment_start).total_seconds() * 1000
+
+
+def get_chunk_range_from_zt(basedir, zt0, start_zt=None, end_zt=None):
+    """
+    First and last chunk of an experiment that overlap a ZT interval
+
+    The frame_time stored in each chunk's .npz (ms since the experiment start in the folder name)
+    gives when each chunk was recorded.
+    Shared with the idtrackerai pipeline (zt_chunk_range.py), so that the same ZT interval selects the same chunks
+
+    Arguments:
+        basedir (str): Folder of the experiment (.../YYYY-MM-DD_HH-MM-SS)
+        zt0 (str, float): Time of day of ZT0, see parse_zt0
+        start_zt (float): Hours since ZT0. If None, the first chunk is used
+        end_zt (float): Hours since ZT0. If None, the last chunk is used
+    Returns:
+        start_chunk, end_chunk (int): Both included in the range
+    """
+    basedir=basedir.rstrip("/")
+    zt0_ms=get_zt0_ms(basedir, zt0)
+
+    chunk_files=sorted(glob.glob(os.path.join(basedir, "[0-9]" * 6 + ".npz")))
+    if not chunk_files:
+        raise ValueError(f"No chunk .npz files found in {basedir}")
+
+    chunks=[]
+    for path in chunk_files:
+        frame_time=np.load(path)["frame_time"]
+        chunks.append((int(os.path.basename(path)[:6]), frame_time[0], frame_time[-1]))
+
+    start_chunk=chunks[0][0]
+    if start_zt is not None:
+        start_ms=zt0_ms + start_zt * 3600 * 1000
+        after_start=[chunk for chunk, first, last in chunks if last >= start_ms]
+        if not after_start:
+            raise ValueError(f"No chunk in {basedir} reaches ZT{start_zt}")
+        start_chunk=after_start[0]
+
+    end_chunk=chunks[-1][0]
+    if end_zt is not None:
+        end_ms=zt0_ms + end_zt * 3600 * 1000
+        before_end=[chunk for chunk, first, last in chunks if first < end_ms]
+        if not before_end:
+            raise ValueError(f"No chunk in {basedir} starts before ZT{end_zt}")
+        end_chunk=before_end[-1]
+
+    if start_chunk > end_chunk:
+        raise ValueError(f"Empty chunk range for {basedir}: {start_chunk} > {end_chunk}")
+
+    return start_chunk, end_chunk
+
 def get_wavelet_downsample(experiment):
     DOWNSAMPLES={
         150: 5,
@@ -681,22 +816,21 @@ def load_meta_info(dbfile, identity, reference_hour=None):
         reference_hour (int): If provided, time sinc light onset (ZT0) in seconds
     Populate meta_info dictionary with keys:
     
-    * t_after_ref: Number of seconds between start time (o'clock) and ZT0. Add it to an imgstore timestamp to get the ZT time
+    * t_after_ref: Number of seconds between the last ZT0 and the start time (see get_frame_time_origin). Add it to an imgstore timestamp to get the ZT time
+    * start_time: Number of seconds between the same ZT0 and the creation of the recording (created_utc)
     """
 
-    meta_info={}
     assert os.path.exists(dbfile), f"{dbfile} does not exist"
-    
-    with sqlite3.connect(dbfile) as conn:
-        start_time=int(float(pd.read_sql(sql="SELECT value FROM METADATA WHERE field = 'date_time';", con=conn)["value"].values.item()))
-        original_start=start_time%(24*3600)
-        start_time=start_time-start_time%3600
-        start_time=start_time%(24*3600)
-        
+    basedir=os.path.dirname(os.path.abspath(dbfile))
+
     if reference_hour is None:
         reference_hour=load_reference_hour(dbfile, identity)*3600
 
-    meta_info={"t_after_ref": start_time-reference_hour, "start_time": original_start-reference_hour} # seconds
+    t_after_ref=-get_zt0_ms(basedir, reference_hour/3600, dbfile=dbfile)/1000
+    created, _=_load_recording_start(basedir, dbfile=dbfile)
+    created_after_origin=(created - get_frame_time_origin(basedir, dbfile=dbfile)).total_seconds()
+
+    meta_info={"t_after_ref": t_after_ref, "start_time": t_after_ref + created_after_origin} # seconds
     return meta_info
 
     

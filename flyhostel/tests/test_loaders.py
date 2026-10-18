@@ -166,7 +166,8 @@ def test_arena_anchor_is_exact(flyhostel_videos, no_cvat, centroid_source):
 def test_centroids_in_a_time_window(flyhostel_videos, no_cvat, centroid_source):
     centroid_source(os.environ["FLYHOSTEL_VIDEOS"])
     loader = FlyHostelLoader(synthetic.EXPERIMENT, identity=1)
-    min_time, max_time = synthetic.T_AFTER_REF + 0.2, synthetic.T_AFTER_REF + 0.5
+    # not on a frame time (multiples of 1/150 s), so float round-off cannot move frames in or out of the window
+    min_time, max_time = synthetic.T_AFTER_REF + 0.201, synthetic.T_AFTER_REF + 0.501
     loader.load_centroid_data(min_time=min_time, max_time=max_time)
     t = loader.dt["t"]
     assert t.min() >= min_time and t.max() <= max_time
@@ -196,13 +197,8 @@ def set_reference_hour(basedir, reference_hour):
         conn.execute("UPDATE METADATA SET value = ? WHERE field = 'ethoscope_metadata'", (csv,))
 
 
-@pytest.mark.parametrize("reference_hour", [
-    synthetic.REFERENCE_HOUR,
-    pytest.param(15, marks=pytest.mark.xfail(
-        strict=True,
-        reason="when the recording starts before ZT0, flyhostel's load_meta_info gives a negative t_after_ref "
-               "but ethoscopy wraps it to the previous day ((hour - ref) % 24), so the same frame gets two t 24 h apart")),
-])
+# 15: the recording starts before ZT0, so ZT is counted from the ZT0 of the day before
+@pytest.mark.parametrize("reference_hour", [synthetic.REFERENCE_HOUR, 15])
 def test_centroids_and_store_index_agree_on_time(experiment_copy, no_cvat, centroid_source, reference_hour):
     set_reference_hour(experiment_copy, reference_hour)
     centroid_source(os.environ["FLYHOSTEL_VIDEOS"], reference_hour=reference_hour)
@@ -296,6 +292,26 @@ def test_load_metadata_and_meta_info(flyhostel_videos):
     assert metadata["number_of_animals"].tolist() == [str(synthetic.NUMBER_OF_ANIMALS)]
     assert load_meta_info(dbfile, 2)["t_after_ref"] == synthetic.T_AFTER_REF
     # the reference hour can be overriden (in seconds)
-    assert load_meta_info(dbfile, 2, reference_hour=12 * 3600)["t_after_ref"] == 3600
+    assert load_meta_info(dbfile, 2, reference_hour=12 * 3600)["t_after_ref"] == 2 * 3600
+    assert load_meta_info(dbfile, 2, reference_hour=11.5 * 3600)["t_after_ref"] == 2.5 * 3600
+    # lights on after the start of the recording: ZT0 of the day before
+    assert load_meta_info(dbfile, 2, reference_hour=15 * 3600)["t_after_ref"] == 23 * 3600
     with pytest.raises(Exception):
         load_metadata(dbfile, 3)
+
+
+def test_centroid_cache_with_another_t_after_ref_is_shifted(experiment_copy, no_cvat, centroid_source):
+    """Caches saved before a change in how ZT is computed must not keep the old t"""
+    centroid_source(os.environ["FLYHOSTEL_VIDEOS"], reference_hour=synthetic.REFERENCE_HOUR)
+    loader = FlyHostelLoader(synthetic.EXPERIMENT, identity=1)
+    loader.load_centroid_data()
+    cached = loader.dt[["frame_number", "t"]].sort_values("frame_number")
+
+    # same cache, lights on 4 h later (and the day before)
+    set_reference_hour(experiment_copy, 15)
+    centroid_source(os.environ["FLYHOSTEL_VIDEOS"], reference_hour=15)
+    loader = FlyHostelLoader(synthetic.EXPERIMENT, identity=1)
+    loader.load_centroid_data()
+    shifted = loader.dt[["frame_number", "t"]].sort_values("frame_number")
+    assert loader.meta_info["t_after_ref"] == 23 * 3600
+    np.testing.assert_allclose(shifted["t"].values, cached["t"].values + (23 - 3) * 3600)

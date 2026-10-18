@@ -9,6 +9,7 @@ import sqlite3
 import traceback
 
 from flyhostel.utils import get_basedir, get_dbfile
+from flyhostel.utils.utils import get_chunksize, get_chunk_range_from_zt, get_number_of_animals, load_reference_hour
 from flyhostel.data.human_validation.cvat.main import (
     integrate_human_annotations,
     save_human_annotations
@@ -99,10 +100,39 @@ def get_parser():
     ap.add_argument("--experiment", type=str, required=True)
     ap.add_argument("--folder", type=str, default=None)
     ap.add_argument("--fn-interval", type=int, nargs=2, required=False, default=[None, None])
+    ap.add_argument("--zt0", type=str, default=None, help="Time of day of ZT0 (HH:MM or HH:MM:SS, same timezone as the folder name) used to resolve --start-zt / --end-zt, like in the idtrackerai pipeline. Default: reference_hour in the experiment's metadata")
+    ap.add_argument("--start-zt", type=float, default=None, help="Validate the chunks from the one that reaches this ZT (hours since the last ZT0 before the experiment start, can be above 24). Missing means first chunk. Not compatible with --fn-interval")
+    ap.add_argument("--end-zt", type=float, default=None, help="Validate the chunks until the last one that starts before this ZT. Missing means last chunk. Not compatible with --fn-interval")
     ap.add_argument("--tasks", type=int, nargs="+", required=False)
     ap.add_argument("--frames-from-annotation", dest="frames_from_annotation", action="store_true", help="Infer frame window from annotations")
     ap.add_argument("--multisex", action="store_true", help="Are there flies from both sexes in the experiment?")
     return ap
+
+
+def get_frame_interval(args):
+    """
+    First and last (excluded) frame number to validate,
+    either from --fn-interval or from the chunks overlapping --start-zt / --end-zt
+    The chunks are selected with the same function as the idtrackerai pipeline (zt_chunk_range.py)
+    """
+    if args.start_zt is None and args.end_zt is None:
+        return args.fn_interval
+
+    if args.fn_interval != [None, None]:
+        raise ValueError("Pass either --fn-interval or --start-zt / --end-zt, not both")
+
+    basedir=get_basedir(args.experiment)
+    if args.zt0 is None:
+        identity=0 if get_number_of_animals(args.experiment)==1 else 1
+        zt0=load_reference_hour(get_dbfile(basedir), identity)
+    else:
+        zt0=args.zt0
+
+    start_chunk, end_chunk=get_chunk_range_from_zt(basedir, zt0, start_zt=args.start_zt, end_zt=args.end_zt)
+    chunksize=get_chunksize(args.experiment)
+    print(f"ZT0 = {zt0}: ZT{args.start_zt}-ZT{args.end_zt} -> chunks {start_chunk}-{end_chunk}")
+    return start_chunk*chunksize, (end_chunk+1)*chunksize
+
 
 def main():
 
@@ -141,12 +171,14 @@ def integrate(args, folder, cmd):
     else:
         tasks=tuple(args.tasks)
 
+    first_frame_number, last_frame_number=get_frame_interval(args)
+
     integrate_human_annotations(
         args.experiment,
         folder=folder,
         tasks=tasks,
-        first_frame_number=args.fn_interval[0],
-        last_frame_number=args.fn_interval[1],
+        first_frame_number=first_frame_number,
+        last_frame_number=last_frame_number,
         redownload=args.redownload,
         number_of_rows=args.number_of_rows,
         number_of_cols=args.number_of_cols,
@@ -169,10 +201,12 @@ def save():
     else:
         folder=args.folder
 
+    first_frame_number, last_frame_number=get_frame_interval(args)
+
     save_human_annotations(
         args.experiment, folder,
-        first_frame_number=args.fn_interval[0],
-        last_frame_number=args.fn_interval[1],
+        first_frame_number=first_frame_number,
+        last_frame_number=last_frame_number,
         frames_from_annotation=args.frames_from_annotation,
     )
 
