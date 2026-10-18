@@ -22,6 +22,8 @@ ANNOTATION_PARAMETERS = {
 
 CONFIG_FILE = os.path.join(os.environ.get("HOME", "."), ".config", "flyhostel", "config.conf")
 LOGGING_CONFIG = os.path.join(os.environ.get("HOME", "."), ".config", "flyhostel", "logging.yaml")
+# training data and weights of the roi-proposer
+ROI_PROPOSER_DIR = os.environ.get("FLYHOSTEL_ROI_PROPOSER_DIR", os.path.join(os.environ.get("HOME", "."), ".local", "share", "flyhostel", "roi_proposer"))
 
 DEFAULT_CONFIG = {"videos": {"folder": "/flyhostel_data/videos"}, "logging": {"sensors": "WARNING", "arduino": "WARNING"}}
 N_JOBS = 1

@@ -78,6 +78,8 @@ setup(
         ],
         "detection": ["yolov7tools==1.1"],
         "idtrackerai": [vendored("idtrackerai-shaliulab", "idtrackerai", extras=["gpu"])],
+        # needs opencv>=4: install in its own environment, see flyhostel/roi_proposer/README.md
+        "roi_proposer": ["ultralytics==8.3.40", "numpy<2", "tomli"],
     },
     include_package_data=True,
     package_data={"flyhostel": ["default_logging.yaml"]},
@@ -112,6 +114,7 @@ setup(
             "get-framerate=flyhostel.data.bin.utils:main_get_framerate",
             "get-chunksize=flyhostel.data.bin.utils:main_get_chunksize",
             "get-number-of-animals=flyhostel.data.bin.utils:main_get_number_of_animals",
+            "roi-proposer=flyhostel.roi_proposer.cli:main",
 
             ]
     },
