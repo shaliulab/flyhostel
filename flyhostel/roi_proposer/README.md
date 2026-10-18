@@ -29,7 +29,7 @@ Accuracy vs the hand-made ROIs: on the 60 most recent experiments (not used for 
 ## Retraining (e.g. once more experiments are annotated)
 
 ```bash
-roi-proposer build-dataset   # data/ : symlinks to snapshots + labels rendered from the tomls, latest 60 experiments = validation
+roi-proposer build-dataset   # data/ : copies of the snapshots + labels rendered from the tomls, latest 60 experiments = validation
 roi-proposer train           # runs/roi_proposer/weights/best.pt
 roi-proposer evaluate        # error vs hand-made ROIs on the validation experiments, previews in runs/eval/
 ```
