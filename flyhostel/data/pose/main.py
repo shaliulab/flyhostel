@@ -223,7 +223,15 @@ class FlyHostelBackup:
             pose_chunks=self.DEFAULT_CHUNKS
         else:
             pose_chunks=chunks
-        
+
+        # only the chunks tracked in the database (they may end before chunk 399)
+        tracked=self._tracked_chunk_range()
+        if tracked is None:
+            logger.warning("%s: no tracking in ROI_0, no pose is backed up", self.experiment)
+            pose_chunks=[]
+        else:
+            pose_chunks=[chunk for chunk in pose_chunks if tracked[0] <= chunk <= tracked[1]]
+
         frame_numbers=[chunk*self.chunksize for chunk in pose_chunks]
 
         table = get_local_identities(self.dbfile, frame_numbers=frame_numbers).reset_index(drop=True)
@@ -256,6 +264,19 @@ class FlyHostelBackup:
 
         files_to_backup = pose_files + behavior_files
         return rsync_files_from(files_to_backup, new_basedir, dry_run=dry_run)
+
+
+    def _tracked_chunk_range(self):
+        """
+        First and last chunk with rows in ROI_0, or None
+        (min and max in separate queries so that both use the frame_number index)
+        """
+        with sqlite3.connect(f"file:{self.dbfile}?mode=ro", uri=True) as conn:
+            first=conn.execute("SELECT MIN(frame_number) FROM ROI_0;").fetchone()[0]
+            last=conn.execute("SELECT MAX(frame_number) FROM ROI_0;").fetchone()[0]
+        if first is None:
+            return None
+        return first//self.chunksize, last//self.chunksize
 
 
     def _first_local_identity_in_chunk(self, chunk):
