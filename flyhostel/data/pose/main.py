@@ -28,6 +28,7 @@ from flyhostel.data.pose.loaders.sleep import SleepLoader
 from flyhostel.data.pose.loaders.sleep_videos import SleepVideoRecorder
 from flyhostel.data.pose.loaders.pe import PELoader
 from flyhostel.data.pose.loaders.interactions import InteractionsLoader
+from flyhostel.data.pose.loaders.environment import EnvironmentLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import ROI_WIDTH_MM
 from flyhostel.data.pose.sleep import SleepAnnotator
@@ -317,7 +318,7 @@ class FlyHostelBackup:
 
 class FlyHostelLoader(
     CrossVideo, FilesystemInterface, ConcatenationLoader, SleepAnnotator, InteractionsLoader, PoseLoader, ROILoader,
-    SleepLoader, SleepVideoRecorder, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader, MovementLoader, RejectionsLoader, PELoader, FlyHostelBackup):
+    SleepLoader, SleepVideoRecorder, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader, MovementLoader, RejectionsLoader, PELoader, EnvironmentLoader, FlyHostelBackup):
     """
     Analyse microbehavior produced in the flyhostel
 
