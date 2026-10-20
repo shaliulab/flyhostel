@@ -190,6 +190,11 @@ class DEGLoader:
                 pb.update(1)
                 continue
 
+            # entries of other experiments are not needed
+            if experiment_entry != self.experiment:
+                pb.update(1)
+                continue
+
             try:
                 dbfile=get_dbfile(get_basedir(experiment_entry))
             except (AssertionError, FileNotFoundError):
