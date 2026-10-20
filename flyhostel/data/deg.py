@@ -192,7 +192,7 @@ class DEGLoader:
 
             try:
                 dbfile=get_dbfile(get_basedir(experiment_entry))
-            except AssertionError:
+            except (AssertionError, FileNotFoundError):
                 logger.debug("dbfile missing for entry: %s", data_entry)
                 pb.update(1)
                 continue
@@ -201,7 +201,7 @@ class DEGLoader:
                 pb.update(1)
                 continue
         
-            chunksize=get_chunksize(experiment_entry)
+            chunksize=get_chunksize(dbfile=dbfile)
 
             chunk=parse_chunk(data_entry, chunksize=chunksize)
             labels_file=f"{deg_data_folder}/{data_entry}/{str(chunk).zfill(6)}_labels.csv"

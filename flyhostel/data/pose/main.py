@@ -756,7 +756,7 @@ class FlyHostelLoader(
 
     def load_data(
         self, *args, identity=None, min_time=None, max_time=None, stride=1, n_jobs=1, cache=None, files=None,
-        load_behavior=True, load_deg=True, write_only=False,
+        load_behavior=True, load_deg=False, write_only=False,
         **kwargs
     ):
         self.load_store_index(cache=cache)
