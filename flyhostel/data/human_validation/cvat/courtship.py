@@ -25,6 +25,7 @@ from flyhostel.utils.cvat import (
 from flyhostel.data.human_validation.cvat.cvat_integration import (
     get_zipfile_for_task
 )
+from flyhostel.data.human_validation.cvat.report import nearest_cvat_frame_urls
 
 COURTSHIP_LABEL="COURTSHIP"
 COURTSHIP_BOUT_ISI = None
@@ -51,14 +52,16 @@ reusing the old one, or the time between the two bouts will be treated as courts
 """
 
 def report_intruders_in_courtship_boxes(data, all_intervals_engaged_labels, chunksize,
-                                        min_frames=1, path="courtship_intruders.csv"):
+                                        min_frames=1, path="courtship_intruders.csv",
+                                        experiment=None):
     """Flag flies inside a COURTSHIP box that are not the engaged pair for that chunk.
 
     A third fly walking through the box is normal — it just must not be deleted along
     with the pair. A third fly that stays inside for a long stretch is more likely a
     marker naming the wrong local identity, or a box drawn too large.
 
-    Returns one row per (bout, chunk, local_identity, run of consecutive frames).
+    Returns one row per (bout, chunk, local_identity, run of consecutive frames),
+    with a link to the CVAT frame closest to the start of the run.
     """
     if not all_intervals_engaged_labels:
         return pd.DataFrame()
@@ -113,6 +116,9 @@ def report_intruders_in_courtship_boxes(data, all_intervals_engaged_labels, chun
     if runs.empty:
         return runs
 
+    # link every run to the CVAT frame closest to where it starts
+    # (CVAT tasks only contain a subset of the frames)
+    runs["cvat_frame"], runs["url"] = nearest_cvat_frame_urls(experiment, runs["first_frame"])
     runs.to_csv(path, index=False)
     total = int(runs["n_frames"].sum())
     logger.warning(
@@ -1107,7 +1113,7 @@ def prepare_data_for_identity_annnotation_with_courtship(experiment, data):
         raise ValueError("Please check the fragments above")
 
     report_intruders_in_courtship_boxes(
-        data, all_intervals_engaged_labels, chunksize,
+        data, all_intervals_engaged_labels, chunksize, experiment=experiment,
     )
     data = remove_blobs_associated_to_courtship(
         data, all_intervals_engaged_labels=all_intervals_engaged_labels, chunksize=chunksize,

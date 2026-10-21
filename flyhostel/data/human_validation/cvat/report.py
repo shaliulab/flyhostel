@@ -53,29 +53,67 @@ def qc2(lid_fragment_index):
 
     return impure_fragments
 
-def cvat_frame_urls(experiment, frame_numbers):
+def _load_cvat_frames(experiment):
     """
-    CVAT link to each frame number (None if the frame is not in any CVAT task of the experiment)
+    frame_number -> CVAT location (task, job, task frame) of every frame of the experiment in CVAT, and the CVAT base url
     """
-    from idtrackerai_validator_server.cvat import build_index, configured, public_base, frame_url
+    from idtrackerai_validator_server.cvat import build_index, configured, public_base
 
-    frame_numbers=list(frame_numbers)
     if experiment is None or not configured():
         logger.warning("CVAT is not configured, cannot link the CVAT frames")
-        return [None]*len(frame_numbers)
+        return None, None
 
     try:
         cvat_frames=build_index(experiment)["frames"]
     except Exception as error:
         logger.warning("Cannot list the CVAT frames of %s: %s", experiment, error)
+        return None, None
+
+    return {int(fn): location for fn, location in cvat_frames.items()}, public_base()
+
+
+def cvat_frame_urls(experiment, frame_numbers):
+    """
+    CVAT link to each frame number (None if the frame is not in any CVAT task of the experiment)
+    """
+    from idtrackerai_validator_server.cvat import frame_url
+
+    frame_numbers=list(frame_numbers)
+    cvat_frames, base_url=_load_cvat_frames(experiment)
+    if cvat_frames is None:
         return [None]*len(frame_numbers)
 
-    cvat_frames={int(fn): location for fn, location in cvat_frames.items()}
-    base_url=public_base()
     return [
         frame_url(base_url, *cvat_frames[int(fn)]) if int(fn) in cvat_frames else None
         for fn in frame_numbers
     ]
+
+
+def nearest_cvat_frame_urls(experiment, frame_numbers):
+    """
+    Closest frame in CVAT to each frame number, and its CVAT link
+
+    CVAT tasks only contain a subset of the frames, so most frame numbers are not in CVAT themselves.
+    Returns two lists (None, None if CVAT cannot be reached)
+    """
+    from idtrackerai_validator_server.cvat import frame_url
+
+    frame_numbers=np.array(list(frame_numbers), dtype=np.int64)
+    cvat_frames, base_url=_load_cvat_frames(experiment)
+    if not cvat_frames:
+        return [None]*len(frame_numbers), [None]*len(frame_numbers)
+
+    available=np.array(sorted(cvat_frames), dtype=np.int64)
+    pos=np.searchsorted(available, frame_numbers).clip(1, len(available)-1)
+    before, after=available[pos-1], available[pos]
+    nearest=np.where(frame_numbers-before <= after-frame_numbers, before, after)
+    if len(available)==1:
+        nearest=np.full_like(frame_numbers, available[0])
+
+    return (
+        [int(fn) for fn in nearest],
+        [frame_url(base_url, *cvat_frames[int(fn)]) for fn in nearest],
+    )
 
 
 def make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize, experiment=None):
