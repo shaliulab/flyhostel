@@ -14,6 +14,7 @@ from flyhostel.utils import (
     get_chunksize,
     get_framerate,
     get_resolution,
+    get_pixels_per_mm,
 )
 
 
@@ -51,17 +52,96 @@ reusing the old one, or the time between the two bouts will be treated as courts
 
 """
 
+# a fly is close to a COURTSHIP box when it is closer than this to the edge of the box
+INTRUDER_MARGIN_MM = 5
+# how far (in seconds) to look for the identity right before and after it is inside a box
+INTRUDER_MAX_GAP_S = 1
+
+
+def _distance_to_box(box, x, y):
+    """Distance from (x, y) to the edge of the box (0 inside)."""
+    dx = max(box["x1"] - x, 0, x - box["x2"])
+    dy = max(box["y1"] - y, 0, y - box["y2"])
+    return float(np.hypot(dx, dy))
+
+
+def classify_intruders(runs, data, intervals, chunksize, pixels_per_mm, max_gap):
+    """Tell apart a fly walking into the COURTSHIP box from a spurious identity of the copulating blob.
+
+    - unidentified: local_identity 0, the copulating blob tracked as an unknown fly
+    - intruder: the identity is close to the box right before and right after the run
+      (the fly is about to enter it, and has just left it)
+    - spurious: the identity is far from the box right before or right after the run,
+      so it belongs to another fly of the group and jumped onto the copulating blob
+    - unclear: the identity is not seen outside the box within max_gap frames of the run
+
+    Local identities are only meaningful within a chunk, so the identity is only searched in the same chunk.
+    """
+    runs = runs.copy()
+    runs["dist_before_mm"] = np.nan
+    runs["dist_after_mm"] = np.nan
+    runs["kind"] = "unidentified"
+
+    identified = runs["local_identity"] != 0
+    if not identified.any():
+        return runs
+
+    boxes = intervals.set_index(["interval_id", "frame_number"])[["x1", "y1", "x2", "y2"]].sort_index()
+
+    # rows of the identities of interest, outside any COURTSHIP box
+    outside = data.loc[
+        (data["courtship"] != True)
+        & data["local_identity"].isin(runs.loc[identified, "local_identity"].unique()),
+        ["frame_number", "local_identity", "x", "y"]
+    ]
+    outside = outside.assign(chunk=outside["frame_number"] // chunksize)
+    outside = {key: df.sort_values("frame_number") for key, df in outside.groupby(["chunk", "local_identity"])}
+
+    for i, run in runs.loc[identified].iterrows():
+        box = boxes.loc[run["interval_id"]]
+        rows = outside.get((run["chunk"], run["local_identity"]))
+        if rows is None:
+            rows = pd.DataFrame(columns=["frame_number", "x", "y"])
+
+        before = rows.loc[rows["frame_number"].between(run["first_frame"] - max_gap, run["first_frame"] - 1)].tail(1)
+        after = rows.loc[rows["frame_number"].between(run["last_frame"] + 1, run["last_frame"] + max_gap)].head(1)
+
+        distances = []
+        for column, neighbor, frame in [
+            ("dist_before_mm", before, run["first_frame"]),
+            ("dist_after_mm", after, run["last_frame"]),
+        ]:
+            if neighbor.empty:
+                continue
+            frame = int(np.clip(frame, box.index.min(), box.index.max()))
+            distance = _distance_to_box(box.loc[frame], neighbor["x"].iloc[0], neighbor["y"].iloc[0]) / pixels_per_mm
+            runs.loc[i, column] = round(distance, 1)
+            distances.append(distance)
+
+        if not distances:
+            runs.loc[i, "kind"] = "unclear"
+        elif max(distances) > INTRUDER_MARGIN_MM:
+            runs.loc[i, "kind"] = "spurious"
+        else:
+            runs.loc[i, "kind"] = "intruder"
+
+    return runs
+
+
 def report_intruders_in_courtship_boxes(data, all_intervals_engaged_labels, chunksize,
                                         min_frames=1, path="courtship_intruders.csv",
-                                        experiment=None):
+                                        experiment=None, intervals=None,
+                                        pixels_per_mm=None, framerate=None):
     """Flag flies inside a COURTSHIP box that are not the engaged pair for that chunk.
 
     A third fly walking through the box is normal — it just must not be deleted along
-    with the pair. A third fly that stays inside for a long stretch is more likely a
-    marker naming the wrong local identity, or a box drawn too large.
+    with the pair. Most of the time though, the fly is the copulating blob itself, tracked
+    as an unknown fly (local_identity 0) or under the identity of another fly of the group.
+    Those runs are classified with classify_intruders (if intervals, pixels_per_mm and
+    framerate are passed) so they can be discarded, and only the rest is reported.
 
     Returns one row per (bout, chunk, local_identity, run of consecutive frames),
-    with a link to the CVAT frame closest to the start of the run.
+    with its kind and a link to the CVAT frame closest to the start of the run.
     """
     if not all_intervals_engaged_labels:
         return pd.DataFrame()
@@ -116,17 +196,38 @@ def report_intruders_in_courtship_boxes(data, all_intervals_engaged_labels, chun
     if runs.empty:
         return runs
 
+    if intervals is not None and pixels_per_mm and framerate:
+        runs = classify_intruders(
+            runs, data, intervals, chunksize, pixels_per_mm,
+            max_gap=int(INTRUDER_MAX_GAP_S * framerate),
+        )
+    else:
+        runs = runs.assign(kind=np.where(runs["local_identity"] == 0, "unidentified", "unclear"))
+
     # link every run to the CVAT frame closest to where it starts
     # (CVAT tasks only contain a subset of the frames)
     runs["cvat_frame"], runs["url"] = nearest_cvat_frame_urls(experiment, runs["first_frame"])
     runs.to_csv(path, index=False)
-    total = int(runs["n_frames"].sum())
-    logger.warning(
-        "%d fly/frame(s) inside a COURTSHIP box are not the engaged pair, in %d run(s). "
-        "Longest runs (see %s):\n%s",
-        total, len(runs), path,
-        runs.head(10).to_string(index=False),
-    )
+
+    discarded = runs.loc[runs["kind"].isin(["unidentified", "spurious"])]
+    if not discarded.empty:
+        logger.info(
+            "Discarding %d fly/frame(s) inside a COURTSHIP box that are the copulating blob "
+            "(%d unidentified, %d with a spurious identity, see %s)",
+            int(discarded["n_frames"].sum()),
+            int(discarded.loc[discarded["kind"] == "unidentified", "n_frames"].sum()),
+            int(discarded.loc[discarded["kind"] == "spurious", "n_frames"].sum()),
+            path,
+        )
+
+    reported = runs.loc[~runs["kind"].isin(["unidentified", "spurious"])]
+    if not reported.empty:
+        logger.warning(
+            "%d fly/frame(s) inside a COURTSHIP box are not the engaged pair, in %d run(s). "
+            "Longest runs (see %s):\n%s",
+            int(reported["n_frames"].sum()), len(reported), path,
+            reported.head(10).to_string(index=False),
+        )
     return runs
 
 def parse_frame_number(x):
@@ -555,11 +656,14 @@ def annotate_validated_fragments(data):
     return data
 
 
-def remove_blobs_associated_to_courtship(data, all_intervals_engaged_labels=None, chunksize=None):
+def remove_blobs_associated_to_courtship(data, all_intervals_engaged_labels=None, chunksize=None, intruders=None):
     """Remove blobs belonging to the engaged flies inside a bout; keep everyone else.
 
     Engaged local identities are known per (bout, chunk) from the markers, so a free
     fly that merely walks across the COURTSHIP box is no longer deleted for it.
+
+    The runs of report_intruders_in_courtship_boxes that are the copulating blob itself
+    (kind unidentified or spurious) are removed too.
     """
     synthetic = data.get("synthetic_courtship", pd.Series(False, index=data.index))
     synthetic = synthetic.fillna(False).astype(bool)
@@ -574,6 +678,16 @@ def remove_blobs_associated_to_courtship(data, all_intervals_engaged_labels=None
 
     fragment_ok = (data["validated_fragment"] == True) | data["fragment"].isna()
     selector = synthetic | ~(engaged & data["courtship"] & ~fragment_ok)
+
+    if intruders is not None and "kind" in intruders.columns:
+        copulating_blob = pd.Series(False, index=data.index)
+        for run in intruders.loc[intruders["kind"].isin(["unidentified", "spurious"])].itertuples():
+            copulating_blob |= (
+                (data["interval_id"] == run.interval_id)
+                & (data["local_identity"] == run.local_identity)
+                & data["frame_number"].between(run.first_frame, run.last_frame)
+            )
+        selector &= synthetic | ~(copulating_blob & (data["courtship"] == True))
 
     data.loc[~selector].to_csv("courtship_discarded.csv")
     return data.loc[selector]
@@ -1112,11 +1226,14 @@ def prepare_data_for_identity_annnotation_with_courtship(experiment, data):
         print(x)
         raise ValueError("Please check the fragments above")
 
-    report_intruders_in_courtship_boxes(
+    intruders = report_intruders_in_courtship_boxes(
         data, all_intervals_engaged_labels, chunksize, experiment=experiment,
+        intervals=intervals, pixels_per_mm=get_pixels_per_mm(experiment),
+        framerate=get_framerate(experiment),
     )
     data = remove_blobs_associated_to_courtship(
         data, all_intervals_engaged_labels=all_intervals_engaged_labels, chunksize=chunksize,
+        intruders=intruders,
     )
 
     data = fill_missing_in_frame_index(data)
