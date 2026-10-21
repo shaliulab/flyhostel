@@ -119,11 +119,22 @@ def test_video_of_chunk_0_has_a_full_chunk(experiment_copy, monkeypatch):
     assert read_video(video_path(experiment_copy, 1, 0)).shape[0] == synthetic.CHUNKSIZE
 
 
-@pytest.mark.xfail(strict=True, raises=AttributeError,
-                   reason="_make_single_video closes the writers after each chunk but does not reset them, "
-                          "so with --n-jobs 1 the second chunk is written to a closed store")
 def test_several_chunks_in_a_single_process(experiment_copy, monkeypatch):
+    # each chunk gets its own writer, as with several processes
     make_videos(experiment_copy, monkeypatch, chunks=[0, 1])
+    for local_identity in (1, 2):
+        # chunk 0 has 1 frame, see test_video_of_chunk_0_has_a_full_chunk
+        assert os.path.exists(video_path(experiment_copy, local_identity, 0))
+        assert read_video(video_path(experiment_copy, local_identity, 1)).shape[0] == synthetic.CHUNKSIZE
+
+
+def test_a_chunk_stops_at_its_last_frame_without_the_next_chunk(experiment_copy, monkeypatch):
+    # the pipeline stages only the chunk it crops: reading on into the next one
+    # used to skip chunk after chunk until the recursion limit
+    os.remove(os.path.join(experiment_copy, "000002.mp4"))
+    make_videos(experiment_copy, monkeypatch, chunks=[1])
+    for local_identity in (1, 2):
+        assert read_video(video_path(experiment_copy, local_identity, 1)).shape[0] == synthetic.CHUNKSIZE
 
 
 @pytest.fixture

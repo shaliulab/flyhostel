@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
 from .apf import build_group
+from flyhostel.data.sleep import annotate_sleep
 from flyhostel.data.interactions.detector import InteractionDetector
 from flyhostel.data.synchrony.main import compute_synchrony, DEFAULT_LAGS
 from flyhostel.data.hostpy import load_hostel
@@ -141,12 +142,16 @@ class FlyHostelGroup(InteractionDetector):
     def __len__(self):
         return len(self.flies)
 
-    def compute_synchrony(self, time_window_length=1, min_time_immobile=300, source="inactive", lags=DEFAULT_LAGS):
+    def compute_synchrony(self, time_window_length=1, min_time_immobile=300, lags=DEFAULT_LAGS):
 
         lags_seconds=np.array(lags)
         lags=(lags_seconds//time_window_length).tolist()
 
-        dt_sleep=self.apply("sleep_annotation", source=source, min_time_immobile=min_time_immobile, time_window_length=time_window_length)
+        dt_sleep=[]
+        for fly in self.flies.values():
+            fly.load_behavior_data()
+            dt_sleep.append(annotate_sleep(fly.behavior, min_time_immobile=min_time_immobile, time_window_length=time_window_length))
+        dt_sleep=pd.concat(dt_sleep, axis=0).rename({"inactive_rule": "asleep"}, axis=1)
         return compute_synchrony(dt_sleep, lags=lags)
 
 

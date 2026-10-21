@@ -23,8 +23,7 @@ from .distance import compute_min_distance
 from flyhostel.data.interactions.classifier.inter_orientation import compute_inter_orientation_one_pair
 logger=logging.getLogger(__name__)
 
-from sync_paper.sleep import sleep_annotation_rf
-from sync_paper.constants import PURE_INACTIVE_STATES
+from flyhostel.data.sleep import annotate_sleep
 
 def load_fly_data(loader, min_time, max_time, n_jobs=1, framerate=50, **kwargs):
     loader.load_centroid_data(min_time=min_time, max_time=max_time, n_jobs=n_jobs)
@@ -34,8 +33,7 @@ def load_fly_data(loader, min_time, max_time, n_jobs=1, framerate=50, **kwargs):
     loader.load_behavior_data(min_time=min_time, max_time=max_time)
     loader.behavior.sort_values(["frame_number"], inplace=True)
     print("Computing sleep")
-    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(PURE_INACTIVE_STATES)
-    loader.sleep=sleep_annotation_rf(loader.behavior)
+    loader.sleep=annotate_sleep(loader.behavior)
 
 
 def process_experiment(experiment, identities, min_time, max_time, sources=["opencv", "pose"], n_jobs=1, n_jobs_ethoscopy=1, **kwargs):

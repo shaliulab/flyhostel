@@ -117,14 +117,14 @@ def filter_by_id(data_entry, experiment, identity, chunksize):
     try:
         table=get_local_identities_from_experiment(experiment_, int(frame_number))
     except Exception as error:
-        logger.debug(error)
+        logger.warning("Cannot read the identities of %s: %s", data_entry, error)
         return False
 
-    try:
-        identity_=int(table["identity"].loc[table["local_identity"]==local_identity])
-    except TypeError as error:
-        logger.error("Cannot find identity for %s at frame %s with local_identity %s", data_entry, frame_number, local_identity)
-        raise error
+    identities=table["identity"].loc[table["local_identity"]==local_identity].unique()
+    if len(identities) != 1:
+        logger.warning("Cannot find identity for %s at frame %s with local_identity %s", data_entry, frame_number, local_identity)
+        return False
+    identity_=int(identities[0])
 
     if not (experiment_ == experiment and identity_ == identity):
         return False

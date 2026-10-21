@@ -31,11 +31,9 @@ from flyhostel.data.pose.loaders.interactions import InteractionsLoader
 from flyhostel.data.pose.loaders.environment import EnvironmentLoader
 from flyhostel.data.pose.loaders.centroids import load_centroid_data
 from flyhostel.data.pose.constants import ROI_WIDTH_MM
-from flyhostel.data.pose.sleep import SleepAnnotator
 
 from flyhostel.data.pose.loaders.concatenation import ConcatenationLoader
 
-from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
 from flyhostel.data.pose.loaders.centroids import to_behavpy
 from flyhostel.utils.filesystem import FilesystemInterface
 from flyhostel.utils import (
@@ -317,7 +315,7 @@ class FlyHostelBackup:
 
 
 class FlyHostelLoader(
-    CrossVideo, FilesystemInterface, ConcatenationLoader, SleepAnnotator, InteractionsLoader, PoseLoader, ROILoader,
+    CrossVideo, FilesystemInterface, ConcatenationLoader, InteractionsLoader, PoseLoader, ROILoader,
     SleepLoader, SleepVideoRecorder, WaveletLoader, BehaviorLoader, DEGLoader, FilterPose, LandmarksLoader, MovementLoader, RejectionsLoader, PELoader, EnvironmentLoader, FlyHostelBackup):
     """
     Analyse microbehavior produced in the flyhostel
@@ -584,13 +582,6 @@ class FlyHostelLoader(
             "basedir": [self.basedir],
             "id": [id],
         })
-
-
-    def sleep_annotation(self, *args, source="inactive", **kwargs):
-        if source=="inactive":
-            return self.sleep_annotation_inactive(*args, **kwargs)
-        elif source=="centroids":
-            return flyhostel_sleep_annotation(*args, **kwargs)
 
 
     def compile_analysis_data(self):

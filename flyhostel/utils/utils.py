@@ -279,7 +279,19 @@ def add_suffix(filename, suffix=""):
     
     return filename
 
+ARENA_SQUARE_WIDTH=260
+
 def get_square_width(experiment):
+    """
+    Side (pixels) of the square cut around each fly for pose estimation, which
+    also places its pose back in the frame.
+    Flies of an arena (multi-arena recordings) get a wider square: the pose model
+    misses body parts near the edge of a 200 px one (e.g. the head)
+    """
+    _, arena=split_arena(experiment)
+    if arena is not None:
+        return ARENA_SQUARE_WIDTH
+
     pixels_per_mm=get_pixels_per_mm(experiment)
     if pixels_per_mm < 25:
         return 100
@@ -506,20 +518,26 @@ def parse_identity(id):
 
 
 def get_local_identities_from_experiment(experiment, frame_number):
-    raise NotImplementedError
+    """
+    identity and local_identity of every animal in the chunk of frame_number
 
-    experiment_path=experiment_to_relpath(experiment)
-    basedir = os.path.join(os.environ["FLYHOSTEL_VIDEOS"], experiment_path)
-    if not os.path.exists(basedir):
-        basedirs=glob.glob(basedir+"*")
-        assert len(basedirs) == 1, f"{basedir} not found"
-        basedir=basedirs[0]
-        experiment = get_experiment_identifier(basedir)
-
-
-    dbfile = os.path.join(basedir, experiment + ".db")
-    table=get_local_identities(dbfile, [frame_number])
-    return table
+    Read from CONCATENATION_VAL when it covers the chunk (human validated experiments
+    often validate only some chunks), else from CONCATENATION, else from IDENTITY.
+    Single animal experiments use IDENTITY (identity 0), as FlyHostelLoader does:
+    their CONCATENATION table numbers the fly 1
+    """
+    dbfile=get_dbfile(get_basedir(experiment))
+    concatenation_tables=["CONCATENATION_VAL"]
+    if get_number_of_animals(experiment) > 1:
+        concatenation_tables.append("CONCATENATION")
+    for concatenation_table in concatenation_tables:
+        try:
+            table=get_local_identities_v2(dbfile, [frame_number], concatenation_table=concatenation_table)
+        except sqlite3.OperationalError:
+            continue
+        if table.shape[0] > 0:
+            return table
+    return get_local_identities_v1(dbfile, [frame_number])
 
 
 def get_local_identities_v1(dbfile, frame_numbers, identity_table="IDENTITY"):

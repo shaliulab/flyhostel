@@ -6,8 +6,7 @@ import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
 
-from flyhostel.data.sleep import sleep_annotation_rf
-from flyhostel.data.sleep import PURE_INACTIVE_STATES
+from flyhostel.data.sleep import annotate_sleep
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
 from flyhostel.utils import get_basedir, get_number_of_animals
 from flyhostel.data.pose.main import FlyHostelLoader
@@ -40,9 +39,8 @@ def load_sleep_data(loader, min_time=MIN_TIME, max_time=MAX_TIME, sleep_periods=
     
     """
     loader.load_behavior_data(min_time=min_time, max_time=max_time)
-    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(PURE_INACTIVE_STATES)
     for i, (min_time_immobile, period) in enumerate(sleep_periods):
-        sleep=sleep_annotation_rf(data=loader.behavior, min_time_immobile=min_time_immobile)\
+        sleep=annotate_sleep(loader.behavior, min_time_immobile=min_time_immobile)\
             .rename({"inactive_rule": period, "windowed_var": "immobile"}, axis=1)\
             .drop(["t"], axis=1)
 

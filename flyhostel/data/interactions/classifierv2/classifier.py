@@ -25,7 +25,7 @@ sociability_logger=logging.getLogger("flyhostel.data.interactions.sociability.so
 sociability_logger.setLevel(logging.INFO)
 logger=logging.getLogger(__name__)
 
-from flyhostel.data.sleep import sleep_annotation_rf, PURE_INACTIVE_STATES
+from flyhostel.data.sleep import annotate_sleep
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
 from tqdm.auto import tqdm
 
@@ -53,9 +53,8 @@ def load_sleep_data(loader, min_time, max_time, sleep_periods):
     
     """
     loader.load_behavior_data(loader.experiment, loader.identity, min_time=min_time, max_time=max_time)
-    loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(PURE_INACTIVE_STATES)
     for i, (min_time_immobile, period) in enumerate(sleep_periods):
-        sleep=sleep_annotation_rf(loader.behavior, min_time_immobile=min_time_immobile).rename({"inactive_rule": period, "windowed_var": "immobile"}, axis=1).drop(["t"], axis=1)
+        sleep=annotate_sleep(loader.behavior, min_time_immobile=min_time_immobile).rename({"inactive_rule": period, "windowed_var": "immobile"}, axis=1).drop(["t"], axis=1)
         if i==0:
             loader.sleep=sleep
         else:

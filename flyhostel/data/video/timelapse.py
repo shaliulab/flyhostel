@@ -31,7 +31,7 @@ from flyhostel.data.video.utils import (
     add_info_box_gpt
 )
 
-from flyhostel.data.sleep import sleep_annotation_rf, SLEEP_STATES
+from flyhostel.data.sleep import annotate_sleep
 
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.video.utils import draw_sleep_state
@@ -410,8 +410,6 @@ def main(experiment, back_in_time_min=15, n_jobs=20, cache=False, min_time=MIN_T
     loaders=[FlyHostelLoader(experiment=experiment, identity=identity) for identity in identities]
 
     postprocessing=[draw_sleep_state]
-    inactive_mode="WO_FEED"
-    inactive_states=SLEEP_STATES[inactive_mode]
 
 
     for loader in loaders:
@@ -428,15 +426,9 @@ def main(experiment, back_in_time_min=15, n_jobs=20, cache=False, min_time=MIN_T
         )
 
     for loader in loaders:
-        loader.behavior["inactive_states"]=loader.behavior["prediction2"].isin(inactive_states)
-        loader.sleep=sleep_annotation_rf(
-            loader.behavior[["id", "t", "inactive_states", "centroid_speed", "walk"]],
-            min_time_immobile=300,
-            time_window_length=1,
-            threshold=10
-        )
-        loader.sleep.rename({"windowed_var": "moving", "inactive_rule": "asleep"}, inplace=True, axis=1)
-        loader.dt_asleep=pd.merge_asof(loader.dt, loader.sleep[["t", "moving", "asleep"]], on="t", direction="forward")
+        loader.sleep=annotate_sleep(loader.behavior)
+        loader.sleep.rename({"windowed_var": "immobile", "inactive_rule": "asleep"}, inplace=True, axis=1)
+        loader.dt_asleep=pd.merge_asof(loader.dt, loader.sleep[["t", "immobile", "asleep"]], on="t", direction="forward")
     
     df=pd.concat([loader.dt_asleep for loader in loaders], axis=0).reset_index(drop=True)
     df["zt"]=(df["t"]//3600).astype(int)

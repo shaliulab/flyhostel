@@ -334,9 +334,21 @@ class MP4Reader:
             frame_number = self._cap.frame_number
             logger.debug(f"Reading frame number {frame_number}")
 
-        img, (fn, ft) = self._cap.get_image(frame_number)
-        if fn != frame_number:
+        # Past the last frame of the chunk: stop here instead of reading the next
+        # chunk, whose video may not be there (e.g. the pipeline stages one chunk;
+        # imgstore then skips chunk after chunk until the recursion limit)
+        if frame_number >= (self._chunk + 1) * self.chunksize:
+            self.close()
+            return None
+
+        try:
             img, (fn, ft) = self._cap.get_image(frame_number)
+            if fn != frame_number:
+                img, (fn, ft) = self._cap.get_image(frame_number)
+        except EOFError:
+            # end of the recording
+            self.close()
+            return None
 
 
         assert fn == frame_number

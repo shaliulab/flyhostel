@@ -1,122 +1,231 @@
+"""
+Sleep of a fly, from its behavior predictions. This is the only definition of sleep in flyhostel
+(for data without behavior predictions, sleep_from_centroid_velocity is the velocity based alternative):
+
+    1. every frame is inactive or active depending on its prediction2:
+       active = walk, feed, groom and background (ACTIVE_STATES), the rest is inactive (INACTIVE_STATES)
+    2. every second (time_window_length) is immobile if more than 1/3 (INACTIVE_FRACTION) of its frames are inactive.
+       The frames of a second are the usual number of frames per second of the fly (the median), so that the rule
+       is the same whatever the framerate of the behavior: > 10 of 30 frames, > 15.7 of 47
+    3. the fly is asleep during every run of at least min_time_immobile (300) immobile seconds,
+       from the start of the run (ethoscopy's sleep_contiguous, as sleepr in R)
+    4. the binned trace is the fraction of every bin_size (300) seconds spent asleep
+
+compute_sleep_file does all of it for one fly, and saves
+
+    <basedir>/sleep/<NN>/<experiment>__<NN>_sleep5min.feather         1 row per second
+    <basedir>/sleep/<NN>/<experiment>__<NN>_sleep5min_bin300.feather   1 row per bin
+
+It runs at the end of the behavior_prediction pipeline (compute-sleep) and in the analysis code, when a sleep file
+is missing or older than the behavior file.
+
+Columns:
+    inactive_states: number of inactive frames in the second
+    windowed_var: the second is immobile
+    inactive_rule: the fly is asleep (in the binned trace: fraction of the bin asleep)
+"""
+import argparse
+import logging
+import os
+
 import numpy as np
+import pandas as pd
 from ethoscopy.analyse import sleep_contiguous
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
-# INACTIVE_STATES=["inactive", "inactive+pe", "inactive+micromovement", "inactive+rejection", "feed"]
-PURE_INACTIVE_STATES=["inactive", "inactive+pe", "inactive+micromovement", "inactive+rejection"]
-SLEEP_STATES={"WO_FEED": PURE_INACTIVE_STATES, "WITH_FEED": None}
 
-# Sleep functions
-def apply_inactive_rule(dataset_window, time_window_length, min_time_immobile):
-    return sleep_contiguous(
-            ~dataset_window["windowed_var"], # input = moving. windowed_var = not moving
-            1/time_window_length,
-            min_valid_time=min_time_immobile
-        )
+logger=logging.getLogger(__name__)
 
+ACTIVE_STATES=["walk", "feed", "groom", "background"]
+INACTIVE_STATES=["inactive", "inactive+pe", "inactive+micromovement", "inactive+rejection"]
 
-## Apply filter to remove high speed noise
-def high_speed_noise_filter(dataset, time_window_length, aggregation, threshold, feature="inactive_states"):
-    dataset["zt"]=dataset["t"]/3600
-    dataset["t_round"]=time_window_length*(dataset["t"]//time_window_length)
-
-    dataset_window=dataset.groupby(["id", "t_round"]).agg(aggregation).reset_index()
-
-    # This plot shows why 10 is a nice threshold for the filter above
-    # fps=30 (there are 30 points per second)
-    # _ = plt.hist(dataset_window[feature], bins=int(fps*time_window_length) + 1)
-
-    dataset_window["windowed_var"]=dataset_window[feature]>threshold
-    dataset_window["t"]=dataset_window["t_round"]
-    return dataset_window
+TIME_WINDOW_LENGTH=1 # seconds
+INACTIVE_FRACTION=1/3
+MIN_TIME_IMMOBILE=300 # seconds
+BIN_SIZE=300 # seconds
 
 
-def sleep_annotation_rf(data, time_window_length=1, min_time_immobile=300, threshold=10, feature="inactive_states"):
+def sleep_path(basedir, animal, min_time_immobile=MIN_TIME_IMMOBILE, bin_size=None):
     """
-    data (pd.DataFrame). Dataset with columns feature, t
+    Arguments:
+        basedir (str): Folder of the experiment
+        animal (str): experiment__NN e.g. FlyHostel1_3X_2024-12-10_16-00-00__01
+        bin_size (int): If None, path to the 1 s trace. Otherwise to the trace binned in windows of bin_size seconds
     """
-    # Filtering parameters
-    #
-    # We perform an aggregation of time in windows
-    # to filter high frequency (> 1/time_window_length Hz) noise
-
-    # duration of the windows for which a behavior will be produced, in seconds
-    time_window_length
-
-    # name of the column being summarised in windows
-    feature
-
-    # how many points per window where the feature is set to True are required to set the whole window as True
-    agg_function=np.sum
-
-    # TODO
-    # You may want to handle scenarios like FlyHostel4_6X_2023-06-20_14-00-00__03 on frame 2318591
-    # within two seconds, it performs a jump, which produces a high centroid speed for that 5 frame bin
-    # but it is so brief (around 10 frames in total) that the ethogram is just micromovement there
-
-    # Downstream functions could be informed of a very brief high speed behavior by keeping the max centroid_speed of the window
-    # not just the sum which makes it the brief peak "blurry" if the fly is not moving the rest of the window
-    aggregation={feature: agg_function, "frame_number": lambda x: x.iloc[0]}
-    if "centroid_speed" in data.columns:
-        aggregation["centroid_speed"]=np.sum
-    if "walk" in data.columns:
-        aggregation["walk"]=agg_function
-    
-    dataset_window=high_speed_noise_filter(data, time_window_length, aggregation, threshold, feature=feature)
-    # quantify sleep
-
-    dataset_window["inactive_rule"]=apply_inactive_rule(dataset_window, time_window_length, min_time_immobile)
-    return dataset_window
+    identity=animal.split("__")[-1]
+    basename=f"{animal}_sleep{min_time_immobile//60}min"
+    if bin_size is not None:
+        basename+=f"_bin{bin_size}"
+    return os.path.join(basedir, "sleep", identity, basename + ".feather")
 
 
-def sleep_annotation_rf_all(data, **kwargs):
-
-    dt_sleep=data.groupby("id").apply(
-        lambda df: sleep_annotation_rf(df, **kwargs)
-    ).reset_index(drop=True)
-    return dt_sleep
+def behavior_path(basedir, animal):
+    identity=animal.split("__")[-1]
+    return os.path.join(basedir, "motionmapper", identity, animal + ".feather")
 
 
-def bin_apply_all(data, feature, summary_FUN, x_bin_length):
-    # Assign quantity to a column with this name
-    aggregation={feature: summary_FUN}
-    data["t_round"]=x_bin_length*(data["t"]//x_bin_length)
-    grouping_columns=["id", "t_round"]
-    dt_bin=data.drop(
-        "zt", axis=1, errors="ignore"
-    ).groupby(grouping_columns).agg(aggregation).reset_index()
-    return dt_bin
-
-
-def compute_latency(df):
+def load_behavior(path, basedir):
     """
-    Compute sleep latency at each timepoint
-    sleep latency = seconds until start of next bout of sleep
+    Load the behavior of a fly to compute its sleep
+
+    Seconds next to a frame listed in <basedir>/flyhostel/validation/in_frame_index_mistakes.csv
+    take the behavior of the previous frame
+    """
+    behavior=pd.read_feather(path, columns=["id", "t", "frame_number", "prediction2"])
+    duplicated=behavior["t"].duplicated()
+    if duplicated.any():
+        logger.warning("%s duplicated timestamps in %s", duplicated.sum(), path)
+        behavior=behavior.loc[~duplicated]
+    return mask_unreliable_frames(behavior, basedir)
+
+
+def mask_unreliable_frames(behavior, basedir):
+    """
+    in_frame_index_mistakes.csv, if it exists, lists frames where in_frame_index repeats in the same frame due to an
+    error in the validation (bug of the in_frame_index assigner, detected on 2026-01-07).
+    The identity of the flies is not reliable in these frames, and neither is their behavior in the surrounding seconds:
+    the behavior there is replaced by the last reliable one
+    """
+    mistakes_path=os.path.join(basedir, "flyhostel", "validation", "in_frame_index_mistakes.csv")
+    if not os.path.exists(mistakes_path):
+        return behavior
+
+    unreliable_frames=pd.read_csv(mistakes_path)["frame_number"].drop_duplicates()
+    unreliable_t=behavior.loc[behavior["frame_number"].isin(unreliable_frames), "t"].drop_duplicates().values.round().astype(int)
+    unreliable_t=set(unreliable_t-1) | set(unreliable_t) | set(unreliable_t+1)
+    unreliable=(behavior["t"]//1).astype(int).isin(unreliable_t)
+    if unreliable.any():
+        logger.warning("%s unreliable frames in %s seconds in %s. Taking the behavior from the past", unreliable.sum(), len(unreliable_t), basedir)
+        behavior=behavior.copy()
+        behavior.loc[unreliable, "prediction2"]=np.nan
+        behavior["prediction2"]=behavior["prediction2"].ffill()
+    return behavior
+
+
+def annotate_sleep(behavior, min_time_immobile=MIN_TIME_IMMOBILE, time_window_length=TIME_WINDOW_LENGTH, inactive_fraction=INACTIVE_FRACTION):
+    """
+    Arguments:
+        behavior (pd.DataFrame): Behavior of one or more flies, with columns id, t, frame_number, prediction2
+        min_time_immobile (int): Seconds of immobility needed to call sleep. Other values give other immobility
+            durations e.g. 10 s
+        inactive_fraction (float): A window is immobile when more than this fraction of its frames are inactive
+
+    Returns:
+        pd.DataFrame with one row per fly and window of time_window_length seconds
+    """
+    unknown=set(behavior["prediction2"].dropna().unique()) - set(ACTIVE_STATES) - set(INACTIVE_STATES)
+    if unknown:
+        logger.warning("Behaviors %s are neither active nor inactive: they count as active", sorted(unknown))
+
+    data=behavior[["id", "t", "frame_number"]].copy()
+    data["inactive_states"]=behavior["prediction2"].isin(INACTIVE_STATES)
+    data["t_round"]=time_window_length*(data["t"]//time_window_length)
+
+    windows=data.groupby(["id", "t_round"]).agg(
+        inactive_states=("inactive_states", "sum"),
+        n_frames=("inactive_states", "size"),
+        frame_number=("frame_number", "first"),
+    ).reset_index()
+    windows["t"]=windows["t_round"]
+    # usual number of frames per window of each fly: a window with a few missing frames is judged like the others
+    frames_per_window=windows.groupby("id")["n_frames"].transform("median")
+    windows["windowed_var"]=windows["inactive_states"]>inactive_fraction*frames_per_window
+    windows["inactive_rule"]=np.concatenate([
+        sleep_contiguous(~fly["windowed_var"], 1/time_window_length, min_valid_time=min_time_immobile)
+        for _, fly in windows.groupby("id", sort=False)
+    ])
+    return windows[["id", "t", "t_round", "frame_number", "inactive_states", "windowed_var", "inactive_rule"]]
+
+
+def bin_sleep(dt_sleep, bin_size=BIN_SIZE):
+    """
+    Fraction of every bin of bin_size seconds spent asleep, and the first frame of the bin
+    """
+    data=dt_sleep[["id", "t", "frame_number", "inactive_rule"]].copy()
+    data["t_round"]=bin_size*(data["t"]//bin_size)
+    return data.groupby(["id", "t_round"]).agg({
+        "inactive_rule": "mean",
+        "frame_number": "first",
+    }).reset_index()
+
+
+def compute_sleep_file(basedir, animal, input=None, output=None):
+    """
+    Compute the sleep of a fly from its behavior file and save it (see the module docstring)
 
     Arguments:
-        df (pd.DataFrame): Contains columns id, t, and asleep
+        basedir (str): Folder of the experiment
+        animal (str): experiment__NN
+        input (str): Behavior file. Default <basedir>/motionmapper/<NN>/<animal>.feather
+        output (str): Folder of the sleep files. Default <basedir>/sleep/<NN>
+
     Returns:
-        df (pd.DataFrame): Contains columns latency and others
+        Paths to the 1 s and to the binned sleep traces
     """
+    if input is None:
+        input=behavior_path(basedir, animal)
 
-    # need to become int
-    # otherwise diff([True, False]) i.e. wake up is 1
-    # (in int version it is -1 and therefore it is ignored)
-    diff=np.diff(df["asleep"].astype(int))
-    df["sleep_transition"]=0
-    df["sleep_transition_idx"]=np.nan
-    transition_loc=np.where(diff==1)[0]
-    df["sleep_transition"].iloc[transition_loc]=1
-    df["sleep_transition_idx"].iloc[transition_loc]=np.arange(len(transition_loc))+1
-    df["sleep_transition_idx"].bfill(inplace=True)
+    behavior=load_behavior(input, basedir)
+    if behavior.shape[0]==0:
+        raise ValueError(f"No behavior data in {input}")
 
-    df=df.merge(
-        df[df["sleep_transition"]!=0].rename({"t": "sleep_onset"}, axis=1)[["id", "sleep_onset", "sleep_transition_idx"]],
-        on=["id", "sleep_transition_idx"],
-        how="left"
-    )
-    df["latency"]=df["sleep_onset"]-df["t"]
-    df.loc[df["asleep"]==True, "latency"]=-1
-    return df
+    dt_sleep=annotate_sleep(behavior)
+    dt_bin=bin_sleep(dt_sleep)
+
+    paths=[sleep_path(basedir, animal), sleep_path(basedir, animal, bin_size=BIN_SIZE)]
+    if output is not None:
+        paths=[os.path.join(output, os.path.basename(path)) for path in paths]
+
+    # the binned trace is written last: it tells the analysis code that the sleep of the fly is complete
+    for df, path in zip([dt_sleep, dt_bin], paths):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp=path + ".tmp"
+        df.reset_index(drop=True).to_feather(tmp, compression="zstd")
+        os.replace(tmp, path)
+        logger.info("Saved %s", path)
+    return paths
+
+
+def sleep_from_centroid_velocity(speed, fps, speed_threshold, min_time_immobile=MIN_TIME_IMMOBILE, min_time_moving=0):
+    """
+    Sleep from the speed of the centroid of the fly, NOT from its pose based behavior (that is annotate_sleep).
+    For data without behavior predictions: the social pipeline (flyhostel.data.social) and simulated flies
+    (flyhostel.modelling)
+
+        1. the fly is moving while its speed is above speed_threshold (unknown speed counts as moving:
+           immobility that was not observed is not assumed)
+        2. moving runs shorter than min_time_moving seconds are ignored (tracking blips)
+        3. the fly is asleep during every immobile run of at least min_time_immobile seconds
+
+    Arguments:
+        speed (np.ndarray): (T,) speed of one fly or (T, N) of N flies, sampled at fps
+        fps (float): Samples per second
+        speed_threshold (float): Speed above which the fly moves, in the units of speed
+
+    Returns:
+        moving, asleep (np.ndarray): bool arrays with the shape of speed
+    """
+    speed=np.asarray(speed, dtype=float)
+    if speed.ndim==2:
+        out=[sleep_from_centroid_velocity(speed[:, i], fps, speed_threshold, min_time_immobile, min_time_moving) for i in range(speed.shape[1])]
+        return np.stack([o[0] for o in out], axis=1), np.stack([o[1] for o in out], axis=1)
+
+    with np.errstate(invalid="ignore"):
+        moving=~(speed<=speed_threshold)
+    moving=_keep_long_runs(moving, max(0, int(round(min_time_moving*fps))))
+    asleep=_keep_long_runs(~moving, max(1, int(round(min_time_immobile*fps))))
+    return moving, asleep
+
+
+def _keep_long_runs(mask, min_len):
+    """Set the True runs of mask shorter than min_len samples to False"""
+    mask=np.asarray(mask, dtype=bool).copy()
+    if min_len<=1:
+        return mask
+    edges=np.diff(np.concatenate([[0], mask.astype(np.int8), [0]]))
+    for start, end in zip(np.flatnonzero(edges==1), np.flatnonzero(edges==-1)):
+        if end-start<min_len:
+            mask[start:end]=False
+    return mask
 
 
 def compute_time_asleep(df, column="asleep"):
@@ -135,3 +244,18 @@ def compute_time_asleep(df, column="asleep"):
     df.drop(["bout_out"], axis=1, inplace=True)
     df.rename({"duration": f"duration_{column}"}, axis=1, inplace=True)
     return df
+
+
+def get_parser():
+    ap=argparse.ArgumentParser(description="Compute the sleep of a fly from its behavior file (see flyhostel.data.sleep)")
+    ap.add_argument("--basedir", required=True, help="Folder of the experiment")
+    ap.add_argument("--animal", required=True, help="experiment__NN e.g. FlyHostel1_3X_2024-12-10_16-00-00__01")
+    ap.add_argument("--input", default=None, help="Behavior file. Default <basedir>/motionmapper/<NN>/<animal>.feather")
+    ap.add_argument("--output", default=None, help="Folder of the sleep files. Default <basedir>/sleep/<NN>")
+    return ap
+
+
+def main():
+    logging.basicConfig(level=logging.INFO)
+    args=get_parser().parse_args()
+    compute_sleep_file(args.basedir, args.animal, input=args.input, output=args.output)

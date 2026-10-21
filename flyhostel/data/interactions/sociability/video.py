@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 
+from flyhostel.data.sleep import annotate_sleep
 from flyhostel.utils import (
     get_chunksize,
     get_framerate,
@@ -455,7 +456,7 @@ def load_data(experiment, min_time_immobile=300, **kwargs):
 
     for loader in loaders:
         loader.load_behavior_data()
-        loader.sleep=loader.compute_sleep_from_behavior(min_time_immobile=min_time_immobile, bin_size=None)
+        loader.sleep=annotate_sleep(loader.behavior, min_time_immobile=min_time_immobile)
 
         if database is not None:
             loader.interaction=database[database["id"]==loader.ids[0]]

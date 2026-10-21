@@ -204,7 +204,10 @@ class SingleVideoMaker(MP4VideoMaker):
         if chunks is None:
             chunks=list(range(self.frame_number2chunk(self._value[0]), self.frame_number2chunk(self._value[1])+1))
 
-        self._make_and_validate_single_video(chunks=chunks, first_chunk=chunks[0], **kwargs)
+        # One chunk at a time, as the multi process version: an imgstore writer
+        # cannot be carried on to the next chunk
+        for chunk in chunks:
+            self._make_and_validate_single_video(chunks=[chunk], first_chunk=chunk, **kwargs)
 
     def _make_and_validate_single_video(self, *args, **kwargs):
 

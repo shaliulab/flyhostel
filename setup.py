@@ -95,6 +95,7 @@ setup(
             "train-umap=flyhostel.data.bin.umap:main",
             "project-pose=flyhostel.data.bin.behavior:main",
             "predict-behavior=flyhostel.data.bin.ethogram:main",
+            "compute-sleep=flyhostel.data.sleep:main",
             "draw-ethogram=flyhostel.data.bin.ethogram:draw_ethogram",
             "compute-interactions=flyhostel.data.bin.interactions:main",
             "filter-pose=flyhostel.data.bin.filter_pose:main",

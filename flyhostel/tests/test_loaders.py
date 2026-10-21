@@ -269,6 +269,8 @@ def test_experiment_properties_from_the_dbfile(flyhostel_videos):
     assert get_chunksize(synthetic.EXPERIMENT) == synthetic.CHUNKSIZE
     assert get_pixels_per_mm(synthetic.EXPERIMENT) == 15
     assert get_square_width(synthetic.EXPERIMENT) == synthetic.SQUARE_WIDTH
+    # flies of an arena get a wider square, whatever the resolution
+    assert get_square_width(synthetic.EXPERIMENT + "_arena1") == 260
     assert get_wavelet_downsample(synthetic.EXPERIMENT) == 5
 
     dbfile = synthetic.dbfile_path(flyhostel_videos)

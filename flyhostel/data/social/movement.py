@@ -13,8 +13,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from flyhostel.data.sleep import sleep_from_centroid_velocity
+
 from .geometry import centered_velocity
-from .runs import apply_columns, drop_short, runs
+from .runs import runs
 
 logger = logging.getLogger(__name__)
 
@@ -70,13 +72,12 @@ def compute_movement(tracks, cfg, asleep=None):
     fps = tracks.fps
     velocity = centered_velocity(tracks.xy, fps, cfg.smooth_s)
     speed = np.linalg.norm(velocity, axis=-1)
-    with np.errstate(invalid="ignore"):
-        moving = ~(speed <= cfg.move_speed_mm_s)          # NaN speed -> moving
-    moving = apply_columns(drop_short, moving, tracks.frames(cfg.ignore_move_s, 1))
-
+    # the velocity (centroid) based sleep of flyhostel.data.sleep. NaN speed -> moving
+    moving, centroid_asleep = sleep_from_centroid_velocity(
+        speed, fps, cfg.move_speed_mm_s, min_time_immobile=cfg.min_sleep_s, min_time_moving=cfg.ignore_move_s
+    )
     if asleep is None:
-        min_len = tracks.frames(cfg.min_sleep_s, 1)
-        asleep = apply_columns(drop_short, ~moving, min_len)
+        asleep = centroid_asleep
 
     return Movement(
         velocity=velocity, speed=speed, moving=moving,

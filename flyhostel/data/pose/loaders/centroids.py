@@ -1,12 +1,10 @@
 import logging
 import time
-from functools import partial
 import tempfile
 
 import pandas as pd
 import numpy as np
-from ethoscopy import link_meta_index, load_flyhostel, behavpy, flyhostel_sleep_annotation
-from ethoscopy import flyhostel_sleep_annotation as flyhostel_sleep_annotation_primitive
+from ethoscopy import link_meta_index, load_flyhostel, behavpy
 from ethoscopy.flyhostel import compute_xy_dist_log10x1000
 from ethoscopy.load import update_metadata
 from flyhostel.utils import get_id_prefix
@@ -87,15 +85,6 @@ def load_centroid_data(metadata=None, experiment=None, identity=None, min_time=N
 
 def to_behavpy(*args, **kwargs):
     return behavpy(*args, **kwargs)
-
-flyhostel_sleep_annotation = partial(
-    flyhostel_sleep_annotation_primitive,
-    time_window_length = time_window_length,
-    min_time_immobile = 300,
-    velocity_correction_coef=0.0048,
-    optional_columns=["has_interacted", "frame_number"]
-)
-
 
 def downsample_centroid_data(dt, framerate):
     dt=dt.loc[(dt["frame_number"] % framerate) == 0]

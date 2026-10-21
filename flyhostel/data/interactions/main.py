@@ -8,7 +8,6 @@ import numpy as np
 import cupy as cp
 import cudf
 from tqdm.auto import tqdm
-from flyhostel.data.pose.loaders.centroids import flyhostel_sleep_annotation_primitive as flyhostel_sleep_annotation
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.data.groups.group import FlyHostelGroup
 from flyhostel.data.pose.constants import bodyparts as BODYPARTS

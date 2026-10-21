@@ -1,15 +1,10 @@
-import glob
 import h5py
 import logging
 import os.path
 
 import numpy as np
 import pandas as pd
-from flyhostel.data.sleep import (
-    PURE_INACTIVE_STATES,
-    bin_apply_all,
-    sleep_annotation_rf_all
-)
+from flyhostel.data.sleep import sleep_path
 
 from flyhostel.data.interactions.classifier.inter_orientation import calculate_angles_with_vertical_batch
 from flyhostel.utils.pose_export import load_frame_numbers
@@ -52,38 +47,29 @@ class SleepLoader:
         ):
 
         """
+        Load the sleep of this fly, computed by flyhostel.data.sleep (compute-sleep)
+
         Arguments:
-        
+            bin_size (int): If None, the 1 s trace. Otherwise the trace binned in windows of bin_size seconds
+            errors (str): raise or warning, if the sleep file does not exist
+
         Populates self.sleep
 
         Returns
             None
         """
 
-        dataset=self.load_sleep_data_from_file(
-            min_time_immobile=min_time_immobile,
-            bin_size=bin_size,
-        )
-        if isinstance(dataset, str):
-        
-            feather_file=dataset
+        path=sleep_path(self.basedir, self.datasetnames[0], min_time_immobile=min_time_immobile, bin_size=bin_size)
+        if not os.path.exists(path):
             if errors=="raise":
-                raise FileNotFoundError(feather_file)
-            elif errors=="warning":
-                logger.warning("FileNotFound %s", feather_file)
-            
+                raise FileNotFoundError(path)
+            logger.warning("FileNotFound %s", path)
             self.sleep=None
-               
             return None
-            
-            dataset=self.compute_sleep_from_behavior(
-                min_time_immobile=min_time_immobile,
-                bin_size=bin_size,
-            )
-            if "*" not in feather_file:
-                dataset.to_feather(feather_file)
-        else:
-            pass
+
+        dataset=pd.read_feather(path)
+        if bin_size is None:
+            del dataset["t_round"]
 
         if "t_round" in dataset.columns:
             dataset=dataset\
@@ -102,6 +88,8 @@ class SleepLoader:
 
         self.sleep=dataset
         self.sleep["asleep"]=self.sleep["inactive_rule"]
+        # experiment__NN, as in the metadata of the analysis code
+        self.sleep["animal"]=self.datasetnames[0]
         
         if complete_cases:
             fn_isna=self.sleep["frame_number"].isna()
@@ -114,69 +102,6 @@ class SleepLoader:
 
     def annotate_frame_number_in_dataset(self, df):
         raise NotImplementedError()
-
-
-    def load_sleep_data_from_file(self, min_time_immobile, bin_size):
-            
-        min_time_immobile_min=int(min_time_immobile//60)
-        root_dir=f"/home/vibflysleep/FlySleepLab_Dropbox/Antonio/FSLLab/Projects/FlyHostel4/code/scripts/figures_wo_feed/Figure*/sleep={min_time_immobile_min}min"
-      
-        if bin_size is None:
-            feather_file_r=os.path.join(
-                root_dir,
-                f"{self.datasetnames[0]}_sleep={min_time_immobile_min}.feather"
-            )
-        else:
-            feather_file_r=os.path.join(
-                root_dir,
-                f"{self.datasetnames[0]}_mean_sleep={min_time_immobile_min}_bin={bin_size}.feather"
-            )
-        
-        feather_file=glob.glob(feather_file_r)
-    
-        if len(feather_file)>1:
-            logger.warning("More than 1 feather file detected for %s: %s", self.datasetnames[0], feather_file)
-            feather_file=sorted(feather_file, key=os.path.getmtime)[::-1][:1]
-            logger.warning("Keeping %s", feather_file[0])
-
-        # no hits found
-        elif len(feather_file)==0:
-            return feather_file_r
-    
-        feather_file=feather_file[0]
-            
-        dataset=pd.read_feather(feather_file)
-
-        if bin_size is None and "t_round" in dataset.columns:
-            del dataset["t_round"]
-        else:
-            dataset["t"]=dataset["t_round"]
-        return dataset
-        
-
-    def compute_sleep_from_behavior(self, min_time_immobile, bin_size):
-        self.load_behavior_data()
-        dataset=self.behavior.copy()
-
-        
-        if "inactive_states" not in dataset.columns:
-            dataset["inactive_states"]=dataset["prediction2"].isin(PURE_INACTIVE_STATES)
-        
-        dt_sleep=sleep_annotation_rf_all(
-            dataset,
-            min_time_immobile=min_time_immobile,
-            time_window_length=1,
-            threshold=10
-        )
-
-        if bin_size is not None:
-            dt_sleep=bin_apply_all(
-                dt_sleep,
-                feature="inactive_rule",
-                summary_FUN="mean",
-                x_bin_length=bin_size
-            )
-        return dt_sleep
 
 
     def get_pose_file_h5py(self, *args, **kwargs):

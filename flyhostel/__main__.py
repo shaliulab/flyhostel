@@ -16,9 +16,10 @@ try:
 except Exception as error:
     LED_DRIVER_AVAILABLE=False
 
-import flyhostel.quantification.bin
+import flyhostel.quantification.bin.angle
 import flyhostel.computer_vision.bin
-import flyhostel.quantification.modelling.bin
+import flyhostel.modelling.bin.parser
+import flyhostel.modelling.bin.run
 import flyhostel.data.bin.download
 import flyhostel.data.bin.df
 import flyhostel.data.bin.copy
@@ -62,24 +63,6 @@ def get_parser():
         ldriver_parser.set_defaults(func=flyhostel.ldriver.bin.run.main)
 
     # Quantification module (to quantify behaviors in flyhostel datasets)
-    quantification_parser = subparsers.add_parser(
-        "quant",
-        parents=[flyhostel.quantification.bin.parser.get_parser()],
-        add_help=False,
-        help="""
-        Quantification of behaviors recorded in a flyhostel dataset
-        The following behaviors can be quantified:
-
-        * sleep
-
-        fh-quant --imgstore-folder `pwd` --output `pwd`/idtrackerai/  --interval X Y
-        where X and Y are the first and last chunks considered in the quantification
-        (actually the last one is Y-1)
-        """
-    )
-    quantification_parser.set_defaults(func=flyhostel.quantification.bin.run.main)
-    
-    # Quantification module (to quantify behaviors in flyhostel datasets)
     cv_parser = subparsers.add_parser(
         "cv",
         parents=[flyhostel.computer_vision.bin.parser.get_parser()],
@@ -89,20 +72,19 @@ def get_parser():
         """
     )
     cv_parser.set_defaults(func=flyhostel.computer_vision.bin.run.main)
-    
+
     modelling_parser = subparsers.add_parser(
         "modelling",
-        parents=[flyhostel.quantification.modelling.bin.parser.get_parser()],
+        parents=[flyhostel.modelling.bin.parser.get_parser()],
         add_help=False,
         help="""
-        Modelling and simulation functinality.
-
         Simulate virtual flies that can be either awake or asleep and transition between both states
-        spontaneously or by means of the interaction with another animal, each with some prob.
-        This simulation teaches us about the effects of groups on sleep duration
+        spontaneously or by means of the interaction with another animal (flyhostel.modelling).
+        Their sleep is quantified with the velocity based sleep of flyhostel.data.sleep
         """,
     )
-    modelling_parser.set_defaults(func=flyhostel.data.bin.copy.main)
+    modelling_parser.set_defaults(func=lambda args: flyhostel.modelling.bin.run.main(args=args))
+    
 
     # Data module (to manage and administer flyhostel datasets)
     # NOTE: For now it just copies the trajectory files to the imgstore folder,
