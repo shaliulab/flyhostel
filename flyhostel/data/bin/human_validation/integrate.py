@@ -141,7 +141,7 @@ def main():
     ap=get_parser()
     ap.add_argument("--number-of-rows", type=int, default=1, help="If images in cvat are a grid, how many rows the grid has")
     ap.add_argument("--number-of-cols", type=int, default=1, help="If images in cvat are a grid, how many rows the grid has")
-    ap.add_argument("--redownload", action="store_true", default=False, required=False)
+    ap.add_argument("--redownload", action="store_true", default=False, required=False, help="Download the CVAT annotations even if the local zip is newer than the last change in CVAT. Without it, they are downloaded only when needed")
     ap.add_argument("--use-cache", action="store_true", default=False, required=False)
     ap.add_argument("--log-file", type=str, default=None, help="File where everything printed to the screen is also saved. Default: <folder>/integrate_<timestamp>.log")
 

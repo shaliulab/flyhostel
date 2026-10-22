@@ -1,4 +1,5 @@
 import json
+import datetime
 import requests
 import os.path
 import logging
@@ -41,49 +42,78 @@ def get_zipfile_for_task(path, task_number):
 DEBUG=True
 # label of pre-populated detections (yolov7-cvat predict); boxes still carrying it are ignored
 UNASSIGNED_LABEL="UNASSIGNED"
+def zip_is_up_to_date(zip_file, task_mtime):
+    """
+    True if zip_file was written after the last change to the CVAT task
+
+    CVAT bumps the task's updated_date whenever annotations in any of its jobs
+    or its labels change, so a zip written after that date has all of them.
+
+    Arguments
+        zip_file (str): Annotations zip downloaded earlier
+        task_mtime (datetime.datetime): updated_date of the task, in UTC (naive or aware)
+    """
+    if not os.path.exists(zip_file):
+        return False
+    if task_mtime.tzinfo is None:
+        # CVAT reports UTC; a naive datetime's .timestamp() would read it as local time
+        task_mtime=task_mtime.replace(tzinfo=datetime.timezone.utc)
+    return os.path.getmtime(zip_file) > task_mtime.timestamp()
+
+
 def download_task_annotations_to_zip(task_number, path = ".", redownload=False, dry_run=False):
     """
-    
+    Download the COCO annotations of a CVAT task to a zip file,
+    unless the zip already there is newer than the last change to the task
+
     Arguments
         task (int):
         path (str): Folder where to download the zip file
+        redownload (bool): If True, download even if the zip is up to date
     """
 
     unzipped_folder=f"task_{task_number}"
     zip_file = get_zipfile_for_task(path, task_number)
     mtime=get_task_mtime(task_number)
 
-    if os.path.exists(zip_file) and os.path.getmtime(zip_file) > mtime.timestamp():
-        print(f"Skipping download of task {task_number}")
+    if not redownload and zip_is_up_to_date(zip_file, mtime):
+        print(f"Skipping download of task {task_number}: {zip_file} is newer than the last change in CVAT ({mtime} UTC)")
         return zip_file
 
+    if os.path.exists(zip_file):
+        print(f"Task {task_number} changed in CVAT ({mtime} UTC) after {zip_file} was downloaded. Downloading again")
+
     if not dry_run:
+        # download next to the old zip and swap it in only once complete,
+        # so a failed download leaves no half-written or missing zip behind
+        tmp_zip_file=zip_file + ".part"
+        if os.path.exists(tmp_zip_file):
+            os.remove(tmp_zip_file)
 
-        if not os.path.exists(unzipped_folder) or redownload:
+        cmd=f"""
+        /home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli
+        --auth {cvat_username}:{cvat_password}
+        --server-host 'http://{cvat_host}'
+        --server-port 8080
+        dump --format 'COCO 1.0' {task_number} {tmp_zip_file}
+        """
+        print(cmd.replace(cvat_password, "***"))
+        cmd_list=shlex.split(cmd)
 
+        p=subprocess.Popen(
+            cmd_list
+        )
+        p.communicate()
 
-            if os.path.exists(zip_file):
-                os.remove(zip_file)
-                shutil.rmtree(unzipped_folder)
+        assert p.returncode==0 and os.path.exists(tmp_zip_file), f"{zip_file} was not downloaded"
+        os.replace(tmp_zip_file, zip_file)
 
-            cmd=f"""
-            /home/vibflysleep/mambaforge/envs/rapids-23.04/bin/cvat-cli
-            --auth {cvat_username}:{cvat_password}
-            --server-host 'http://{cvat_host}'
-            --server-port 8080
-            dump --format 'COCO 1.0' {task_number} {zip_file}
-            """
-            print(cmd)
-            cmd_list=shlex.split(cmd)
-
-            p=subprocess.Popen(
-                cmd_list
-            )
-            p.communicate()
-
-            assert os.path.exists(zip_file), f"{zip_file} was not downloaded"
+        # drop the annotations unzipped from the previous zip
+        if os.path.exists(unzipped_folder):
+            shutil.rmtree(unzipped_folder)
 
     return zip_file
+
 
 def download_annotations_from_cvat(experiment, path, tasks=None, dry_run=False):
     if tasks is None:
