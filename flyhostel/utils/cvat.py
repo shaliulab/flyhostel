@@ -61,12 +61,16 @@ def get_tasks_for_project(project_id):
         r = cvat_auth(s)
     
         # 2) Now cookies are stored in `s`, and will be sent automatically
-        r = s.get(url, params={"project_id": project_id})
-        r.raise_for_status()
-        out = r.json()
+        # CVAT returns 10 tasks per page by default: follow all pages
+        params={"project_id": project_id, "page_size": 500}
         tasks=[]
-        for task in out["results"]:
-            tasks.append(int(task["id"]))
+        while url:
+            r = s.get(url, params=params)
+            r.raise_for_status()
+            out = r.json()
+            for task in out["results"]:
+                tasks.append(int(task["id"]))
+            url, params = out.get("next"), None
         return tuple(tasks)
     
 
