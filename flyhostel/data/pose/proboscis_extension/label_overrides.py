@@ -38,6 +38,12 @@ Every bout in a qualifying burst whose pipeline label is in OVERRIDE_TARGET_LABE
 relabelled OVERRIDE_LABEL. The rule was validated only on `pe_near_food`, so other
 labels are left alone.
 
+ARENAS (multi-arena recordings, experiment_arenaN) target ARENA_OVERRIDE_TARGET_LABELS
+instead, which adds `feed`: the whole arena is food, so every bout is near food and a
+sleep-PE train whose bouts are too short for the PE signature is labelled `feed`, not
+`pe_near_food` (e.g. FlyHostel1_4X_2026-10-13_17-00-00_arena4__00, bursts 469-471, inside
+a 57 min sleep bout). Not validated on an audit yet.
+
 Why MIN_EVENTS: with only 3 episodes (2 intervals), randomly timed episodes give
 CV <= 0.5 half the time and CV <= 0.3 about 30% of the time. With 5 episodes those
 drop to ~20% and ~4%. Genuine trains pass at any count, so this costs little.
@@ -61,6 +67,7 @@ logger = logging.getLogger(__name__)
 
 # ---- the rule (set these from the audit; see the check in the chat) -------
 OVERRIDE_TARGET_LABELS = ("pe_near_food",)
+ARENA_OVERRIDE_TARGET_LABELS = ("pe_near_food", "feed")
 OVERRIDE_LABEL = "pe"
 MAX_CV_DUR = 0.30
 MAX_CV_PERIOD = 0.30
@@ -80,7 +87,16 @@ OVERRIDE_COLUMNS = (["fly", "burst_id", "start_fn", "end_fn", "label", "pass",
 TRACE_COLUMNS = ["burst_id", "frame_number", "dist_mm", "prob_conf"]
 
 
-def label_composition(bouts):
+def override_target_labels(fly):
+    """Labels the rule may relabel in this fly (experiment__NN): see ARENAS above."""
+    from flyhostel.utils.experiment import split_arena
+    experiment = fly.rsplit("__", 1)[0]
+    if split_arena(experiment)[1] is not None:
+        return ARENA_OVERRIDE_TARGET_LABELS
+    return OVERRIDE_TARGET_LABELS
+
+
+def label_composition(bouts, target_labels=OVERRIDE_TARGET_LABELS):
     """How much of each burst the pipeline already calls PE or would have rescued.
 
     Computed from the pipeline's RAW labels in the pe_bouts feather (never from a
@@ -88,7 +104,7 @@ def label_composition(bouts):
 
         n_bouts   every pipeline bout in the burst, whatever its label  (denominator)
         n_pe      bouts already labelled OVERRIDE_LABEL
-        n_target  bouts labelled one of OVERRIDE_TARGET_LABELS — in a qualifying burst,
+        n_target  bouts labelled one of target_labels — in a qualifying burst,
                   every one of these would be overridden
         frac_pe_or_target      (n_pe + n_target) / n_bouts
         frac_pe_or_target_dur  the same share, but of summed bout DURATION (dur_s).
@@ -108,12 +124,12 @@ def label_composition(bouts):
         One row per burst, keyed by ``burst_id`` (and ``fly`` when present).
     """
     keys = [k for k in ("fly", "burst_id") if k in bouts.columns]
-    yes = bouts["label"].isin((OVERRIDE_LABEL,) + tuple(OVERRIDE_TARGET_LABELS))
+    yes = bouts["label"].isin((OVERRIDE_LABEL,) + tuple(target_labels))
     dur = (pd.to_numeric(bouts["dur_s"], errors="coerce") if "dur_s" in bouts.columns
            else pd.Series(np.nan, index=bouts.index))
     b = bouts[keys].assign(
         _pe=(bouts["label"] == OVERRIDE_LABEL).astype(int),
-        _target=bouts["label"].isin(OVERRIDE_TARGET_LABELS).astype(int),
+        _target=bouts["label"].isin(target_labels).astype(int),
         _dur=dur, _yes_dur=dur.where(yes, 0.0))
     comp = (b.groupby(keys)
               .agg(n_bouts=("_pe", "size"), n_pe=("_pe", "sum"),
@@ -195,12 +211,13 @@ def compute_overrides(bouts, traces, fly, fps):
     Returns
     -------
     (table, burst_table)
-        table : one row per CANDIDATE bout (label in OVERRIDE_TARGET_LABELS), with
+        table : one row per CANDIDATE bout (label in override_target_labels(fly)), with
                 OVERRIDE_COLUMNS. ``pass`` marks the ones to relabel.
         burst_table : the same values and criteria at one row per candidate burst,
                       for inspection.
     """
-    cand = bouts[bouts["label"].isin(OVERRIDE_TARGET_LABELS)]
+    target_labels = override_target_labels(fly)
+    cand = bouts[bouts["label"].isin(target_labels)]
     cand = cand[["burst_id", "start_fn", "end_fn"]].astype(int)
     if cand.empty:
         return pd.DataFrame(columns=OVERRIDE_COLUMNS), pd.DataFrame()
@@ -218,7 +235,7 @@ def compute_overrides(bouts, traces, fly, fps):
     bt = pd.DataFrame({"burst_id": sorted(bursts)})
     bt["has_episodes"] = bt["burst_id"].isin(set(feats["burst_id"]))
     bt = bt.merge(feats, on="burst_id", how="left")
-    comp = label_composition(bouts).drop(columns=["fly"], errors="ignore")
+    comp = label_composition(bouts, target_labels).drop(columns=["fly"], errors="ignore")
     bt = bt.merge(comp, on="burst_id", how="left")
     for col in VALUE_COLUMNS:                      # bursts without episodes -> NaN
         if col not in bt.columns:
@@ -263,7 +280,7 @@ def write_overrides(fly, output="."):
     n_pass = int(table["pass"].sum()) if len(table) else 0
     n_bp = int(bt["pass"].sum()) if len(bt) else 0
     print(f"  [overrides] {fly}: {n_pass}/{len(table)} "
-          f"{'/'.join(OVERRIDE_TARGET_LABELS)} bouts pass -> {OVERRIDE_LABEL} "
+          f"{'/'.join(override_target_labels(fly))} bouts pass -> {OVERRIDE_LABEL} "
           f"({n_bp}/{len(bt)} bursts) -> {path}")
     if len(bt):
         fails = {c: int((~bt[c]).sum()) for c in CRITERIA}
