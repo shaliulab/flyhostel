@@ -426,8 +426,10 @@ def load_animal_data(
 
 
 def check_missing_data(self, features):
-    missing_data=self.dt[features].isna().sum(axis=0)
-    if (missing_data>0).any():
+    # features without any data (e.g. notch_distance in arenas without notches) cannot be filled
+    features=[feat for feat in features if not self.dt[feat].isna().all()]
+    missing_data=self.dt[features].isna().any(axis=1)
+    if missing_data.any():
         logger.warning("Missing data for id %s in frames %s", self.dt["id"].iloc[0], self.dt.loc[missing_data, "frame_number"])
         for feat in features:
             self.dt[feat].ffill(inplace=True)

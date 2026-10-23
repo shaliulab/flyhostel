@@ -143,7 +143,7 @@ class LandmarksLoader:
         food_blobs=self.landmarks.loc[self.landmarks["shape"]=="food"]
 
         if food_blobs.shape[0]==0:
-            logger.warning("No notch landmarks saved")
+            logger.warning("No food landmarks saved")
             return None
         
         self.dt["food_blobs"]=0
@@ -189,7 +189,11 @@ class LandmarksLoader:
         notches=self.landmarks.loc[self.landmarks["shape"]=="notch"]
 
         if notches.shape[0]==0:
-            logger.warning("No notch landmarks saved")
+            # e.g. the covers of the arena (multi-arena) recordings have no notches
+            # keep the columns so the dataset has the same schema, but without data
+            logger.warning("No notch landmarks saved. notch_distance will be missing")
+            self.dt["notch"]=0
+            self.dt["notch_distance"]=np.nan
             return None
         
         j=0
