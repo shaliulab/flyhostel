@@ -22,6 +22,7 @@ from flyhostel.data.sleep import (
     mask_unreliable_frames,
     sleep_from_centroid_velocity,
     sleep_path,
+    sleep_inactive_states,
 )
 
 FPS = 30
@@ -157,6 +158,22 @@ def test_sleep_files(tmp_path):
     assert paths == [sleep_path(basedir, animal), sleep_path(basedir, animal, bin_size=300)]
     assert pd.read_feather(paths[0])["inactive_rule"].sum() == 600
     assert pd.read_feather(paths[1])["inactive_rule"].tolist() == [290 / 300, 1, 1]
+
+
+def test_feed_is_inactive_in_arenas_but_walking_still_interrupts_sleep(tmp_path):
+    arena = "FlyHostel1_4X_2026-10-13_17-00-00_arena4__00"
+    assert "feed" in sleep_inactive_states(arena)
+    assert "feed" not in sleep_inactive_states("FlyHostel1_1X_2024-01-01_10-00-00__00")
+
+    os.makedirs(tmp_path / "motionmapper" / "00")
+    # 1 s of feed in the middle of 600 immobile seconds, then 1 s of walk
+    data = behavior([True] * 300 + [False] + [True] * 300, active="feed")
+    data = pd.concat([data, behavior([False] + [True] * 10, t0=601)])
+    for animal, asleep in [(arena, 601), ("FlyHostel1_1X_2024-01-01_10-00-00__00", 600)]:
+        data.reset_index(drop=True).to_feather(tmp_path / "motionmapper" / "00" / f"{animal}.feather")
+        out = pd.read_feather(compute_sleep_file(str(tmp_path), animal)[0])
+        assert out["inactive_rule"].sum() == asleep
+        assert not out["inactive_rule"].iloc[601:].any()
 
 
 def test_velocity_sleep():

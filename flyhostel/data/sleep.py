@@ -11,6 +11,10 @@ Sleep of a fly, from its behavior predictions. This is the only definition of sl
        from the start of the run (ethoscopy's sleep_contiguous, as sleepr in R)
     4. the binned trace is the fraction of every bin_size (300) seconds spent asleep
 
+In arena experiments (sleep_inactive_states), feed is inactive too: their behavior model has no food_distance, and
+feed is mostly what the rules make of long proboscis extensions (inactive+pe), so it would break sleep bouts with PE.
+Walking still breaks them. Sleep is somewhat overestimated, by any immobile feeding
+
 compute_sleep_file does all of it for one fly, and saves
 
     <basedir>/sleep/<NN>/<experiment>__<NN>_sleep5min.feather         1 row per second
@@ -32,11 +36,13 @@ import numpy as np
 import pandas as pd
 from ethoscopy.analyse import sleep_contiguous
 from flyhostel.data.pose.ethogram.utils import annotate_bouts, annotate_bout_duration
+from flyhostel.utils.experiment import split_arena
 
 logger=logging.getLogger(__name__)
 
 ACTIVE_STATES=["walk", "feed", "groom", "background"]
 INACTIVE_STATES=["inactive", "inactive+pe", "inactive+micromovement", "inactive+rejection"]
+ARENA_INACTIVE_STATES=INACTIVE_STATES+["feed"]
 
 TIME_WINDOW_LENGTH=1 # seconds
 INACTIVE_FRACTION=1/3
@@ -61,6 +67,17 @@ def sleep_path(basedir, animal, min_time_immobile=MIN_TIME_IMMOBILE, bin_size=No
 def behavior_path(basedir, animal):
     identity=animal.split("__")[-1]
     return os.path.join(basedir, "motionmapper", identity, animal + ".feather")
+
+
+def sleep_inactive_states(animal):
+    """
+    Behaviors that count as inactive in the sleep of a fly (experiment__NN): ARENA_INACTIVE_STATES in arena
+    experiments (see the module docstring), INACTIVE_STATES otherwise
+    """
+    experiment=animal.split("__")[0]
+    if split_arena(experiment)[1] is not None:
+        return ARENA_INACTIVE_STATES
+    return INACTIVE_STATES
 
 
 def load_behavior(path, basedir):
@@ -101,23 +118,24 @@ def mask_unreliable_frames(behavior, basedir):
     return behavior
 
 
-def annotate_sleep(behavior, min_time_immobile=MIN_TIME_IMMOBILE, time_window_length=TIME_WINDOW_LENGTH, inactive_fraction=INACTIVE_FRACTION):
+def annotate_sleep(behavior, min_time_immobile=MIN_TIME_IMMOBILE, time_window_length=TIME_WINDOW_LENGTH, inactive_fraction=INACTIVE_FRACTION, inactive_states=INACTIVE_STATES):
     """
     Arguments:
         behavior (pd.DataFrame): Behavior of one or more flies, with columns id, t, frame_number, prediction2
         min_time_immobile (int): Seconds of immobility needed to call sleep. Other values give other immobility
             durations e.g. 10 s
         inactive_fraction (float): A window is immobile when more than this fraction of its frames are inactive
+        inactive_states (list): Behaviors that are inactive (see sleep_inactive_states)
 
     Returns:
         pd.DataFrame with one row per fly and window of time_window_length seconds
     """
-    unknown=set(behavior["prediction2"].dropna().unique()) - set(ACTIVE_STATES) - set(INACTIVE_STATES)
+    unknown=set(behavior["prediction2"].dropna().unique()) - set(ACTIVE_STATES) - set(inactive_states)
     if unknown:
         logger.warning("Behaviors %s are neither active nor inactive: they count as active", sorted(unknown))
 
     data=behavior[["id", "t", "frame_number"]].copy()
-    data["inactive_states"]=behavior["prediction2"].isin(INACTIVE_STATES)
+    data["inactive_states"]=behavior["prediction2"].isin(inactive_states)
     data["t_round"]=time_window_length*(data["t"]//time_window_length)
 
     windows=data.groupby(["id", "t_round"]).agg(
@@ -168,7 +186,7 @@ def compute_sleep_file(basedir, animal, input=None, output=None):
     if behavior.shape[0]==0:
         raise ValueError(f"No behavior data in {input}")
 
-    dt_sleep=annotate_sleep(behavior)
+    dt_sleep=annotate_sleep(behavior, inactive_states=sleep_inactive_states(animal))
     dt_bin=bin_sleep(dt_sleep)
 
     paths=[sleep_path(basedir, animal), sleep_path(basedir, animal, bin_size=BIN_SIZE)]
