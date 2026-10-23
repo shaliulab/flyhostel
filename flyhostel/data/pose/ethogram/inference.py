@@ -21,11 +21,24 @@ from flyhostel.data.pose.ethogram.ethogram import postprocess_behaviors
 from flyhostel.data.pose.ethogram.plot import save_confusion_matrix
 logger=logging.getLogger(__name__)
 
+# columns saved in the output (followed by the probability of each behavior)
+OUTPUT_COLS=[
+    "id", "local_identity", "identity",
+    "t", "frame_number", "chunk", "frame_idx",
+    "x", "y","food_distance", "notch_distance",
+    "score", "prediction", "rule", "prediction2",
+    "bout_in_pred", "bout_out_pred", "bout_count_pred", "duration_pred",
+    "proboscis", "head_proboscis_distance", "centroid_speed", "centroid_speed_1s", "orientation"
+]
+
 
 def inference(
         experiment, identity, model_path, output="./",
-        frame_numbers=None, postprocess=True, deg_folder=None, **kwargs
+        frame_numbers=None, postprocess=True, deg_folder=None, food_rules=True, **kwargs
     ):
+    """
+    food_rules: If False, the distance to the food does not decide feed vs inactive+pe (see rules.main)
+    """
 
     if not postprocess:
         logger.warning("Postprocessing behaviors is required")
@@ -54,6 +67,7 @@ def inference(
         dataset, "behavior",
         model_path=model_path, fps=fps,
         deg_folder=deg_folder,
+        food_rules=food_rules,
         #inactive_states=["inactive", micromovement_behavior, "inactive+pe", "inactive+rejection"]
     )
 
@@ -66,14 +80,7 @@ def inference(
             predictions[col.replace(behaviors_suffix, "")]=predictions[col]
 
     logger.info("Saving to ---> %s", feather_out)
-    output_cols=[
-        "id", "local_identity", "identity",
-        "t", "frame_number", "chunk", "frame_idx",
-        "x", "y","food_distance", "notch_distance",
-        "score", "prediction", "rule", "prediction2",
-        "bout_in_pred", "bout_out_pred", "bout_count_pred", "duration_pred",
-        "proboscis", "head_proboscis_distance", "centroid_speed", "centroid_speed_1s", "orientation"
-        ] + behaviors.tolist()
+    output_cols=OUTPUT_COLS + behaviors.tolist()
 
     if "behavior" in dataset.columns:
         has_gt=True
@@ -93,13 +100,20 @@ def inference(
     # save_deg_prediction_file(experiment, predictions, features, column="prediction2")
 
 
-def inference_(dataset, label, model_path, fps, deg_folder):
+def inference_(dataset, label, model_path, fps, deg_folder, food_rules=True):
 
     with open(model_path, "rb") as handle:
         model, features, scaler= pickle.load(handle)
 
     print(f"Loaded {model_path}. Will predict among the following classes : {model.classes_}")
     dataset.drop(["bout_count_pred", "bout_in_pred", "bout_out_pred", "duration_pred", "correct_bout_fraction"], axis=1, errors="ignore", inplace=True)
+
+    empty_features=[feat for feat in features if dataset[feat].isna().all()]
+    if empty_features:
+        raise ValueError(
+            f"{model_path} uses features {empty_features} which are missing in the whole dataset. "
+            "Please use a model trained without them"
+        )
 
     missing_counts=dataset[features].isna().sum(axis=0)
     if (missing_counts>0).any():
@@ -118,7 +132,10 @@ def inference_(dataset, label, model_path, fps, deg_folder):
     prob_sorted=np.sort(probabilities, axis=1)
     contrast=prob_sorted[:, -1] - prob_sorted[:, -2]
 
-    preds=dataset.copy()
+    # The rules and the bout annotation copy and merge the whole table several times,
+    # so only the columns that are saved or used by them are kept (not the hundreds of features)
+    keep_cols=[col for col in dataset.columns if col in OUTPUT_COLS or col in [label, "bout_count"]]
+    preds=dataset[keep_cols].copy()
     preds["prediction"]=predictions
     preds["confidence"]=confidence
     preds["contrast"]=contrast
@@ -150,7 +167,9 @@ def inference_(dataset, label, model_path, fps, deg_folder):
     # 3. Apply rules
     logger.debug("Applying logic rules")
     
-    preds=apply_rules(preds, fps=fps, micromovement_behavior="inactive+micromovement")
+    if not food_rules:
+        logger.warning("Food distance rules are disabled")
+    preds=apply_rules(preds, fps=fps, micromovement_behavior="inactive+micromovement", food_rules=food_rules)
     logger.debug("Annotating bout structure")
     preds.drop(["bout_in_pred", "bout_out_pred","bout_count_pred","duration_pred"], axis=1, inplace=True, errors="ignore")
     os.remove("backup.feather")

@@ -87,25 +87,32 @@ def apply_p2inactive(df, replace, idx):
     return df
 
 
-def apply_sequence_rules(df, micromovement_behavior):
+def apply_sequence_rules(df, micromovement_behavior, food_rules=True):
     df["rule"]=0
     df=apply_groom_limit(df, micromovement_behavior, 1)
     df=apply_bg_limit(df, micromovement_behavior, 1.5)
     df=apply_inactive_pe_limit(df, "feed", 3)
-    df=apply_inactive2feed(df, (-0.03, 0.05), "feed", 4)
-    df=apply_food_distance_rule(df, 6, interval=(-0.03, 0.05))
+    if food_rules:
+        df=apply_inactive2feed(df, (-0.03, 0.05), "feed", 4)
+        df=apply_food_distance_rule(df, 6, interval=(-0.03, 0.05))
     
     return df
 
 
-def main(predictions, fps, micromovement_behavior="inactive+micromovement"):
+def main(predictions, fps, micromovement_behavior="inactive+micromovement", food_rules=True):
+    """
+    food_rules: If True, feed vs inactive+pe is decided by the distance to the food blob (rules 4 and 6).
+        Set it to False when the position of the fly does not tell whether it can feed
+        (e.g. arena recordings, where the whole floor is food). Then the model decides,
+        and the proboscis_extension module labels the events on food
+    """
     logger.debug("apply_inactive_pe_requirement")
     predictions=apply_proboscis_requirement(predictions, "inactive")
     logger.debug("annotate_bout_info")
     predictions=predictions.groupby("id").apply(lambda df: annotate_bout_info(df, fps=fps, prediction="prediction")).reset_index(drop=True)
     predictions["prediction2"]=predictions["prediction"].copy()
     logger.debug("sequence rules")
-    predictions=apply_sequence_rules(predictions, micromovement_behavior)
+    predictions=apply_sequence_rules(predictions, micromovement_behavior, food_rules=food_rules)
     logger.debug("annotate_bout_info")
     predictions=predictions.groupby("id").apply(lambda df: annotate_bout_info(df, fps=fps, prediction="prediction2")).reset_index(drop=True)
     logger.debug("apply_inactive_micromovement_limit")

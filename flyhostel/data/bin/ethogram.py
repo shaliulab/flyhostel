@@ -23,6 +23,10 @@ def get_parser():
     ap.add_argument("--t0", type=int, default=None)
     ap.add_argument("--postprocess", action="store_true", default=False)
     ap.add_argument("--correct-by-all-inactive", dest="correct_by_all_inactive", action="store_true", default=False)
+    ap.add_argument(
+        "--no-food-rules", dest="food_rules", action="store_false", default=True,
+        help="Do not use the distance to the food to tell feed from inactive+pe (e.g. arenas where the whole floor is food)"
+    )
     ap.add_argument("--correct-groom-behaviors", action="store_true", default=False, help="If True, groom bouts shorter than 5 seconds are set to background")
     return ap
 
@@ -40,6 +44,7 @@ def main():
         output=args.output,
         frame_numbers=args.frame_number,
         postprocess=args.postprocess,
+        food_rules=args.food_rules,
         cache=None,
     )
 

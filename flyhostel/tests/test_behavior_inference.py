@@ -158,6 +158,17 @@ def test_feed_far_from_the_food_is_proboscis_extension():
     assert out["prediction2"].tolist() == ["inactive+pe", "feed", "feed", "inactive+pe"]
 
 
+def test_food_distance_is_ignored_without_food_rules():
+    # arenas: the whole floor is food, so the model decides feed vs inactive+pe
+    df = pd.DataFrame({
+        "prediction": ["feed", "feed", "inactive+pe", "inactive"],
+        "prediction2": ["feed", "feed", "inactive+pe", "inactive"],
+        "food_distance": [1.0, 0.0, 0.0, 0.0], "proboscis": 1.0, "duration_pred": 1.0,
+    })
+    out = apply_sequence_rules(df, "inactive+micromovement", food_rules=False)
+    assert out["prediction2"].tolist() == ["feed", "feed", "inactive+pe", "inactive"]
+
+
 def test_proboscis_requirement_only_changes_pe_and_feed():
     df = pd.DataFrame({
         "prediction": ["inactive+pe", "feed", "walk", "inactive+pe"],
