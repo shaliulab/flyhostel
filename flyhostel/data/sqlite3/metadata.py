@@ -2,8 +2,6 @@ import tempfile
 import logging
 import os.path
 import datetime
-import subprocess
-import shlex
 import sqlite3
 import glob
 import warnings
@@ -14,7 +12,6 @@ import pandas as pd
 
 from .constants import (
     METADATA_FILE,
-    DOWNLOAD_FLYHOSTEL_METADATA,
     RAISE_EXCEPTION_IF_METADATA_NOT_FOUND,
 
 )
@@ -161,22 +158,26 @@ class MetadataExporter(ABC):
     def download_metadata(self, path):
         """
         Download the metadata from a Google Sheets database
-        """
 
-        # try:
-        if DOWNLOAD_FLYHOSTEL_METADATA is None:
-            raise ModuleNotFoundError("Please define DOWNLOAD_FLYHOSTEL_METADATA as the path to the download-behavioral-data Python binary")
+        Returns 0 if the metadata was saved to path, 1 otherwise
+        """
+        from googleapi.download.flyhostel import fetch_flyhostel_metadata
 
         path=path.replace(" ", "_")
-        cmd = f'{DOWNLOAD_FLYHOSTEL_METADATA} --metadata {path} --flyhostel-id {self._flyhostel_id} --date-time {self._date_time} --number-of-animals {self._number_of_animals}'
-        if self._arena is not None:
-            cmd += f' --arena {self._arena}'
-        cmd_list = shlex.split(cmd)
-        process = subprocess.Popen(cmd_list)
-        process.communicate()
         print(f"Downloading metadata to {path}")
+        try:
+            fetch_flyhostel_metadata(
+                self._date_time, self._flyhostel_id,
+                output=path, arena=self._arena
+            )
+        except Exception as error:
+            logger.error("Could not download metadata to %s: %s", path, error)
+            return 1
+
+        if not os.path.exists(path):
+            return 1
         return 0
-    
+
     def update_ethoscope_metadata(self, dbfile, columns=[]):
         metadata_file=tempfile.NamedTemporaryFile(suffix=".csv", prefix=self._basedir.replace(os.path.sep, "_"))
         self.download_metadata(metadata_file.name)
