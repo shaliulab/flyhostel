@@ -22,6 +22,9 @@ What gets written depends on the folder:
 * `number_of_animals` comes from the `NX` folder (1 in `arenas/K` folders, 0 in `arenas.toml`), `--number-of-animals` overrides it.
 * A preview `rois_proposal.jpg` is saved in the experiment folder. Existing tomls are not overwritten without `--force`.
   `--dry-run` prints the tomls instead of writing them. Missing ROIs (e.g. food not visible) are reported as warnings.
+* Every proposed toml starts with the comment `# Proposed by roi-proposer (AI) on DATE TIME, not made by a human`.
+* `DATE_TIME.toml` is also converted to `DATE_TIME.conf` (idtrackerai v4) with `conf-convert -i DATE_TIME.toml -o DATE_TIME.conf`
+  from the `idtrackeraiv4` environment (found next to the `roi-proposer` environment, or pass `--conf-convert`).
 
 Accuracy vs the hand-made ROIs: on the 60 most recent experiments (not used for training) the median center error is
 12 px for the arena, 3 px for the food and 6 px for the notches (2100 px images); arena experiments are within 13 px and 5% in size.

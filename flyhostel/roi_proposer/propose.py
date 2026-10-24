@@ -15,11 +15,16 @@ Non-ROI settings (intensity / area thresholds, ...) are copied from the most rec
 experiment of the same kind recorded with the same camera, preferring the same hostel.
 number_of_animals comes from the NX folder (1 for single arenas, override with --number-of-animals).
 A preview (rois_proposal.jpg) is saved next to the tomls so the proposal can be checked before adjusting it.
+Every toml starts with a comment (AI_MARK) saying it was proposed by roi-proposer and not made by a human.
+DATE_TIME.toml is also converted to DATE_TIME.conf (idtrackerai v4) with conf-convert from the idtrackeraiv4 environment.
 """
 import argparse
+import datetime
 import glob
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 import cv2
@@ -35,6 +40,7 @@ from .rois import (
 
 DEFAULT_WEIGHTS = os.path.join(ROI_PROPOSER_DIR, "runs", "roi_proposer", "weights", "best.pt")
 DEFAULT_CHUNK = 100
+AI_MARK = "# Proposed by roi-proposer (AI)"
 EXPERIMENT_PATTERN = re.compile(r"^(?P<videos>.*)/(?P<hostel>FlyHostel\d+)/(?P<n>\d+)X/(?P<date_time>[^/]+?)(/arenas/(?P<arena>[^/]+))?/?$")
 
 
@@ -49,7 +55,29 @@ def get_parser(ap=None):
     ap.add_argument("--force", action="store_true", help="Overwrite existing toml files")
     ap.add_argument("--dry-run", action="store_true", help="Print the proposal and save the preview, but do not write tomls")
     ap.add_argument("--preview-dir", default=None, help="Where to save the preview (default: the experiment folder)")
+    ap.add_argument("--conf-convert", default=None, help="conf-convert executable (default: the one in the idtrackeraiv4 environment)")
     return ap
+
+
+def find_conf_convert():
+    """conf-convert lives in the idtrackeraiv4 environment, next to this one"""
+    if shutil.which("conf-convert"):
+        return shutil.which("conf-convert")
+    envs = [os.path.dirname(sys.prefix)]
+    if os.environ.get("CONDA_EXE"):
+        envs.append(os.path.join(os.path.dirname(os.path.dirname(os.environ["CONDA_EXE"])), "envs"))
+    for env_dir in envs:
+        path = os.path.join(env_dir, "idtrackeraiv4", "bin", "conf-convert")
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError("conf-convert not found in the idtrackeraiv4 environment, pass --conf-convert")
+
+
+def conf_convert(executable, toml_path):
+    """DATE_TIME.toml -> DATE_TIME.conf (idtrackerai v4 settings)"""
+    conf_path = os.path.splitext(toml_path)[0] + ".conf"
+    subprocess.run([executable, "-i", toml_path, "-o", conf_path], check=True)
+    return conf_path
 
 
 def parse_experiment(basedir):
@@ -217,8 +245,9 @@ def predict_rois(model, img):
 
 
 def format_toml(video_path, settings, number_of_animals, roi_list, landmarks):
-    """Same layout as the hand-made tomls"""
-    lines = ["video_paths = [", f"    '{video_path}',", "]"]
+    """Same layout as the hand-made tomls, plus the AI_MARK comment on top"""
+    lines = [f"{AI_MARK} on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, not made by a human"]
+    lines += ["video_paths = [", f"    '{video_path}',", "]"]
     lines.append(f"intensity_ths = {list(settings['intensity_ths'])}")
     lines.append(f"area_ths = {list(settings['area_ths'])}")
     lines.append('tracking_intervals = ""')
@@ -333,6 +362,11 @@ def propose(model, basedir, args):
         with open(path, "w") as handle:
             handle.write(txt)
         print(f"  wrote {path}")
+        if filename == f"{date_time}.toml":
+            if rois["arena"]:
+                print(f"  wrote {conf_convert(args.conf_convert or find_conf_convert(), path)}")
+            else:
+                print(f"  {date_time}.conf not written: no arena ROI to convert")
 
 
 def main(args=None):
