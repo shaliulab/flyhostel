@@ -25,6 +25,11 @@ What gets written depends on the folder:
 * Every proposed toml starts with the comment `# Proposed by roi-proposer (AI) on DATE TIME, not made by a human`.
 * `DATE_TIME.toml` is also converted to `DATE_TIME.conf` (idtrackerai v4) with `conf-convert -i DATE_TIME.toml -o DATE_TIME.conf`
   from the `idtrackeraiv4` environment (found next to the `roi-proposer` environment, or pass `--conf-convert`).
+* Then the segmentation settings are checked with `preprocess-sample` (also `idtrackeraiv4`), 20 frames per chunk
+  (`--samples-per-chunk`) from the first chunk to the last one before chunk 300 whose `.npz` is readable.
+  It runs in the background (~1 h, roi-proposer does not wait for it): the frames without the expected number of animals
+  are saved to `preprocess_sample.csv` and the output to `preprocess_sample.log`.
+  Normal experiments only (it needs `<folder name>.conf`), skip it with `--no-preprocess-sample`.
 
 Accuracy vs the hand-made ROIs: on the 60 most recent experiments (not used for training) the median center error is
 12 px for the arena, 3 px for the food and 6 px for the notches (2100 px images); arena experiments are within 13 px and 5% in size.

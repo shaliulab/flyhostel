@@ -17,6 +17,9 @@ number_of_animals comes from the NX folder (1 for single arenas, override with -
 A preview (rois_proposal.jpg) is saved next to the tomls so the proposal can be checked before adjusting it.
 Every toml starts with a comment (AI_MARK) saying it was proposed by roi-proposer and not made by a human.
 DATE_TIME.toml is also converted to DATE_TIME.conf (idtrackerai v4) with conf-convert from the idtrackeraiv4 environment.
+Then the segmentation settings are checked with preprocess-sample (idtrackeraiv4) from the first chunk to the last one
+before chunk 300 with a readable .npz (normal experiments only). It runs in the background: the problematic frames
+are saved to preprocess_sample.csv and the output to preprocess_sample.log.
 """
 import argparse
 import datetime
@@ -40,6 +43,8 @@ from .rois import (
 
 DEFAULT_WEIGHTS = os.path.join(ROI_PROPOSER_DIR, "runs", "roi_proposer", "weights", "best.pt")
 DEFAULT_CHUNK = 100
+PREPROCESS_SAMPLE_MAX_CHUNK = 300
+PREPROCESS_SAMPLES_PER_CHUNK = 20
 AI_MARK = "# Proposed by roi-proposer (AI)"
 EXPERIMENT_PATTERN = re.compile(r"^(?P<videos>.*)/(?P<hostel>FlyHostel\d+)/(?P<n>\d+)X/(?P<date_time>[^/]+?)(/arenas/(?P<arena>[^/]+))?/?$")
 
@@ -56,21 +61,24 @@ def get_parser(ap=None):
     ap.add_argument("--dry-run", action="store_true", help="Print the proposal and save the preview, but do not write tomls")
     ap.add_argument("--preview-dir", default=None, help="Where to save the preview (default: the experiment folder)")
     ap.add_argument("--conf-convert", default=None, help="conf-convert executable (default: the one in the idtrackeraiv4 environment)")
+    ap.add_argument("--preprocess-sample", default=None, help="preprocess-sample executable (default: the one in the idtrackeraiv4 environment)")
+    ap.add_argument("--no-preprocess-sample", action="store_true", help="Do not run preprocess-sample after writing the tomls")
+    ap.add_argument("--samples-per-chunk", type=int, default=PREPROCESS_SAMPLES_PER_CHUNK, help="Frames per chunk checked by preprocess-sample")
     return ap
 
 
-def find_conf_convert():
-    """conf-convert lives in the idtrackeraiv4 environment, next to this one"""
-    if shutil.which("conf-convert"):
-        return shutil.which("conf-convert")
+def find_idtrackeraiv4_tool(name):
+    """conf-convert and preprocess-sample live in the idtrackeraiv4 environment, next to this one"""
+    if shutil.which(name):
+        return shutil.which(name)
     envs = [os.path.dirname(sys.prefix)]
     if os.environ.get("CONDA_EXE"):
         envs.append(os.path.join(os.path.dirname(os.path.dirname(os.environ["CONDA_EXE"])), "envs"))
     for env_dir in envs:
-        path = os.path.join(env_dir, "idtrackeraiv4", "bin", "conf-convert")
+        path = os.path.join(env_dir, "idtrackeraiv4", "bin", name)
         if os.path.exists(path):
             return path
-    raise FileNotFoundError("conf-convert not found in the idtrackeraiv4 environment, pass --conf-convert")
+    raise FileNotFoundError(f"{name} not found in the idtrackeraiv4 environment, pass --{name}")
 
 
 def conf_convert(executable, toml_path):
@@ -78,6 +86,55 @@ def conf_convert(executable, toml_path):
     conf_path = os.path.splitext(toml_path)[0] + ".conf"
     subprocess.run([executable, "-i", toml_path, "-o", conf_path], check=True)
     return conf_path
+
+
+def npz_readable(path):
+    try:
+        with np.load(path) as npz:
+            for key in npz.files:
+                npz[key]
+        return True
+    except Exception:
+        return False
+
+
+def preprocess_sample_chunks(basedir):
+    """
+    First chunk available, and last chunk before PREPROCESS_SAMPLE_MAX_CHUNK with a readable .npz
+    (the last one may still be being written)
+    """
+    chunks = sorted(
+        int(os.path.basename(f).split(".")[0]) for f in glob.glob(os.path.join(basedir, "[0-9]" * 6 + ".mp4"))
+        if os.path.exists(f[:-len(".mp4")] + ".npz")
+    )
+    if not chunks:
+        raise FileNotFoundError(f"No chunks (.mp4 + .npz) in {basedir}")
+    for last in reversed([c for c in chunks if c < PREPROCESS_SAMPLE_MAX_CHUNK]):
+        if npz_readable(os.path.join(basedir, f"{str(last).zfill(6)}.npz")):
+            return chunks[0], last
+        print(f"  {str(last).zfill(6)}.npz is not readable")
+    raise FileNotFoundError(f"No readable .npz before chunk {PREPROCESS_SAMPLE_MAX_CHUNK} in {basedir}")
+
+
+def preprocess_sample(executable, basedir, samples_per_chunk):
+    """
+    Find the sampled frames where the segmentation does not find number_of_animals, in the background (it takes hours):
+    frames to preprocess_sample.csv, output to preprocess_sample.log
+    """
+    start, end = preprocess_sample_chunks(basedir)
+    csv_path = os.path.join(basedir, "preprocess_sample.csv")
+    log_path = os.path.join(basedir, "preprocess_sample.log")
+    # --end-chunk is exclusive
+    cmd = [
+        executable, "--store-path", os.path.join(basedir, "metadata.yaml"),
+        "--start-chunk", str(start), "--end-chunk", str(end + 1), "--samples-per-chunk", str(samples_per_chunk),
+        "--output", csv_path,
+    ]
+    with open(log_path, "w") as log:
+        # own session: keeps running after roi-proposer (or the terminal) exits
+        process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    print(f"  started in the background (pid {process.pid}): {' '.join(cmd)}")
+    print(f"  problematic frames -> {csv_path}, output -> {log_path}")
 
 
 def parse_experiment(basedir):
@@ -351,6 +408,7 @@ def propose(model, basedir, args):
     cv2.imwrite(preview_path, preview)
     print(f"  preview: {preview_path}")
 
+    conf_written = False
     for filename, txt in outputs.items():
         path = os.path.join(basedir, filename)
         if args.dry_run:
@@ -364,9 +422,17 @@ def propose(model, basedir, args):
         print(f"  wrote {path}")
         if filename == f"{date_time}.toml":
             if rois["arena"]:
-                print(f"  wrote {conf_convert(args.conf_convert or find_conf_convert(), path)}")
+                print(f"  wrote {conf_convert(args.conf_convert or find_idtrackeraiv4_tool('conf-convert'), path)}")
+                conf_written = True
             else:
                 print(f"  {date_time}.conf not written: no arena ROI to convert")
+
+    if conf_written and not args.no_preprocess_sample:
+        # preprocess-sample reads <folder name>.conf, which arenas/K folders do not have
+        if kind == "normal":
+            preprocess_sample(args.preprocess_sample or find_idtrackeraiv4_tool("preprocess-sample"), basedir, args.samples_per_chunk)
+        else:
+            print(f"  preprocess-sample skipped: it needs {os.path.basename(basedir)}.conf")
 
 
 def main(args=None):
