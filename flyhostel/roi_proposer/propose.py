@@ -68,9 +68,8 @@ def get_parser(ap=None):
 
 
 def find_idtrackeraiv4_tool(name):
-    """conf-convert and preprocess-sample live in the idtrackeraiv4 environment, next to this one"""
-    if shutil.which(name):
-        return shutil.which(name)
+    """conf-convert and preprocess-sample live in the idtrackeraiv4 environment, next to this one
+    (PATH is only a fallback, other environments ship versions incompatible with their opencv)"""
     envs = [os.path.dirname(sys.prefix)]
     if os.environ.get("CONDA_EXE"):
         envs.append(os.path.join(os.path.dirname(os.path.dirname(os.environ["CONDA_EXE"])), "envs"))
@@ -78,6 +77,8 @@ def find_idtrackeraiv4_tool(name):
         path = os.path.join(env_dir, "idtrackeraiv4", "bin", name)
         if os.path.exists(path):
             return path
+    if shutil.which(name):
+        return shutil.which(name)
     raise FileNotFoundError(f"{name} not found in the idtrackeraiv4 environment, pass --{name}")
 
 
