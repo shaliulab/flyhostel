@@ -554,7 +554,9 @@ def integrate_human_annotations(
             all_intervals_engaged_labels = {}
 
 
-    
+
+        # cudf refuses object columns holding numbers (e.g. ints stored as object)
+        new_data = new_data.infer_objects()
         safe_cudf(new_data)
         new_data_cudf = cudf.DataFrame(new_data)
 
