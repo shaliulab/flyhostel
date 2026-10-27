@@ -16,7 +16,7 @@ install_requires = [
     "zeitgeber>=0.0.2",
     "matplotlib",
     "pyaml",
-    "imgstore-shaliulab>=0.4.0",
+    "imgstore-shaliulab>=0.4.23",
     "pandas",
     "confapp-shaliulab",
     "scikit-learn",
