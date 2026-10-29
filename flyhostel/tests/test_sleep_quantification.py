@@ -12,10 +12,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import flyhostel.data.sleep as sleep_module
 from flyhostel.data.sleep import (
     ACTIVE_STATES,
     INACTIVE_STATES,
     annotate_sleep,
+    annotate_sleep_from_centroids,
     bin_sleep,
     compute_sleep_file,
     compute_time_asleep,
@@ -174,6 +176,83 @@ def test_feed_is_inactive_in_arenas_but_walking_still_interrupts_sleep(tmp_path)
         out = pd.read_feather(compute_sleep_file(str(tmp_path), animal)[0])
         assert out["inactive_rule"].sum() == asleep
         assert not out["inactive_rule"].iloc[601:].any()
+
+
+def centroids(positions, id="fly|01", t0=0, fps=47):
+    """
+    Centroid of a fly (at fps, default 47 as in the arenas) from a list of (x, y) in mm, one per second
+    """
+    rows = []
+    for second, (x, y) in enumerate(positions):
+        for frame in range(fps):
+            rows.append((id, t0 + second + frame / fps, (t0 + second) * fps + frame, x, y))
+    return pd.DataFrame(rows, columns=["id", "t", "frame_number", "x_mm", "y_mm"])
+
+
+def centroid_asleep(data, **kwargs):
+    return annotate_sleep_from_centroids(data, **kwargs)["inactive_rule"].values
+
+
+def test_centroid_sleep_requires_300_seconds_without_moving_more_than_the_threshold():
+    # 0.8 mm per second is below 1 mm: immobile. The first second has no previous one and is not
+    still = [(0.8 * (i % 2), 0) for i in range(301)]
+    out = annotate_sleep_from_centroids(centroids(still))
+    assert out["displacement_mm"].iloc[1:].round(6).eq(0.8).all()
+    assert out["inactive_rule"].tolist() == [False] + [True] * 300
+    assert not centroid_asleep(centroids(still[:300])).any()
+    assert not centroid_asleep(centroids(still), min_displacement_mm=0.5).any()
+
+
+def test_one_second_of_centroid_displacement_interrupts_sleep():
+    positions = [(0, 0)] * 251 + [(2, 0)] * 251
+    assert not centroid_asleep(centroids(positions)).any()
+    assert centroid_asleep(centroids(positions), min_time_immobile=250)[1:].sum() == 500
+
+
+def test_centroid_sleep_uses_the_median_position_of_each_second():
+    # a few frames with a wrong centroid (e.g. a reflection) do not move the fly
+    data = centroids([(0, 0)] * 400)
+    data.loc[data.index % 47 < 5, "x_mm"] = 10
+    assert centroid_asleep(data)[1:].all()
+
+
+def test_seconds_without_centroid_are_skipped_and_displacement_is_measured_across_them():
+    data = centroids([(0, 0)] * 200 + [(5, 5)] * 10 + [(0, 0)] * 200)
+    data.loc[data["t"].between(200, 210, inclusive="left"), ["x_mm", "y_mm"]] = np.nan
+    out = annotate_sleep_from_centroids(data)
+    assert len(out) == 400 and out["inactive_rule"].iloc[1:].all()
+
+    # if the fly reappears somewhere else, it moved during the gap
+    data = centroids([(0, 0)] * 200 + [(5, 5)] * 10 + [(5, 5)] * 200)
+    data.loc[data["t"].between(200, 210, inclusive="left"), ["x_mm", "y_mm"]] = np.nan
+    assert not centroid_asleep(data).any()
+
+
+def test_centroid_sleep_of_flies_is_computed_per_fly():
+    # fly 2 starts where fly 1 ends: its first second is not a displacement of fly 1
+    fly1 = centroids([(0, 0)] * 350, id="fly|01")
+    fly2 = centroids([(20, 20)] * 350, id="fly|02")
+    out = annotate_sleep_from_centroids(pd.concat([fly1, fly2]))
+    assert out.groupby("id")["inactive_rule"].sum().to_dict() == {"fly|01": 349, "fly|02": 349}
+    assert out.groupby("id")["n_frames"].first().tolist() == [47, 47]
+
+
+def test_centroid_sleep_files(tmp_path, monkeypatch):
+    animal = "FlyHostel1_4X_2026-10-13_17-00-00_arena4__00"
+    assert sleep_path("/basedir", animal, method="centroid") == f"/basedir/sleep/00/{animal}_sleep5min_centroid.feather"
+    assert sleep_path("/basedir", animal, bin_size=300, method="centroid") == f"/basedir/sleep/00/{animal}_sleep5min_centroid_bin300.feather"
+    with pytest.raises(ValueError):
+        sleep_path("/basedir", animal, method="other")
+
+    # moving 2 mm per second during 10 s, then still
+    data = centroids([(2 * i, 0) for i in range(10)] + [(18, 0)] * 600)
+    monkeypatch.setattr(sleep_module, "load_centroids", lambda basedir, animal: data)
+    paths = compute_sleep_file(str(tmp_path), animal, method="centroid")
+    assert paths == [sleep_path(str(tmp_path), animal, method="centroid"), sleep_path(str(tmp_path), animal, bin_size=300, method="centroid")]
+    assert pd.read_feather(paths[0])["inactive_rule"].sum() == 600
+    assert pd.read_feather(paths[1])["inactive_rule"].tolist() == [290 / 300, 1, 10 / 10]
+    with pytest.raises(ValueError):
+        compute_sleep_file(str(tmp_path), animal, input="behavior.feather", method="centroid")
 
 
 def test_velocity_sleep():
