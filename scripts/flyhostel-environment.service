@@ -1,0 +1,6 @@
+[Unit]
+Description=Import the new incubator temperature/humidity logs into the FlyHostel environment database
+
+[Service]
+Type=oneshot
+ExecStart=/home/vibflysleep/mambaforge/envs/idtrackerai-viewer/bin/python -m flyhostel.data.environment sync
