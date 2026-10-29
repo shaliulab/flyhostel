@@ -485,33 +485,31 @@ def get_partition_size(experiment):
         100 * np.floor(get_framerate(experiment)*3600 / 100)
     )
 
+class IncompleteDatabaseError(ValueError):
+    """Raised when a FlyHostel .db file is missing data that should have been exported into it"""
+
+
 def load_roi_width(dbfile):
     try:
         with sqlite3.connect(dbfile) as conn:
             cursor=conn.cursor()
-
-            cursor.execute(
-                """
-            SELECT w FROM ROI_MAP;
-            """
-            )
-            [(roi_width,)] = cursor.fetchall()
-            cursor.execute(
-                """
-            SELECT h FROM ROI_MAP;
-            """
-            )
-            [(roi_height,)] = cursor.fetchall()
-
-        roi_width=int(roi_width)
-        roi_height=int(roi_height)
-        roi_width=max(roi_width, roi_height)
+            cursor.execute("SELECT w, h FROM ROI_MAP;")
+            rows = cursor.fetchall()
     except sqlite3.OperationalError as error:
         logger.error("%s ROI_MAP table cannot be read", dbfile)
         raise error
-    
-    else:
-        return roi_width
+
+    if len(rows) != 1:
+        raise IncompleteDatabaseError(
+            f"ROI_MAP table in {os.path.realpath(dbfile)} has {len(rows)} rows (expected exactly 1). "
+            "The arena ROI was not exported into the database, which usually means the dbfile export "
+            "(python -m flyhostel.data.sqlite3) did not finish, or the idtrackerai ROI was not available when it ran. "
+            "Re-run the export for this experiment and try again."
+        )
+
+    roi_width, roi_height = rows[0]
+    return max(int(roi_width), int(roi_height))
+
 
 def parse_identity(id):
     return int(id.split("|")[1])

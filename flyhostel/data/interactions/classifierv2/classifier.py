@@ -7,9 +7,9 @@ from flyhostel.data.pose.constants import framerate as FRAMERATE
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.utils import get_basedir, get_number_of_animals
 from flyhostel.data.interactions.sociability.main import (
-    process_all_experiments,
-    load_experiments
+    process_all_experiments
 )
+from flyhostel.utils import load_experiments
 raise DeprecationWarning
 import numpy as np
 
