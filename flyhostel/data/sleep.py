@@ -15,6 +15,9 @@ In arena experiments (sleep_inactive_states), feed is inactive too: their behavi
 feed is mostly what the rules make of long proboscis extensions (inactive+pe), so it would break sleep bouts with PE.
 Walking still breaks them. Sleep is somewhat overestimated, by any immobile feeding
 
+Other immobility durations (e.g. the 10 s of the interactions pipeline) come from the windowed_var of the sleep file
+(immobility_bouts, load_sleep_file), so that they follow this definition too
+
 compute_sleep_file does all of it for one fly, and saves
 
     <basedir>/sleep/<NN>/<experiment>__<NN>_sleep5min.feather         1 row per second
@@ -152,6 +155,30 @@ def annotate_sleep(behavior, min_time_immobile=MIN_TIME_IMMOBILE, time_window_le
         for _, fly in windows.groupby("id", sort=False)
     ])
     return windows[["id", "t", "t_round", "frame_number", "inactive_states", "windowed_var", "inactive_rule"]]
+
+
+def immobility_bouts(dt_sleep, min_time_immobile, time_window_length=TIME_WINDOW_LENGTH):
+    """
+    Runs of at least min_time_immobile immobile seconds (windowed_var) of a sleep trace made by annotate_sleep
+    (e.g. a sleep file), for immobility durations other than the one of the file (e.g. 10 s)
+
+    Returns:
+        np.ndarray of bool, aligned to the rows of dt_sleep (sorted by id and t)
+    """
+    return np.concatenate([
+        sleep_contiguous(~fly["windowed_var"], 1/time_window_length, min_valid_time=min_time_immobile)
+        for _, fly in dt_sleep.groupby("id", sort=False)
+    ])
+
+
+def load_sleep_file(basedir, animal):
+    """
+    Sleep of a fly, 1 row per second (see the module docstring), computed first if it does not exist yet
+    """
+    path=sleep_path(basedir, animal)
+    if not os.path.exists(path):
+        compute_sleep_file(basedir, animal)
+    return pd.read_feather(path)
 
 
 def bin_sleep(dt_sleep, bin_size=BIN_SIZE):
