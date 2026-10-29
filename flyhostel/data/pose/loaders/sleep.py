@@ -43,7 +43,7 @@ class SleepLoader:
             bin_size=300,
             errors="raise",
             complete_cases=True,
-
+            method="behavior",
         ):
 
         """
@@ -52,6 +52,7 @@ class SleepLoader:
         Arguments:
             bin_size (int): If None, the 1 s trace. Otherwise the trace binned in windows of bin_size seconds
             errors (str): raise or warning, if the sleep file does not exist
+            method (str): behavior, or centroid for the sleep computed from the centroid (sleep_centroid.nf)
 
         Populates self.sleep
 
@@ -59,7 +60,7 @@ class SleepLoader:
             None
         """
 
-        path=sleep_path(self.basedir, self.datasetnames[0], min_time_immobile=min_time_immobile, bin_size=bin_size)
+        path=sleep_path(self.basedir, self.datasetnames[0], min_time_immobile=min_time_immobile, bin_size=bin_size, method=method)
         if not os.path.exists(path):
             if errors=="raise":
                 raise FileNotFoundError(path)
