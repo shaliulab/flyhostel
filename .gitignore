@@ -9,3 +9,6 @@ scripts/.nextflow/
 flyhostel/tests_old/
 .vscode/
 scripts/backup.env
+*.pyc
+.envrc
+scripts/status.txt
