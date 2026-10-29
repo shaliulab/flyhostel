@@ -263,9 +263,10 @@ def get_features_all(loaders, window_s, min_time=None, max_time=None, timepoints
                 closest_distance_pair=closest_distance.loc[
                     closest_distance["nn"]==loader2.ids[0]
                 ].sort_values("frame_number")
+                # no copies needed: sync_datasources and get_features do not modify the pose
                 pose_complex1, pose_complex2=sync_datasources(
-                    loader1.pose_complex.copy(),
-                    loader2.pose_complex.copy()
+                    loader1.pose_complex,
+                    loader2.pose_complex
                 )
 
                 frame_indices_all=[]

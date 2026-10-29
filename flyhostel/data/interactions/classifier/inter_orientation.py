@@ -150,8 +150,11 @@ def sync_datasources(*args):
     """
     df1=args[0]
     df2=args[1]
-    df1=df1.loc[df1["frame_number"].isin(df2["frame_number"])]
-    df2=df2.loc[df2["frame_number"].isin(df1["frame_number"])]
+    same_frames=len(args)==2 and df1.shape[0]==df2.shape[0] and \
+        np.array_equal(df1["frame_number"].values, df2["frame_number"].values)
+    if not same_frames:
+        df1=df1.loc[df1["frame_number"].isin(df2["frame_number"])]
+        df2=df2.loc[df2["frame_number"].isin(df1["frame_number"])]
 
     out=[df1, df2]
     for df in args[2:]:
