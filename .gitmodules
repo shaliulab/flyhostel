@@ -28,3 +28,6 @@
 [submodule "libraries/yolov7tools"]
 	path = libraries/yolov7tools
 	url = git@github.com:shaliulab/yolov7tools
+[submodule "libraries/yolov7"]
+	path = libraries/yolov7
+	url = git@github.com:shaliulab/yolov7
