@@ -108,19 +108,22 @@ class InteractionsLoader:
         else:
             return "/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA"
     
-    def load_interaction_database(self):
-        
+    def load_interaction_database(self, interaction_database=None):
+
         """
+        Arguments:
+            interaction_database (pd.DataFrame): Interactions of the experiment. Default <experiment>_database.feather
 
         Populates interaction_database with a DataFrame with columns
         ___
         """
-        interactions_folder = os.path.join(self.basedir, "interactions")
-        assert os.path.exists(interactions_folder)
-        feather_file=os.path.join(interactions_folder, self.experiment + "_database.feather")
-        assert os.path.exists(feather_file)
-        interaction_database=pd.read_feather(feather_file)
-        interaction_database=interaction_database.loc[interaction_database["id"]==self.ids[0]]
+        if interaction_database is None:
+            interactions_folder = os.path.join(self.basedir, "interactions")
+            assert os.path.exists(interactions_folder)
+            feather_file=os.path.join(interactions_folder, self.experiment + "_database.feather")
+            assert os.path.exists(feather_file)
+            interaction_database=pd.read_feather(feather_file)
+        interaction_database=interaction_database.loc[interaction_database["id"]==self.ids[0]].copy()
         interaction_database["identity"]=interaction_database["id"].str.slice(start=-2).astype(int)
         interaction_database["identity_partner"]=interaction_database["nn"].str.slice(start=-2).astype(int)
         interaction_database["chunk"]=interaction_database["frame_number"]//self.chunksize
@@ -175,12 +178,11 @@ class InteractionsLoader:
             identity=self.identity
 
         neighbors_features=["id", "nn", "distance_mm", "frame_number", "t"]
-        csv_file=os.path.join(self.basedir, "interactions", experiment + "_neighbors.csv")
-        if not os.path.exists(csv_file):
-            logger.warning("%s not found", csv_file)
+        feather_file=os.path.join(self.basedir, "interactions", experiment + "_neighbors.feather")
+        if not os.path.exists(feather_file):
+            logger.warning("%s not found", feather_file)
             return None
-
-        neighbors=pd.read_csv(csv_file)[neighbors_features]
+        neighbors=pd.read_feather(feather_file, columns=neighbors_features)
 
         if min_time is not None:
             neighbors=neighbors.loc[neighbors["t"]>=min_time]
