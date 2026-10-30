@@ -9,7 +9,7 @@ idtrackerai assigns local identities per chunk, and they swap between chunks
 local_identity, in_frame_index and identity gives wrong answers.
 
 The recording folder contains what the dbfile exporter expects to find:
-metadata.yaml + mp4 chunks + index.db (written by imgstore), the idtrackerai .conf,
+metadata.yaml + mp4 chunks + index.db (written by imgstore), the idtrackerai .conf and .toml,
 a .pfs camera file, metadata.csv, landmarks.toml, chunk snapshots (.png), environment
 data (.extra.json), idtrackerai session folders and concatenation-overlap.csv.
 """
@@ -46,6 +46,8 @@ FLY_RADIUS = 8
 ROI = [[20, 20], [380, 20], [380, 380], [20, 380]]
 # cv2.boundingRect of ROI is inclusive of both edges
 ROI_WIDTH = 361
+# area excluded from the ROI (negative ROI), away from both flies
+NEGATIVE_ROI = [[300, 40], [360, 40], [360, 80], [300, 80]]
 
 # store created at 14:00 UTC, the time in the folder name (DATE_TIME), from which frame_time counts.
 # lights on (ZT0) at 11:00 UTC
@@ -120,9 +122,19 @@ def write_recording(basedir):
 
 
 def write_idtrackerai_conf(basedir):
+    """DATE_TIME.toml (idtrackerai v5) and DATE_TIME.conf (made from it by conf-convert)"""
+    with open(os.path.join(basedir, f"{DATE_TIME}.toml"), "w") as handle:
+        handle.write(f"number_of_animals = {NUMBER_OF_ANIMALS}\nroi_list = [\n")
+        handle.write(f'    "+ Polygon {[[float(v) for v in point] for point in ROI]}",\n')
+        handle.write(f'    "- Polygon {[[float(v) for v in point] for point in NEGATIVE_ROI]}",\n')
+        handle.write("]\n")
+
     conf = {
         "_number_of_animals": {"value": NUMBER_OF_ANIMALS},
-        "_roi": {"value": [[", ".join(str(point) for point in ROI)]]},
+        "_roi": {"value": [
+            [", ".join(str(point) for point in ROI) + ", "],
+            ["- " + ", ".join(str(point) for point in NEGATIVE_ROI) + ", "],
+        ]},
     }
     with open(os.path.join(basedir, f"{DATE_TIME}.conf"), "w") as handle:
         json.dump(conf, handle)

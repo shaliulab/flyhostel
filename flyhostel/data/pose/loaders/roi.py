@@ -1,32 +1,18 @@
-import sqlite3, io, numpy as np
+import numpy as np
+from flyhostel.data.roi_map import load_roi_map, draw_roi_mask, decode_mask_blob
 
 def load_arena_mask_(dbfile):
-    con = sqlite3.connect(dbfile)
-    try:
-        row = con.execute("SELECT mask FROM ROI_MAP LIMIT 1").fetchone()
-    finally:
-        con.close()
-    return decode_mask_blob(bytes(row[0]))
+    """Arena mask (255 inside, 0 outside and in the negative ROIs)"""
+    return load_roi_map(dbfile)["mask"]
 
-def decode_mask_blob(b):
-    if b[:6] == b'\x93NUMPY':                      # numpy .npy
-        return np.load(io.BytesIO(b))
-    try:                                            # PNG/JPEG
-        import cv2
-        a = cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_GRAYSCALE)
-        if a is not None: return a
-    except Exception: pass
-    try:
-        from PIL import Image
-        return np.array(Image.open(io.BytesIO(b)).convert('L'))
-    except Exception: pass
-    try:                                            # pickled array
-        return np.asarray(np.load(io.BytesIO(b), allow_pickle=True))
-    except Exception: pass
-    raise ValueError(f"Unrecognized mask blob; first 16 bytes: {b[:16]!r}")
+def load_arena_rois_(dbfile):
+    """List of (sign, contour) of the arena, sign is -1 for negative ROIs (areas excluded from the arena)"""
+    return load_roi_map(dbfile)["rois"]
 
 def arena_calib(dbfile, px_per_mm):
-    m = load_arena_mask_(dbfile)
+    roi_map = load_roi_map(dbfile)
+    # the arena disk, without removing the negative ROIs (e.g. notches cut from its edge)
+    m = draw_roi_mask([roi for roi in roi_map["rois"] if roi[0] > 0], roi_map["mask"].shape)
     ys, xs = np.nonzero(np.asarray(m) > (np.asarray(m).max() / 2))   # white = arena
     cx_cent, cy_cent = xs.mean(), ys.mean()                          # centroid
     cx_bb = (xs.min()+xs.max())/2.0; cy_bb = (ys.min()+ys.max())/2.0 # bbox center
@@ -52,3 +38,6 @@ class ROILoader:
 
     def load_arena_mask(self):
         return load_arena_mask_(self.dbfile)
+
+    def load_arena_rois(self):
+        return load_arena_rois_(self.dbfile)

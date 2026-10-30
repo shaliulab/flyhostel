@@ -60,50 +60,22 @@ class LandmarksLoader:
     def compute_distance_to_edge(self):
         """
         Compute distance from each fly position to the arena edge.
-        Uses the arena mask (ROI_MAP) stored in the database.
+        Uses the arena mask (ROI_MAP) stored in the database,
+        so the negative ROIs (areas excluded from the arena) count as outside the arena.
         """
-        import sqlite3
         from scipy import ndimage
-        from PIL import Image
-        import io
-        
-        # Create SQLite connection from file path
-        conn = sqlite3.connect(self.dbfile)
-        
-        try:
-            # Load arena mask from database
-            roi_map = pd.read_sql("SELECT mask FROM ROI_MAP LIMIT 1", conn)
-            roi_width = pd.read_sql("SELECT w FROM ROI_MAP", conn).iloc[0]["w"]
+        from flyhostel.data.roi_map import load_roi_map
 
+        try:
+            roi_map = load_roi_map(self.dbfile)
         except Exception as e:
             logger.warning(f"Could not read ROI_MAP: {e}")
-            conn.close()
             return None
-        
-        if roi_map.empty:
-            logger.warning("No ROI_MAP found in database")
-            conn.close()
-            return None
-        
-        conn.close()
-        
-        # Deserialize the BLOB (binary mask image)
-        mask_blob = roi_map.iloc[0]["mask"]
-        
-        # Mask is stored as binary image data
-        try:
-            # If stored as raw numpy array bytes
-            mask = np.frombuffer(mask_blob, dtype=np.uint8).reshape(-1, -1)
-        except:
-            try:
-                # If stored as PIL Image BLOB
-                mask = np.array(Image.open(io.BytesIO(mask_blob)))
-            except Exception as e:
-                logger.warning(f"Could not deserialize mask blob: {e}")
-                return None
-        
+
+        roi_width = roi_map["w"]
+
         # Ensure binary (white=1, black=0)
-        mask = (mask > 127).astype(np.uint8)
+        mask = (roi_map["mask"] > 127).astype(np.uint8)
         
         # Compute distance transform
         # distance_transform_edt gives distance to nearest 0-valued pixel (edge)

@@ -185,6 +185,36 @@ def test_roi_map(dbfile):
     mask = cv2.imdecode(np.frombuffer(roi_map["mask"].iloc[0], np.uint8), cv2.IMREAD_GRAYSCALE)
     assert mask.shape == (synthetic.IMG_SIZE, synthetic.IMG_SIZE)
     assert mask[200, 200] > 200 and mask[5, 5] < 50
+    # inside the negative ROI
+    assert mask[60, 330] < 50
+
+
+def test_roi_map_negative_rois_are_read_as_negative(dbfile):
+    from flyhostel.data.roi_map import load_roi_map
+    roi_map = load_roi_map(dbfile)
+    assert [sign for sign, _ in roi_map["rois"]] == [1, -1]
+    assert roi_map["rois"][0][1].reshape(-1, 2).tolist() == synthetic.ROI
+    assert roi_map["rois"][1][1].reshape(-1, 2).tolist() == synthetic.NEGATIVE_ROI
+    assert roi_map["mask"][60, 330] == 0 and roi_map["mask"][200, 200] == 255
+
+
+def test_roi_map_matches_the_main_toml(dbfile):
+    from flyhostel.data.roi_map import verify_roi_map
+    verify_roi_map(dbfile, os.path.join(os.path.dirname(dbfile), f"{synthetic.DATE_TIME}.toml"))
+
+
+def test_export_fails_if_roi_map_does_not_match_the_main_toml(raw_experiment, tmp_path, monkeypatch):
+    from flyhostel.data.roi_map import ROIMapMismatchError
+    basedir = synthetic.copy_experiment(raw_experiment, str(tmp_path / "videos"))
+    # the toml was edited (negative ROI removed) but the .conf was not made again with conf-convert
+    toml_path = os.path.join(basedir, f"{synthetic.DATE_TIME}.toml")
+    with open(toml_path) as handle:
+        lines = [line for line in handle if not line.strip().startswith('"-')]
+    with open(toml_path, "w") as handle:
+        handle.writelines(lines)
+
+    with pytest.raises(ROIMapMismatchError, match="signs"):
+        synthetic.export_dbfile(basedir, monkeypatch, tables=["ROI_MAP"])
 
 
 def test_var_map_declares_the_distance_variables(dbfile):

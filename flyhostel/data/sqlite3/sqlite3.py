@@ -7,12 +7,11 @@ import sqlite3
 import warnings
 import os.path
 import logging
-from ast import literal_eval
 import json
 
-import cv2
-import numpy as np
-
+from flyhostel.data.roi_map import (
+    parse_conf_rois, draw_roi_mask, roi_bounding_rect, serialize_rois, verify_roi_map,
+)
 from .async_writer import AsyncSQLiteWriter
 from .utils import table_is_not_empty, serialize_arr
 from .store_index import StoreIndexExporter
@@ -60,6 +59,7 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
         if "ROI_MAP" in tables:
             print("Writing ROI_MAP")
             self.write_roi_map_table(dbfile)
+            self.verify_roi_map_table(dbfile)
             print("ROI_MAP done")
 
         if "ENVIRONMENT" in tables:
@@ -134,23 +134,41 @@ class SQLiteExporter(SnapshotExporter, AIExporter, ConcatenationExporter, Metada
             cur = conn.cursor()
             if reset:
                 cur.execute("DROP TABLE IF EXISTS ROI_MAP;")
-            cur.execute("CREATE TABLE IF NOT EXISTS ROI_MAP (roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), mask longblob);")
+            # rois: JSON list of the signed polygons the mask is made of (see flyhostel.data.roi_map)
+            cur.execute("CREATE TABLE IF NOT EXISTS ROI_MAP (roi_idx smallint(6), roi_value smallint(6), x smallint(6), y smallint(6), w smallint(6), h smallint(6), mask longblob, rois text);")
+            # ROI_MAP made before negative ROIs were supported
+            columns = [row[1] for row in cur.execute("PRAGMA table_info(ROI_MAP);")]
+            if "rois" not in columns:
+                cur.execute("ALTER TABLE ROI_MAP ADD COLUMN rois text;")
 
     def write_roi_map_table(self, dbfile):
+        """
+        The arena is made of the ROIs in the _roi field of the idtrackerai .conf, applied in order:
+        positive ROIs add their area to the mask and negative ROIs (rows starting with -) remove it
+        """
+        rois = parse_conf_rois(self._idtrackerai_conf["_roi"]["value"])
+        x_coord, y_coord, width, height = roi_bounding_rect(rois)
 
-        roi = np.array(literal_eval(self._idtrackerai_conf["_roi"]["value"][0][0]))
-        x_coord, y_coord, width, height = cv2.boundingRect(roi)
-
-        mask = np.zeros(self._store_metadata["imgshape"])
-        mask = cv2.drawContours(mask, [roi], -1, 255, -1)
+        mask = draw_roi_mask(rois, tuple(self._store_metadata["imgshape"]))
         mask = serialize_arr(mask, self._temp_path)
 
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
             cur = conn.cursor()
+            cur.execute("DELETE FROM ROI_MAP WHERE roi_idx = 0;")
             cur.execute(
-                "INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, mask) VALUES (?, ?, ?, ?, ?, ?, ?);",
-                (0, 0, x_coord, y_coord, width, height, mask)
+                "INSERT INTO ROI_MAP (roi_idx, roi_value, x, y, w, h, mask, rois) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+                (0, 0, x_coord, y_coord, width, height, mask, serialize_rois(rois))
             )
+
+    def verify_roi_map_table(self, dbfile):
+        """
+        Check that ROI_MAP matches the roi_list of the main toml of the experiment (DATE_TIME.toml, not landmarks.toml)
+        """
+        toml_path = os.path.join(self._basedir, f"{self._date_time}.toml")
+        if not os.path.exists(toml_path):
+            logger.warning("%s not found, ROI_MAP of %s cannot be verified", toml_path, dbfile)
+            return
+        verify_roi_map(dbfile, toml_path)
 
     def init_environment_table(self, dbfile, reset=True):
         with sqlite3.connect(dbfile, check_same_thread=False) as conn:
