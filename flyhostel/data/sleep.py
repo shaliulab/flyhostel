@@ -48,6 +48,7 @@ Columns:
 import argparse
 import logging
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -227,17 +228,37 @@ def annotate_sleep_from_centroids(centroids, min_displacement_mm=MIN_DISPLACEMEN
     return windows[["id", "t", "t_round", "frame_number", "n_frames", "displacement_mm", "windowed_var", "inactive_rule"]]
 
 
+def has_splitter(basedir):
+    """
+    True if <basedir>/landmarks.toml has a splitter (the line between 2 flies, see split_identities.py in splitter.nf)
+    """
+    landmarks=os.path.join(basedir, "landmarks.toml")
+    if not os.path.exists(landmarks):
+        return False
+    with open(landmarks, "r") as handle:
+        return any(re.match(r"^\s*splitter\s*=", line) for line in handle)
+
+
 def load_centroids(basedir, animal):
     """
     Centroid of a fly (experiment__NN) in mm, with columns id, t (ZT seconds), frame_number, x_mm, y_mm,
     loaded from its dbfile like in predict-behavior. Frames in in_frame_index_mistakes.csv (see
     mask_unreliable_frames) are dropped
+
+    Experiments with 2 flies separated by a splitter (splitter = ... in <basedir>/landmarks.toml, tracked by
+    splitter.nf) are read without validation: the identity of a fly is the side of the splitter it is on,
+    so it cannot be swapped
     """
     # imported here: flyhostel.data.pose.main imports this module
     from flyhostel.data.pose.main import FlyHostelLoader
 
     experiment, identity=animal.split("__")
-    loader=FlyHostelLoader(experiment=experiment, identity=int(identity), chunks=range(0, 400))
+    ensure_validated=not has_splitter(basedir)
+    if not ensure_validated:
+        logger.info("%s has a splitter: reading its identities without validation", basedir)
+    loader=FlyHostelLoader(
+        experiment=experiment, identity=int(identity), chunks=range(0, 400), ensure_validated=ensure_validated
+    )
     loader.load_centroid_data(identity_table=loader.identity_table, roi_0_table=loader.roi_0_table)
     if loader.dt is None:
         raise ValueError(f"No centroid data for {animal}")
