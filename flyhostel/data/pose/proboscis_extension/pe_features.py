@@ -37,7 +37,7 @@ from tqdm.auto import tqdm
 
 from flyhostel.data.pose.main import FlyHostelLoader
 
-from flyhostel.data.pose.landmarks import distance_from_points_to_ellipse
+from flyhostel.data.pose.landmarks import distance_from_points_to_ellipse, distance_from_points_to_shape, scale_shape
 from flyhostel.utils.pose_export import load_arrays, get_first_frame_number, load_frame_numbers
 from .proboscis_candidates import (
     compute_geometry, EXT_FRAC, PROD_THRESH, PARAMS,
@@ -374,6 +374,11 @@ def signals_from_h5(loader, params, track=TRACK):
         pi = nodes.index("proboscis")
         prob_arena = pose_to_arena_xy(locs[:, pi, :, track], thorax, thorax_arena_xy)
 
+        # areas removed from the food (negative ROIs of an arena), in px like prob_arena
+        excluded = [
+            scale_shape(ast.literal_eval(spec), loader.roi_size)
+            for spec in loader.landmarks.loc[loader.landmarks["shape"] == "food_excluded", "specification_norm"]
+        ]
         per_blob = []
         for _, blob in food_blobs.iterrows():
             spec = ast.literal_eval(blob["specification_norm"])   # not eval()
@@ -385,7 +390,11 @@ def signals_from_h5(loader, params, track=TRACK):
                 b=spec["axes"][1] * loader.roi_size,
                 theta=np.radians(spec["angle"]),
             )
-            per_blob.append(proboscis_food_distance(prob_arena, ellipse, ppm))
+            d_mm = proboscis_food_distance(prob_arena, ellipse, ppm)
+            for spec in excluded:
+                # food without the excluded area: max(d_food, -d_excluded)
+                d_mm = np.maximum(d_mm, -distance_from_points_to_shape(prob_arena, spec) / ppm)
+            per_blob.append(d_mm)
 
         per_blob = np.vstack(per_blob)                 # (n_blobs, n_frames), signed
         # nearest blob, NaN-safe and MODE-AWARE: 'ring' ranks by |d| (a blob 0.2mm

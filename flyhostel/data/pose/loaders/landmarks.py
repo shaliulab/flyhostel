@@ -7,6 +7,7 @@ logger=logging.getLogger(__name__)
 from flyhostel.data.pose.landmarks import (
     distance_from_points_to_ellipse,
     distance_from_points_to_polygon,
+    subtract_shapes,
 )
 
 class LandmarksLoader:
@@ -39,7 +40,20 @@ class LandmarksLoader:
 
             elif landmark["shape"]=="Polygon":
                 logger.warning(f"Ignoring landmark {landmark}")
- 
+
+            elif landmark["shape"]=="food_excluded":
+                # area removed from the food (negative ROIs of an arena): an ellipse like food or a polygon like notch
+                if landmark["specification"].lstrip().startswith("{"):
+                    landmark_norm=self.normalize_food_landmark(landmark.copy(), roi_size=self.roi_size)
+                else:
+                    landmark_norm=self.normalize_notch_landmark(landmark.copy(), roi_size=self.roi_size)
+                specification.append(landmark_norm["specification"])
+                index.append(idx)
+
+            elif landmark["shape"]=="splitter":
+                # the line between 2 flies separated by a splitter: kept in landmarks_all only
+                pass
+
             elif errors=="raise":
                 raise ValueError(f"Landmark {landmark['shape']} not supported")
             elif errors=="ignore":
@@ -120,6 +134,8 @@ class LandmarksLoader:
         
         self.dt["food_blobs"]=0
         across_blobs=[]
+        # areas removed from the food (e.g. the negative ROIs of an arena, where the food is the whole arena)
+        excluded=[eval(spec) for spec in self.landmarks.loc[self.landmarks["shape"]=="food_excluded", "specification_norm"]]
 
         centers = []
         j = 0
@@ -134,6 +150,7 @@ class LandmarksLoader:
                 ellipse["axes"][1]*include_outside,
                 np.radians(ellipse["angle"]),
             )
+            in_ellipse_all = subtract_shapes(in_ellipse_all, self.dt[["x", "y"]].values, excluded)
             self.dt[f"food_{j+1}_dist"] = in_ellipse_all
             j += 1
 

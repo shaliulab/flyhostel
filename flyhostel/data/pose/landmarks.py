@@ -2,8 +2,10 @@
 Load the coordinates of the landmarks saved in the LANDMARKS table
 The landmarks can be 
 
-    * food: an ellipse that delineates the food patch
+    * food: an ellipse that delineates the food patch (in arena experiments, the whole arena)
+    * food_excluded: an area (polygon or ellipse) removed from the food, e.g. the negative ROIs of an arena
     * notch: a tetragon that delinates the notches in the glass above the arena
+    * splitter: the line between 2 flies separated by a splitter
 """
 import logging
 import numpy as np
@@ -133,3 +135,34 @@ def is_point_in_ellipse(x, y, h, k, a, b, theta):
     ellipse_eq = (x_rot**2 / a**2) + (y_rot**2 / b**2)
     return ellipse_eq <= 1
 
+
+
+def distance_from_points_to_shape(points, spec):
+    """
+    Signed distance (negative if inside) from points to an ellipse
+    ({'center': [h, k], 'axes': [a, b], 'angle': degrees}) or a polygon ([[x, y], ...])
+    """
+    if isinstance(spec, dict):
+        return distance_from_points_to_ellipse(
+            points, spec["center"][0], spec["center"][1], spec["axes"][0], spec["axes"][1], np.radians(spec["angle"])
+        )
+    return distance_from_points_to_polygon(points, spec)
+
+
+def subtract_shapes(distances, points, excluded):
+    """
+    Signed distance from points to a shape without the excluded shapes (e.g. food without the food_excluded areas),
+    given the signed distances to the shape: max(d_shape, -d_excluded) for every excluded shape.
+    Points inside an excluded shape are outside the result.
+    """
+    distances=np.asarray(distances, dtype=float)
+    for spec in excluded:
+        distances=np.maximum(distances, -distance_from_points_to_shape(points, spec))
+    return distances
+
+
+def scale_shape(spec, factor):
+    """An ellipse or polygon specification with its coordinates (and axes) multiplied by factor"""
+    if isinstance(spec, dict):
+        return {**spec, "center": [v * factor for v in spec["center"]], "axes": [v * factor for v in spec["axes"]]}
+    return (np.asarray(spec, dtype=float) * factor).tolist()
