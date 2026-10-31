@@ -248,9 +248,25 @@ def test_centroid_sleep_files(tmp_path, monkeypatch):
     data = centroids([(2 * i, 0) for i in range(10)] + [(18, 0)] * 600)
     monkeypatch.setattr(sleep_module, "load_centroids", lambda basedir, animal: data)
     paths = compute_sleep_file(str(tmp_path), animal, method="centroid")
-    assert paths == [sleep_path(str(tmp_path), animal, method="centroid"), sleep_path(str(tmp_path), animal, bin_size=300, method="centroid")]
+    assert paths == [
+        sleep_path(str(tmp_path), animal, method="centroid"),
+        sleep_module.ethogram_path(str(tmp_path), animal),
+        sleep_path(str(tmp_path), animal, bin_size=300, method="centroid"),
+    ]
     assert pd.read_feather(paths[0])["inactive_rule"].sum() == 600
-    assert pd.read_feather(paths[1])["inactive_rule"].tolist() == [290 / 300, 1, 10 / 10]
+    assert pd.read_feather(paths[2])["inactive_rule"].tolist() == [290 / 300, 1, 10 / 10]
+
+    # activity ethogram: no behavior in the first second, active while moving, then inactive
+    ethogram = pd.read_feather(paths[1])
+    assert paths[1] == f"{tmp_path}/sleep/00/{animal}_ethogram_centroid.feather"
+    assert ethogram["behavior"].isna().tolist() == [True] + [False] * 609
+    assert ethogram["behavior"].iloc[1:10].eq("active").all()
+    assert ethogram["behavior"].iloc[10:].eq("inactive").all()
+    assert ethogram["asleep"].sum() == 600
+    # made again from the sleep file alone
+    os.unlink(paths[1])
+    assert sleep_module.make_activity_ethogram(str(tmp_path), animal) == paths[1]
+    pd.testing.assert_frame_equal(pd.read_feather(paths[1]), ethogram)
     with pytest.raises(ValueError):
         compute_sleep_file(str(tmp_path), animal, input="behavior.feather", method="centroid")
 

@@ -33,7 +33,12 @@ compute_sleep_file does all of it for one fly, and saves
     <basedir>/sleep/<NN>/<experiment>__<NN>_sleep5min_bin300.feather   1 row per bin
 
 or, with the centroid method, _sleep5min_centroid.feather and _sleep5min_centroid_bin300.feather, so that the two
-are never mixed up (load_sleep_data(method="centroid") reads them).
+are never mixed up (load_sleep_data(method="centroid") reads them). The centroid method also saves the activity
+ethogram of the fly (activity_ethogram), read by the Ethograms tab of the validator for arena flies
+
+    <basedir>/sleep/<NN>/<experiment>__<NN>_ethogram_centroid.feather    1 row per second: active / inactive
+
+compute-sleep --ethogram-only makes it from the sleep file already saved, without computing the sleep again.
 
 The behavior based sleep runs at the end of the behavior_prediction pipeline (compute-sleep) and in the analysis code,
 when a sleep file is missing or older than the behavior file. The centroid based one runs in the sleep_centroid.nf
@@ -89,6 +94,16 @@ def sleep_path(basedir, animal, min_time_immobile=MIN_TIME_IMMOBILE, bin_size=No
     if bin_size is not None:
         basename+=f"_bin{bin_size}"
     return os.path.join(basedir, "sleep", identity, basename + ".feather")
+
+
+def ethogram_path(basedir, animal, method="centroid"):
+    """
+    Path to the activity ethogram of a fly (experiment__NN), see activity_ethogram. Only the centroid method makes one
+    """
+    if method!="centroid":
+        raise ValueError(f"Only the centroid method makes an activity ethogram, not {method}")
+    identity=animal.split("__")[-1]
+    return os.path.join(basedir, "sleep", identity, f"{animal}_ethogram_{method}.feather")
 
 
 def behavior_path(basedir, animal):
@@ -228,6 +243,56 @@ def annotate_sleep_from_centroids(centroids, min_displacement_mm=MIN_DISPLACEMEN
     return windows[["id", "t", "t_round", "frame_number", "n_frames", "displacement_mm", "windowed_var", "inactive_rule"]]
 
 
+ACTIVITY_STATES=["active", "inactive"]
+
+
+def activity_ethogram(dt_sleep):
+    """
+    Activity ethogram of a sleep trace made by annotate_sleep_from_centroids: every second is inactive
+    (windowed_var: the centroid moved <= min_displacement_mm) or active. A second without displacement
+    (first second of the fly) has no behavior (None)
+
+    Returns:
+        pd.DataFrame with columns frame_number (first frame of the second), t (ZT s), behavior (ACTIVITY_STATES),
+        asleep, displacement_mm
+    """
+    behavior=np.where(dt_sleep["windowed_var"], "inactive", "active").astype(object)
+    behavior[dt_sleep["displacement_mm"].isna().values]=None
+    return pd.DataFrame({
+        "frame_number": dt_sleep["frame_number"].astype(np.int64).values,
+        "t": dt_sleep["t"].values,
+        "behavior": pd.Categorical(behavior, categories=ACTIVITY_STATES),
+        "asleep": dt_sleep["inactive_rule"].astype(bool).values,
+        "displacement_mm": dt_sleep["displacement_mm"].values,
+    })
+
+
+def save_feather(df, path):
+    """Write atomically (temporary file + os.replace)"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp=path + ".tmp"
+    df.reset_index(drop=True).to_feather(tmp, compression="zstd")
+    os.replace(tmp, path)
+    logger.info("Saved %s", path)
+
+
+def make_activity_ethogram(basedir, animal, output=None):
+    """
+    Activity ethogram of a fly from its centroid sleep file, already saved (compute-sleep --ethogram-only)
+
+    Returns:
+        Path to the ethogram
+    """
+    source=sleep_path(basedir, animal, method="centroid")
+    if output is not None:
+        source=os.path.join(output, os.path.basename(source))
+    path=ethogram_path(basedir, animal)
+    if output is not None:
+        path=os.path.join(output, os.path.basename(path))
+    save_feather(activity_ethogram(pd.read_feather(source)), path)
+    return path
+
+
 def has_splitter(basedir):
     """
     True if <basedir>/landmarks.toml has a splitter (the line between 2 flies, see split_identities.py in splitter.nf)
@@ -328,7 +393,7 @@ def compute_sleep_file(basedir, animal, input=None, output=None, method="behavio
         min_displacement_mm (float): Only used by the centroid method, see annotate_sleep_from_centroids
 
     Returns:
-        Paths to the 1 s and to the binned sleep traces
+        Paths to the 1 s and to the binned sleep traces (and the activity ethogram with the centroid method)
     """
     if method=="centroid":
         if input is not None:
@@ -348,19 +413,19 @@ def compute_sleep_file(basedir, animal, input=None, output=None, method="behavio
         dt_sleep=annotate_sleep(behavior, inactive_states=sleep_inactive_states(animal))
     else:
         raise ValueError(f"method must be one of {METHODS}, not {method}")
-    dt_bin=bin_sleep(dt_sleep)
-
-    paths=[sleep_path(basedir, animal, method=method), sleep_path(basedir, animal, bin_size=BIN_SIZE, method=method)]
+    tables=[dt_sleep]
+    paths=[sleep_path(basedir, animal, method=method)]
+    if method=="centroid":
+        tables.append(activity_ethogram(dt_sleep))
+        paths.append(ethogram_path(basedir, animal, method=method))
+    # the binned trace is written last: it tells the analysis code that the sleep of the fly is complete
+    tables.append(bin_sleep(dt_sleep))
+    paths.append(sleep_path(basedir, animal, bin_size=BIN_SIZE, method=method))
     if output is not None:
         paths=[os.path.join(output, os.path.basename(path)) for path in paths]
 
-    # the binned trace is written last: it tells the analysis code that the sleep of the fly is complete
-    for df, path in zip([dt_sleep, dt_bin], paths):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp=path + ".tmp"
-        df.reset_index(drop=True).to_feather(tmp, compression="zstd")
-        os.replace(tmp, path)
-        logger.info("Saved %s", path)
+    for df, path in zip(tables, paths):
+        save_feather(df, path)
     return paths
 
 
@@ -436,12 +501,21 @@ def get_parser():
         "--min-displacement-mm", type=float, default=MIN_DISPLACEMENT_MM,
         help="centroid method: a second is immobile when the centroid moved at most this much since the previous second"
     )
+    ap.add_argument(
+        "--ethogram-only", action="store_true",
+        help="centroid method: only make the activity ethogram, from the sleep file already in --output (default <basedir>/sleep/<NN>)"
+    )
     return ap
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
     args=get_parser().parse_args()
+    if args.ethogram_only:
+        if args.method!="centroid":
+            raise ValueError("--ethogram-only needs --method centroid")
+        make_activity_ethogram(args.basedir, args.animal, output=args.output)
+        return
     compute_sleep_file(
         args.basedir, args.animal, input=args.input, output=args.output,
         method=args.method, min_displacement_mm=args.min_displacement_mm,
