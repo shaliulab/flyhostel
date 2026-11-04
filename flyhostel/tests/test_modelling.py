@@ -7,45 +7,50 @@ import pytest
 
 from flyhostel.data.interactions.sociability.behavior_integration import annotate_behavior_database_id
 from flyhostel.modelling.modelling.compile.interactions_table import classify, interaction_rates, seconds_by_moving
-from flyhostel.modelling.modelling.fly_agent_models.fly_agent import ArousalTable, FlyAgent, RealBouts
+from flyhostel.modelling.modelling.fly_agent_models.fly_agent import ArousalTable, FlyAgent
 from flyhostel.modelling.modelling.fly_agent_models.multi_fly_simulator import MultiFlySimulator
 from flyhostel.modelling.modelling.run import simulate
 from flyhostel.modelling.modelling.single_fly import bouts_of
 from flyhostel.modelling.modelling.utils.fly_traces_handlers import sleep_of_activity
 
 
-class Fixed:
-    def __init__(self, length):
-        self.length = length
-
-    def sample(self, size=1):
-        return self.length
-
-
-BOUTS = pd.DataFrame({
-    "moving": [True] * 3 + [False] * 3,
-    "length": [30, 90, 300, 10, 60, 3000],
-})
+NIGHT = pd.DataFrame({"moving": [True, False] * 3, "length": [30, 300, 90, 10, 60, 3000]})
 
 
 def asleep_fly(arousal):
     """A fly in the second 1 of an inactive bout that does not end by itself"""
-    fly = FlyAgent(0, Fixed(1), Fixed(10**9), arousal)
+    fly = FlyAgent(0, pd.DataFrame({"moving": [True, False], "length": [1, 10**9]}), arousal)
     fly.step()
     assert not fly.is_active
     return fly
 
 
-def test_arousal_table_is_a_fraction_of_the_closest_window(tmp_path):
+def test_arousal_table_is_a_fraction_of_the_closest_window_in_seconds(tmp_path):
     path = tmp_path / "arousal.csv"
-    pd.DataFrame({"window": [1, 10, 100], "y": [0.5, 0.4, 0.2]}).to_csv(path)
+    pd.DataFrame({"window": [1, 300, 2700], "y": [0.5, 0.4, 0.2]}).to_csv(path)
     table = ArousalTable(path)
-    assert table(60) == 0.5
-    assert table(11 * 60) == 0.4
-    assert table(10**6) == 0.2
+    assert table(2) == 0.5
+    assert table(5 * 60) == 0.4
+    assert table(45 * 60) == 0.2
     pd.DataFrame({"window": [1], "y": [50]}).to_csv(path)
     with pytest.raises(ValueError):
         ArousalTable(path)
+
+
+def test_a_fly_without_interactions_does_exactly_what_the_real_fly_did():
+    rng = np.random.default_rng(0)
+    real = np.repeat(rng.integers(0, 2, 40).astype(bool), rng.integers(1, 1200, 40))[:7200]
+    fly = FlyAgent(0, bouts_of(real), lambda seconds: 1.0)
+    assert np.array_equal([fly.step() for _ in range(len(real))], real)
+
+
+def test_a_woken_fly_goes_on_with_its_next_active_bout():
+    fly = FlyAgent(0, NIGHT.assign(length=[1, 1000, 7, 1000, 7, 1000]), lambda seconds: 1.0)
+    fly.step()
+    fly.step()
+    fly.inform_interaction()
+    assert not fly.step()
+    assert fly.is_active and fly.bout == 2
 
 
 def test_an_interaction_wakes_up_with_the_probability_of_the_table():
@@ -85,17 +90,10 @@ def test_short_bouts_are_not_sleep():
     assert asleep[361:661].all() and asleep.sum() == 300
 
 
-def test_bouts_are_resampled_from_the_real_ones():
-    np.random.seed(0)
-    bouts = RealBouts([5, 500])
-    assert {bouts.sample() for _ in range(100)} == {5, 500}
-
-
-def test_bouts_leave_out_the_ones_cut_by_the_window():
-    moving = [True] * 3 + [False] * 5 + [True] * 2 + [False] * 4 + [True] * 7
-    active, inactive = bouts_of(moving)
-    assert active.tolist() == [2]
-    assert inactive.tolist() == [5, 4]
+def test_bouts_are_all_the_bouts_in_order():
+    out = bouts_of([True] * 3 + [False] * 5 + [True] * 2)
+    assert out["moving"].tolist() == [True, False, True]
+    assert out["length"].tolist() == [3, 5, 2]
 
 
 def rates(ai=0.0, aa=0.0):
@@ -104,16 +102,20 @@ def rates(ai=0.0, aa=0.0):
     })
 
 
+def half(seconds):
+    return 0.5
+
+
 def test_simulations_are_reproducible():
-    arguments = (2, 1, 0, BOUTS, rates(0.01, 0.01), lambda seconds: 0.5)
+    arguments = (2, 1, 0, [NIGHT, NIGHT.iloc[::-1], NIGHT], rates(0.01, 0.01), half)
     assert simulate(*arguments) == simulate(*arguments)
 
 
 def test_interactions_only_wake_up_inactive_flies():
     random.seed(0)
     np.random.seed(0)
-    awake = MultiFlySimulator(BOUTS, 2, rates(ai=0.0), lambda seconds: 1.0).run(36000).mean()
-    disturbed = MultiFlySimulator(BOUTS, 2, rates(ai=0.2), lambda seconds: 1.0).run(36000).mean()
+    awake = MultiFlySimulator([NIGHT, NIGHT.iloc[1:]], rates(ai=0.0), lambda seconds: 1.0).run(36000).mean()
+    disturbed = MultiFlySimulator([NIGHT, NIGHT.iloc[1:]], rates(ai=0.2), lambda seconds: 1.0).run(36000).mean()
     assert disturbed > awake
 
 
