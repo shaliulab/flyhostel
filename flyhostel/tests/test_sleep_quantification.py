@@ -17,6 +17,7 @@ from flyhostel.data.sleep import (
     ACTIVE_STATES,
     INACTIVE_STATES,
     annotate_sleep,
+    annotate_sleep_from_blobs,
     annotate_sleep_from_centroids,
     bin_sleep,
     compute_sleep_file,
@@ -269,6 +270,76 @@ def test_centroid_sleep_files(tmp_path, monkeypatch):
     pd.testing.assert_frame_equal(pd.read_feather(paths[1]), ethogram)
     with pytest.raises(ValueError):
         compute_sleep_file(str(tmp_path), animal, input="behavior.feather", method="centroid")
+
+
+def blobs_of(tracks, id="exp__side1", gap=()):
+    """Blobs of flies without identity from a list of positions per second, one list per fly. No blobs in the seconds in gap"""
+    rows = []
+    for track in tracks:
+        for second, (x, y) in enumerate(track):
+            if second not in gap:
+                rows.append({"id": id, "t": float(second), "frame_number": second * 47, "x_mm": x, "y_mm": y})
+    return pd.DataFrame(rows)
+
+
+def test_blobs_sleep_of_a_group_needs_no_identity():
+    # one fly asleep from second 0, another walks all the time, a third sleeps from second 300 to the end
+    asleep = [(0, 0)] * 700
+    walking = [(50 + 3 * i, 50) for i in range(700)]
+    late = [(90 + 3 * i, 0) for i in range(300)] + [(1000, 0)] * 400
+    out = annotate_sleep_from_blobs(blobs_of([asleep, walking, late]), number_of_flies=3)
+    assert out["t"].tolist() == list(range(700))
+    assert out["n_blobs"].eq(3).all()
+    assert out["n_asleep"].iloc[:300].eq(1).all() and out["n_asleep"].iloc[301:].eq(2).all()
+    assert np.allclose(out["inactive_rule"].iloc[301:], 2 / 3)
+    assert out["number_of_flies"].eq(3).all()
+
+
+def test_blobs_sleep_of_flies_that_do_not_stay_still_long_enough():
+    out = annotate_sleep_from_blobs(blobs_of([[(0, 0)] * 200 + [(10, 10)] * 200]), number_of_flies=1)
+    assert out["inactive_rule"].eq(0).all()
+
+
+def test_blobs_sleep_survives_short_gaps_only():
+    still = [[(0, 0)] * 700]
+    assert annotate_sleep_from_blobs(blobs_of(still, gap=set(range(300, 304))))["inactive_rule"].eq(1).all()
+    # a longer gap ends the run: neither part reaches 300 s here
+    out = annotate_sleep_from_blobs(blobs_of([[(0, 0)] * 500], gap=set(range(250, 260))))
+    assert out["inactive_rule"].eq(0).all()
+
+
+def test_blobs_sleep_is_capped_and_guesses_the_number_of_flies():
+    # a fly with its blob split in 2 still sleeps as at most the flies of the group
+    out = annotate_sleep_from_blobs(blobs_of([[(0, 0)] * 400, [(0.1, 0)] * 400]), number_of_flies=1)
+    assert out["inactive_rule"].max() == 1
+    assert annotate_sleep_from_blobs(blobs_of([[(0, 0)] * 400, [(20, 0)] * 400]))["number_of_flies"].iloc[0] == 2
+
+
+def test_blobs_sleep_uses_one_frame_per_second():
+    data = blobs_of([[(0, 0)] * 400])
+    second_frame = data.assign(frame_number=data["frame_number"] + 1, t=data["t"] + 0.5, x_mm=30)
+    out = annotate_sleep_from_blobs(pd.concat([data, second_frame]))
+    assert out["n_blobs"].eq(1).all()
+
+
+def test_blobs_splitter_sides_match_split_identities():
+    vertical = np.array([[100.0, 0.0], [100.0, 200.0]])
+    assert sleep_module.splitter_side(vertical, np.array([50.0, 150.0]), np.array([10.0, 10.0])).tolist() == [1, 2]
+    horizontal = np.array([[0.0, 100.0], [200.0, 100.0]])
+    assert sleep_module.splitter_side(horizontal, np.array([10.0, 10.0]), np.array([50.0, 150.0])).tolist() == [1, 2]
+
+
+def test_blobs_sleep_files(tmp_path, monkeypatch):
+    animal = "FlyHostel1_8X_2026-10-30_16-00-00_arena1__side1"
+    assert sleep_path("/basedir", animal, method="blobs") == f"/basedir/sleep/side1/{animal}_sleep5min_blobs.feather"
+    assert sleep_path("/basedir", animal, bin_size=300, method="blobs") == f"/basedir/sleep/side1/{animal}_sleep5min_blobs_bin300.feather"
+    data = blobs_of([[(0, 0)] * 600], id=animal)
+    monkeypatch.setattr(sleep_module, "load_blobs", lambda basedir, animal: data)
+    paths = compute_sleep_file(str(tmp_path), animal, method="blobs", number_of_flies=2)
+    assert paths == [sleep_path(str(tmp_path), animal, method="blobs"), sleep_path(str(tmp_path), animal, bin_size=300, method="blobs")]
+    assert pd.read_feather(paths[1])["inactive_rule"].tolist() == [0.5, 0.5]
+    with pytest.raises(ValueError):
+        compute_sleep_file(str(tmp_path), animal, input="behavior.feather", method="blobs")
 
 
 def test_velocity_sleep():

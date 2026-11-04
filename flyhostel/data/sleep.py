@@ -40,6 +40,20 @@ ethogram of the fly (activity_ethogram), read by the Ethograms tab of the valida
 
 compute-sleep --ethogram-only makes it from the sleep file already saved, without computing the sleep again.
 
+The blobs method (annotate_sleep_from_blobs, compute-sleep --method blobs) is a proxy of the sleep of a group of flies, one more
+metric next to the others, for a group whose identities are not tracked (e.g. many flies with a drug on one side of a splitter).
+It gives no sleep per fly, but the fraction of the group asleep. A sleeping fly does not move, so it needs no identity: every
+second, the blobs (idtrackerai blobs in ROI_0, identified or not) are linked to the nearest blob of the previous second at most
+min_displacement_mm away, as in the centroid method, and every run of at least min_time_immobile seconds is a fly asleep.
+Runs survive up to MAX_BLOB_GAP seconds without a blob (e.g. a fly walks on top of a sleeping one). Its files are named
+after the group instead of a fly: experiment__side1 and experiment__side2 for the 2 sides of a splitter (as in split_identities.py,
+1 is left / top, 2 is right / bottom), experiment__all for all the flies
+
+    <basedir>/sleep/side1/<experiment>__side1_sleep5min_blobs.feather         1 row per second
+    <basedir>/sleep/side1/<experiment>__side1_sleep5min_blobs_bin300.feather  1 row per bin
+
+The proxy is validated in flies that touch rarely. Flies that stay merged in a blob while asleep are counted as one
+
 The behavior based sleep runs at the end of the behavior_prediction pipeline (compute-sleep) and in the analysis code,
 when a sleep file is missing or older than the behavior file. The centroid based one runs in the sleep_centroid.nf
 pipeline of behavior_prediction
@@ -48,12 +62,15 @@ Columns:
     inactive_states: number of inactive frames in the second (behavior method)
     displacement_mm: distance moved by the centroid since the previous second (centroid method)
     windowed_var: the second is immobile
-    inactive_rule: the fly is asleep (in the binned trace: fraction of the bin asleep)
+    inactive_rule: the fly is asleep (in the binned trace: fraction of the bin asleep).
+        Blobs method: fraction of the flies of the group asleep
+    n_blobs, n_asleep, number_of_flies: blobs in the second, runs of immobility covering it, flies in the group (blobs method)
 """
 import argparse
 import logging
 import os
 import re
+import sqlite3
 
 import numpy as np
 import pandas as pd
@@ -74,7 +91,9 @@ BIN_SIZE=300 # seconds
 # centroid method: a second is immobile when the centroid moved this much or less since the previous second.
 # About 1/3 of a body length, and the speed above which a fly moves in flyhostel.data.social (MovementConfig). CALIBRATE
 MIN_DISPLACEMENT_MM=1.0
-METHODS=["behavior", "centroid"]
+# blobs method: seconds without a blob that do not end a run of immobility
+MAX_BLOB_GAP=5
+METHODS=["behavior", "centroid", "blobs"]
 
 
 def sleep_path(basedir, animal, min_time_immobile=MIN_TIME_IMMOBILE, bin_size=None, method="behavior"):
@@ -82,8 +101,9 @@ def sleep_path(basedir, animal, min_time_immobile=MIN_TIME_IMMOBILE, bin_size=No
     Arguments:
         basedir (str): Folder of the experiment
         animal (str): experiment__NN e.g. FlyHostel1_3X_2024-12-10_16-00-00__01
+            Blobs method: the group instead of a fly, experiment__side1, experiment__side2 or experiment__all
         bin_size (int): If None, path to the 1 s trace. Otherwise to the trace binned in windows of bin_size seconds
-        method (str): behavior or centroid (see the module docstring)
+        method (str): behavior, centroid or blobs (see the module docstring)
     """
     if method not in METHODS:
         raise ValueError(f"method must be one of {METHODS}, not {method}")
@@ -243,6 +263,153 @@ def annotate_sleep_from_centroids(centroids, min_displacement_mm=MIN_DISPLACEMEN
     return windows[["id", "t", "t_round", "frame_number", "n_frames", "displacement_mm", "windowed_var", "inactive_rule"]]
 
 
+def link_immobile_runs(seconds, positions, min_displacement_mm=MIN_DISPLACEMENT_MM, min_time_immobile=MIN_TIME_IMMOBILE, max_gap=MAX_BLOB_GAP):
+    """
+    Runs of immobility of blobs without identity (blobs method, see the module docstring)
+
+    Arguments:
+        seconds (np.ndarray): Sorted seconds with blobs
+        positions (list): For every second, array blobs x 2 with their position in mm
+
+    Returns:
+        list of (first second, last second) of the runs of at least min_time_immobile seconds
+    """
+    # [x, y, first second, last second], of the runs that can still go on
+    tracks=[]
+    runs=[]
+
+    def close(track):
+        if track[3]-track[2]>=min_time_immobile:
+            runs.append((track[2], track[3]))
+
+    for second, xy in zip(seconds, positions):
+        # a run longer without a blob ended, even if a blob shows up in the same place
+        for track in tracks:
+            if second-track[3]>max_gap:
+                close(track)
+        tracks=[track for track in tracks if second-track[3]<=max_gap]
+        linked=np.zeros(len(xy), dtype=bool)
+        if tracks and len(xy):
+            last=np.array([track[:2] for track in tracks])
+            distance=np.hypot(last[:, None, 0]-xy[:, 0], last[:, None, 1]-xy[:, 1])
+            taken=np.zeros(len(tracks), dtype=bool)
+            # the closest pairs are linked first
+            for i, j in zip(*np.unravel_index(np.argsort(distance, axis=None), distance.shape)):
+                if distance[i, j]>min_displacement_mm:
+                    break
+                if not taken[i] and not linked[j]:
+                    taken[i]=linked[j]=True
+                    tracks[i][0], tracks[i][1]=xy[j]
+                    tracks[i][3]=second
+        tracks+=[[xy[j, 0], xy[j, 1], second, second] for j in np.flatnonzero(~linked)]
+    for track in tracks:
+        close(track)
+    return runs
+
+
+def annotate_sleep_from_blobs(blobs, number_of_flies=None, min_displacement_mm=MIN_DISPLACEMENT_MM, min_time_immobile=MIN_TIME_IMMOBILE, max_gap=MAX_BLOB_GAP):
+    """
+    Fraction of a group of flies asleep from its blobs, without identities (blobs method, see the module docstring)
+
+    Arguments:
+        blobs (pd.DataFrame): Blobs of one group, with columns id, t, frame_number, x_mm, y_mm. One frame per second is enough
+        number_of_flies (int): Flies in the group. Default: the usual number of blobs in a second with blobs
+
+    Returns:
+        pd.DataFrame with one row per second between the first and the last blob, columns id, t, t_round, frame_number,
+        n_blobs, n_asleep, number_of_flies, inactive_rule
+    """
+    if blobs["id"].nunique()!=1:
+        raise ValueError("annotate_sleep_from_blobs takes the blobs of one group")
+    data=blobs[["t", "frame_number", "x_mm", "y_mm"]].dropna(subset=["x_mm", "y_mm"]).copy()
+    data["second"]=(data["t"]//TIME_WINDOW_LENGTH).astype(np.int64)
+    # one frame per second, or the same blob would be seen more than once in the second
+    data=data.loc[data["frame_number"]==data.groupby("second")["frame_number"].transform("first")]
+    by_second=dict(tuple(data.groupby("second")))
+    seconds=np.array(sorted(by_second))
+    positions=[by_second[second][["x_mm", "y_mm"]].to_numpy() for second in seconds]
+    runs=link_immobile_runs(seconds, positions, min_displacement_mm, min_time_immobile, max_gap)
+
+    grid=np.arange(seconds[0], seconds[-1]+1)
+    n_asleep=np.zeros(len(grid), dtype=np.int32)
+    for first, last in runs:
+        n_asleep[first-grid[0]:last-grid[0]+1]+=1
+    n_blobs=np.zeros(len(grid), dtype=np.int32)
+    n_blobs[seconds-grid[0]]=[len(xy) for xy in positions]
+    if number_of_flies is None:
+        number_of_flies=int(pd.Series(n_blobs[n_blobs>0]).mode().iloc[0])
+    frames=data.groupby("second")["frame_number"].first().to_numpy()
+    return pd.DataFrame({
+        "id": blobs["id"].iloc[0], "t": grid.astype(float), "t_round": grid.astype(float),
+        "frame_number": np.interp(grid, seconds, frames).astype(np.int64), "n_blobs": n_blobs, "n_asleep": n_asleep,
+        "number_of_flies": number_of_flies, "inactive_rule": np.minimum(n_asleep, number_of_flies)/number_of_flies,
+    })
+
+
+def read_splitter(basedir):
+    """[[x1, y1], [x2, y2]] of the splitter in <basedir>/landmarks.toml, in pixels of the frame. None if it has none"""
+    landmarks=os.path.join(basedir, "landmarks.toml")
+    if not os.path.exists(landmarks):
+        return None
+    with open(landmarks, "r") as handle:
+        match=re.search(r"^\s*splitter\s*=\s*(.*)$", handle.read(), flags=re.MULTILINE)
+    if match is None:
+        return None
+    return np.array(re.findall(r"-?\d+(?:\.\d+)?", match.group(1)), dtype=float).reshape(2, 2)
+
+
+def splitter_side(points, x, y):
+    """1 (left or top) or 2 (right or bottom) of every point, same as side_of in split_identities.py of splitter.nf"""
+    (x1, y1), (x2, y2)=points
+    dx, dy=x2-x1, y2-y1
+    cross=lambda x, y: dx*(y-y1)-dy*(x-x1)
+    middle_x, middle_y=(x1+x2)/2, (y1+y2)/2
+    reference=(middle_x-1e6, middle_y) if abs(dy)>=abs(dx) else (middle_x, middle_y-1e6)
+    return np.where(np.sign(cross(x, y))==np.sign(cross(*reference)), 1, 2)
+
+
+def load_blobs(basedir, animal):
+    """
+    Blobs of a group (experiment__side1, experiment__side2 or experiment__all), identified or not, in the first frame of
+    every second of its dbfile, with columns id, t (ZT seconds), frame_number, x_mm, y_mm, area. Frames in
+    in_frame_index_mistakes.csv (see mask_unreliable_frames) are dropped
+    """
+    # imported here: flyhostel.utils.utils is slow to import
+    from flyhostel.utils.utils import load_meta_info
+
+    experiment, group=animal.split("__")
+    if group not in ("all", "side1", "side2"):
+        raise ValueError(f"The group of {animal} must be all, side1 or side2")
+    dbfile=os.path.join(basedir, f"{experiment}.db")
+    with sqlite3.connect(f"file:{dbfile}?mode=ro", uri=True) as connection:
+        metadata=dict(connection.execute("SELECT field, value FROM METADATA WHERE field IN ('framerate', 'pixels_per_cm')").fetchall())
+        framerate=int(float(metadata["framerate"]))
+        blobs=pd.read_sql(f"SELECT frame_number, x, y, area FROM ROI_0 WHERE frame_number % {framerate} = 0", connection)
+        times=pd.read_sql(f"SELECT frame_number, frame_time FROM STORE_INDEX WHERE frame_number % {framerate} = 0", connection)
+    blobs=blobs.merge(times, on="frame_number", how="inner")
+
+    if group!="all":
+        points=read_splitter(basedir)
+        if points is None:
+            raise ValueError(f"{animal} is a side of a splitter, but {basedir}/landmarks.toml has none")
+        blobs=blobs.loc[splitter_side(points, blobs["x"].values, blobs["y"].values)==int(group[-1])]
+
+    pixels_per_mm=float(metadata["pixels_per_cm"])/10
+    blobs=pd.DataFrame({
+        "id": animal,
+        "t": blobs["frame_time"].values/1000+load_meta_info(dbfile, identity=1)["t_after_ref"],
+        "frame_number": blobs["frame_number"].values,
+        "x_mm": blobs["x"].values/pixels_per_mm,
+        "y_mm": blobs["y"].values/pixels_per_mm,
+        "area": blobs["area"].values,
+    }).sort_values("frame_number", ignore_index=True)
+    unreliable=unreliable_rows(blobs, basedir)
+    if unreliable.any():
+        logger.warning("%s unreliable frames in %s. Ignoring their blobs", unreliable.sum(), basedir)
+        blobs=blobs.loc[~unreliable]
+    return blobs
+
+
 ACTIVITY_STATES=["active", "inactive"]
 
 
@@ -380,17 +547,18 @@ def bin_sleep(dt_sleep, bin_size=BIN_SIZE):
     }).reset_index()
 
 
-def compute_sleep_file(basedir, animal, input=None, output=None, method="behavior", min_displacement_mm=MIN_DISPLACEMENT_MM):
+def compute_sleep_file(basedir, animal, input=None, output=None, method="behavior", min_displacement_mm=MIN_DISPLACEMENT_MM, number_of_flies=None):
     """
     Compute the sleep of a fly from its behavior file (or its centroid) and save it (see the module docstring)
 
     Arguments:
         basedir (str): Folder of the experiment
-        animal (str): experiment__NN
-        input (str): Behavior file. Default <basedir>/motionmapper/<NN>/<animal>.feather. Not used by the centroid method
+        animal (str): experiment__NN. Blobs method: experiment__side1, experiment__side2 or experiment__all
+        input (str): Behavior file. Default <basedir>/motionmapper/<NN>/<animal>.feather. Only used by the behavior method
         output (str): Folder of the sleep files. Default <basedir>/sleep/<NN>
-        method (str): behavior or centroid
-        min_displacement_mm (float): Only used by the centroid method, see annotate_sleep_from_centroids
+        method (str): behavior, centroid or blobs
+        min_displacement_mm (float): Not used by the behavior method, see annotate_sleep_from_centroids
+        number_of_flies (int): Only used by the blobs method, see annotate_sleep_from_blobs
 
     Returns:
         Paths to the 1 s and to the binned sleep traces (and the activity ethogram with the centroid method)
@@ -402,6 +570,13 @@ def compute_sleep_file(basedir, animal, input=None, output=None, method="behavio
         if centroids.shape[0]==0:
             raise ValueError(f"No centroid data for {animal}")
         dt_sleep=annotate_sleep_from_centroids(centroids, min_displacement_mm=min_displacement_mm)
+    elif method=="blobs":
+        if input is not None:
+            raise ValueError("The blobs method reads the blobs from the dbfile, it takes no input file")
+        blobs=load_blobs(basedir, animal)
+        if blobs.shape[0]==0:
+            raise ValueError(f"No blobs for {animal}")
+        dt_sleep=annotate_sleep_from_blobs(blobs, number_of_flies=number_of_flies, min_displacement_mm=min_displacement_mm)
     elif method=="behavior":
         if input is None:
             input=behavior_path(basedir, animal)
@@ -491,16 +666,17 @@ def compute_time_asleep(df, column="asleep"):
 
 
 def get_parser():
-    ap=argparse.ArgumentParser(description="Compute the sleep of a fly from its behavior file or its centroid (see flyhostel.data.sleep)")
+    ap=argparse.ArgumentParser(description="Compute the sleep of a fly from its behavior file or its centroid, or of a group from its blobs (see flyhostel.data.sleep)")
     ap.add_argument("--basedir", required=True, help="Folder of the experiment")
-    ap.add_argument("--animal", required=True, help="experiment__NN e.g. FlyHostel1_3X_2024-12-10_16-00-00__01")
+    ap.add_argument("--animal", required=True, help="experiment__NN e.g. FlyHostel1_3X_2024-12-10_16-00-00__01. blobs method: experiment__side1, experiment__side2 or experiment__all")
     ap.add_argument("--input", default=None, help="Behavior file. Default <basedir>/motionmapper/<NN>/<animal>.feather")
     ap.add_argument("--output", default=None, help="Folder of the sleep files. Default <basedir>/sleep/<NN>")
-    ap.add_argument("--method", choices=METHODS, default="behavior", help="Immobility from the behavior or from the displacement of the centroid")
+    ap.add_argument("--method", choices=METHODS, default="behavior", help="Immobility from the behavior, from the displacement of the centroid, or from the blobs of a group")
     ap.add_argument(
         "--min-displacement-mm", type=float, default=MIN_DISPLACEMENT_MM,
-        help="centroid method: a second is immobile when the centroid moved at most this much since the previous second"
+        help="centroid and blobs methods: a second is immobile when the centroid moved at most this much since the previous second"
     )
+    ap.add_argument("--number-of-flies", type=int, default=None, help="blobs method: flies in the group. Default: the usual number of blobs per second")
     ap.add_argument(
         "--ethogram-only", action="store_true",
         help="centroid method: only make the activity ethogram, from the sleep file already in --output (default <basedir>/sleep/<NN>)"
@@ -518,5 +694,5 @@ def main():
         return
     compute_sleep_file(
         args.basedir, args.animal, input=args.input, output=args.output,
-        method=args.method, min_displacement_mm=args.min_displacement_mm,
+        method=args.method, min_displacement_mm=args.min_displacement_mm, number_of_flies=args.number_of_flies,
     )
