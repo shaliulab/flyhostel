@@ -124,19 +124,30 @@ def immobility_annotations(loader, interactions_database, sleep_names):
     return interactions_database
 
 
+def nearest_row(frames, behavior_frames, tolerance):
+    """Row of behavior_frames (sorted) closest to every frame, -1 if it is further than tolerance frames"""
+    right=np.clip(np.searchsorted(behavior_frames, frames), 0, len(behavior_frames)-1)
+    left=np.clip(right-1, 0, len(behavior_frames)-1)
+    closest=np.where(np.abs(behavior_frames[left]-frames)<=np.abs(behavior_frames[right]-frames), left, right)
+    return np.where(np.abs(behavior_frames[closest]-frames)<=tolerance, closest, -1)
+
+
 def annotate_behavior_database_id(interactions_database, behavior):
-    # annotate row_id_start and row_id_end
+    """
+    Annotate row_id_start and row_id_end: the rows of the behavior closest to the start and the end of every interaction.
+    Not the same frame, because the frames of the interactions and of the behavior may be on different grids
+    (e.g. every 3 and every 5 frames, where only 1 of every 5 interactions would have a behavior in the same frame)
+    Interactions without behavior within a step of the behavior are left out
+    """
     behavior["row_id"]=np.arange(behavior.shape[0])
-    interactions_database=interactions_database\
-    .merge(behavior[["frame_number", "row_id"]].rename({
-        "frame_number": "frame_number_start",
-        "row_id": "row_id_start"
-    }, axis=1), on="frame_number_start", how="inner")\
-    .merge(behavior[["frame_number", "row_id"]].rename({
-        "frame_number": "frame_number_end",
-        "row_id": "row_id_end"
-    }, axis=1), on="frame_number_end", how="inner")
-    return interactions_database
+    frames=behavior["frame_number"].to_numpy()
+    assert (np.diff(frames)>0).all(), "The behavior must be sorted by frame_number"
+    tolerance=np.median(np.diff(frames))
+    interactions_database=interactions_database.copy()
+    for point in ("start", "end"):
+        interactions_database[f"row_id_{point}"]=nearest_row(interactions_database[f"frame_number_{point}"].to_numpy(), frames, tolerance)
+    has_behavior=(interactions_database["row_id_start"]>=0) & (interactions_database["row_id_end"]>=0)
+    return interactions_database.loc[has_behavior].reset_index(drop=True)
 
 
 def compute_behavior_features(interactions_database, behavior, window_s, framerate):
