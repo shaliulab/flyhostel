@@ -53,7 +53,35 @@ def test_match():
 def test_ids():
     assert make_id(SINGLE, 1) == "FlyHostel1_6X_2023-05-23_1|01"
     assert make_id(ARENA, 1) == "FH1_4X_261013_17-00_arena2|01"
-    assert len(get_id_prefix(SINGLE)) == len(get_id_prefix(ARENA)) == 26
+
+
+@pytest.mark.parametrize("experiment,prefix", [
+    ("FlyHostel2_15X_2026-10-29_16-00-00_arena2", "FH2_15X_261029_16-00_arena2"),
+    ("FlyHostel10_4X_2026-10-29_16-00-00_arena2", "FH10_4X_261029_16-00_arena2"),
+    ("FlyHostel1_4X_2026-10-29_16-00-00_arena12", "FH1_4X_261029_16-00_arena12"),
+    ("FlyHostel1_15X_2023-05-23_14-00-00", "FlyHostel1_15X_2023-05-23_1"),
+    ("FlyHostel10_6X_2023-05-23_14-00-00", "FlyHostel10_6X_2023-05-23_1"),
+])
+def test_ids_of_any_length(experiment, prefix):
+    assert get_id_prefix(experiment) == prefix
+    assert make_id(experiment, 1) == prefix + "|01"
+
+
+def test_group_ids_of_different_lengths():
+    from flyhostel.data.synchrony.correlation_utils import group_by_experiment
+    ids=[make_id(SINGLE, 1), make_id(ARENA, 1), make_id(ARENA, 2), "FH2_15X_261029_16-00_arena2|01", "FH2_15X_261029_16-00_arena2|02"]
+    groups=group_by_experiment(ids)
+    assert [len(group) for group in groups.values()] == [1, 2, 2]
+
+
+def test_experiment_from_id_with_10_or_more_flies(tmp_path):
+    from flyhostel.utils.experiment import experiment_from_id
+    arena="FlyHostel2_15X_2026-10-29_16-00-00_arena2"
+    assert experiment_from_id(make_id(arena, 1)) == arena
+
+    single="FlyHostel1_15X_2023-05-23_14-00-00"
+    (tmp_path / "FlyHostel1" / "15X" / "2023-05-23_14-00-00").mkdir(parents=True)
+    assert experiment_from_id(make_id(single, 1), videos_folder=str(tmp_path)) == single
 
 
 def test_deg_entries():

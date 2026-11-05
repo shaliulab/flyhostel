@@ -26,7 +26,6 @@ logger=logging.getLogger(__name__)
 
 ARENAS_FOLDER="arenas"
 ARENA_PREFIX="arena"
-ID_PREFIX_LENGTH=26
 
 EXPERIMENT_REGEX=re.compile(
     r"(?P<flyhostel>FlyHostel(?P<flyhostel_id>\d+))_"
@@ -128,20 +127,20 @@ def get_id_prefix(experiment):
     """
     Return the experiment part of an animal id (experiment|identity)
 
-    Always ID_PREFIX_LENGTH (26) characters long
+    Its length depends on the experiment (number of flies, flyhostel, arena),
+    so split an id by | to get its prefix, instead of slicing it
 
-    FlyHostel1_6X_2023-05-23_14-00-00 -> FlyHostel1_6X_2023-05-23_14
+    FlyHostel1_6X_2023-05-23_14-00-00 -> FlyHostel1_6X_2023-05-23_1
+    FlyHostel1_15X_2023-05-23_14-00-00 -> FlyHostel1_15X_2023-05-23_1
     FlyHostel1_4X_2026-10-13_17-00-00_arena2 -> FH1_4X_261013_17-00_arena2
+    FlyHostel1_15X_2026-10-13_17-00-00_arena2 -> FH1_15X_261013_17-00_arena2
     """
     fields=parse_experiment_name(experiment)
     if fields["arena"] is None:
-        return experiment[:ID_PREFIX_LENGTH]
+        return f"{fields['flyhostel']}_{fields['number_of_animals']}X_{fields['date']}_{fields['time'][0]}"
 
     date_time=fields["date"].replace("-", "")[2:] + "_" + fields["time"][:5]
-    prefix=f"FH{fields['flyhostel_id']}_{fields['number_of_animals']}X_{date_time}_{ARENA_PREFIX}{fields['arena']}"
-    if len(prefix)!=ID_PREFIX_LENGTH:
-        raise ValueError(f"id prefix {prefix} of {experiment} is not {ID_PREFIX_LENGTH} characters long")
-    return prefix
+    return f"FH{fields['flyhostel_id']}_{fields['number_of_animals']}X_{date_time}_{ARENA_PREFIX}{fields['arena']}"
 
 
 ARENA_ID_PREFIX_REGEX=re.compile(

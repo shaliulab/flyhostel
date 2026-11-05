@@ -252,7 +252,7 @@ def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, su
     for lag in tqdm(lags, desc="Analyzing lags"):
         for id1, id2 in pairs:
 
-            if id1[:26]==id2[:26]:
+            if id1.split("|")[0]==id2.split("|")[0]:
                 experiment=experiment_index.loc[experiment_index["id"]==id1, "experiment"].iloc[0]
                 comparison="real"
             else:

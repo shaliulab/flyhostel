@@ -5,29 +5,29 @@ from typing import Iterable, Iterator, List, Tuple, Dict
 logger=logging.getLogger(__name__)
 
 def group_by_experiment(
-    ids: Iterable[str], prefix_len: int = 26
+    ids: Iterable[str]
 ) -> Dict[str, List[str]]:
     """
-    Groups ids by their experiment prefix (first `prefix_len` chars).
+    Groups ids by their experiment prefix (the part before the |).
     Preserves the first-seen order of experiments and of ids within each experiment.
     """
     groups: "OrderedDict[str, List[str]]" = OrderedDict()
     for _id in ids:
-        exp = _id[:prefix_len]
+        exp = _id.split("|")[0]
         groups.setdefault(exp, []).append(_id)
     return groups
 
 def real_groups_iter(
-    ids: Iterable[str], prefix_len: int = 26
+    ids: Iterable[str]
 ) -> Iterator[Tuple[str, List[str]]]:
     """
     Yields (experiment_id, [ids in that experiment]) for each experiment.
     """
-    for exp, lst in group_by_experiment(ids, prefix_len).items():
+    for exp, lst in group_by_experiment(ids).items():
         yield exp, lst
 
 def virtual_combinations_iter(
-    ids: Iterable[str], prefix_len: int = 26
+    ids: Iterable[str]
 ) -> Iterator[Tuple[str, List[str]]]:
     """
     Yields ("virtual", [combo_of_ids]) where each combo:
@@ -36,7 +36,7 @@ def virtual_combinations_iter(
 
     If experiments aren't all the same size, raises a ValueError.
     """
-    groups = group_by_experiment(ids, prefix_len)
+    groups = group_by_experiment(ids)
     if not groups:
         return
         yield  # keeps function a generator even if it returns immediately
