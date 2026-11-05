@@ -6,11 +6,11 @@ import pandas as pd
 import pytest
 
 from flyhostel.data.interactions.sociability.behavior_integration import annotate_behavior_database_id
-from flyhostel.modelling.modelling.compile.interactions_table import classify, interaction_rates, seconds_by_moving
-from flyhostel.modelling.modelling.fly_agent_models.fly_agent import ArousalTable, FlyAgent
+from flyhostel.modelling.modelling.compile.interactions_table import classify, contact_rates, contacts_of_group, interaction_rates, seconds_by_moving
+from flyhostel.modelling.modelling.fly_agent_models.fly_agent import ArousalTable, ContactRates, FlyAgent
 from flyhostel.modelling.modelling.fly_agent_models.multi_fly_simulator import MultiFlySimulator
 from flyhostel.modelling.modelling.run import simulate
-from flyhostel.modelling.modelling.single_fly import bouts_of
+from flyhostel.modelling.modelling.single_fly import bouts_of, spontaneous_moving
 from flyhostel.modelling.modelling.utils.fly_traces_handlers import sleep_of_activity
 
 
@@ -106,17 +106,58 @@ def half(seconds):
     return 0.5
 
 
+def contact_table(rate):
+    return pd.DataFrame({"number_of_animals": 2, "n_moving": 1, "inactive_bin": range(7), "frequency": rate})
+
+
 def test_simulations_are_reproducible():
-    arguments = (2, 1, 0, [NIGHT, NIGHT.iloc[::-1], NIGHT], rates(0.01, 0.01), half)
+    arguments = (2, 1, 0, [NIGHT, NIGHT.iloc[1:], NIGHT], rates(aa=0.01), contact_table(0.01), half)
     assert simulate(*arguments) == simulate(*arguments)
 
 
-def test_interactions_only_wake_up_inactive_flies():
+def test_contacts_only_wake_up_inactive_flies():
     random.seed(0)
     np.random.seed(0)
-    awake = MultiFlySimulator([NIGHT, NIGHT.iloc[1:]], rates(ai=0.0), lambda seconds: 1.0).run(36000).mean()
-    disturbed = MultiFlySimulator([NIGHT, NIGHT.iloc[1:]], rates(ai=0.2), lambda seconds: 1.0).run(36000).mean()
+    awake = MultiFlySimulator([NIGHT, NIGHT.iloc[1:]], rates(), contact_table(0.0), lambda seconds: 1.0).run(36000).mean()
+    disturbed = MultiFlySimulator([NIGHT, NIGHT.iloc[1:]], rates(), contact_table(0.2), lambda seconds: 1.0).run(36000).mean()
     assert disturbed > awake
+
+
+def test_a_contact_depends_on_the_time_inactive():
+    table = contact_table(0.0)
+    table.loc[table["inactive_bin"] == 3, "frequency"] = 0.5  # 600-1200 s
+    contact = ContactRates(table, 2)
+    assert contact(1, 5) == 0 and contact(1, 700) == 0.5 and contact(1, 2000) == 0 and contact(2, 700) == 0
+
+
+def test_arousal_leaves_out_flies_that_would_have_moved_anyway(tmp_path):
+    path = tmp_path / "arousal.csv"
+    pd.DataFrame({"window": [1, 300], "y": [0.5, 0.25]}).to_csv(path)
+    table = ArousalTable(path, spontaneous=lambda seconds: np.array([0.6, 0.0625]))
+    assert table(1) == 0
+    assert table(300) == pytest.approx(0.2)
+
+
+def test_spontaneous_moving_is_the_hazard_without_cut_bouts():
+    # the first and the last bout, inactive and very long or short, are cut by the window. The 30 others last 100 s
+    night = pd.DataFrame({"id": "a", "moving": [False] + [True, False] * 30 + [True, False], "length": [999] + [10, 100] * 30 + [10, 5]})
+    assert spontaneous_moving(night)(np.array([10, 90])).tolist() == [0.0, 1.0]
+
+
+def test_contacts_are_per_inactive_fly_and_time_inactive():
+    sleep = pd.DataFrame({
+        "id": np.repeat(["a", "b"], 100), "t": np.tile(np.arange(100), 2),
+        "moving": np.r_[np.zeros(100, dtype=bool), np.ones(100, dtype=bool)],
+        "number_of_animals": 2,
+    })
+    interactions = pd.DataFrame({
+        "id": ["a", "b", "a", "b"], "nn": ["b", "a", "b", "a"], "frame_number": [1, 1, 2, 2], "first_t": [70.0, 70.0, 80.0, 80.0],
+        "pre_longImmobile": [True, False, True, False],
+    })
+    out = contacts_of_group(sleep, interactions).query("n_moving == 1").set_index("inactive_bin")
+    assert out.loc[1, "n_events"] == 2  # 60-300 s
+    assert out.loc[0, "seconds"] == 50 and out.loc[1, "seconds"] == 41
+    assert contact_rates(out.reset_index()).set_index("inactive_bin").loc[1, "frequency"] == pytest.approx(2 / 41)
 
 
 def interactions_table():
