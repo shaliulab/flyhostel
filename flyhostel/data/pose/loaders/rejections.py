@@ -98,7 +98,7 @@ class RejectionsLoader:
             df.append(labels)
         df=pd.concat(df, axis=0).reset_index(drop=True)
         df["chunk"]=df["frame_number"]//self.chunksize
-        df["animal"]=df["data_entry"].str.slice(0, 33) + "__" + df["id"].str.slice(start=-2)
+        df["animal"]=df["experiment"] + "__" + df["id"].str.slice(start=-2)
 
         df=annotate_bout_duration(
             annotate_bouts(df, variable="rejection")[[

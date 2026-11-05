@@ -241,7 +241,7 @@ def annotate_interactions(group, framerate, time_window_length=10, asleep_annota
 
     # annotate local_identity, keys and videos
     hits=hits.merge(group.pose[["local_identity", "id", "frame_number"]].to_pandas(), on=["id", "frame_number"], how="left")
-    hits["keys"]=hits["animal"].str.slice(start=0, stop=33) + "_" + hits["chunk"].apply(lambda x: str(x).zfill(6)) + "_" + hits["local_identity"].apply(lambda x: str(x).zfill(3))
+    hits["keys"]=hits["animal"].str.split("__").str[0] + "_" + hits["chunk"].apply(lambda x: str(x).zfill(6)) + "_" + hits["local_identity"].apply(lambda x: str(x).zfill(3))
     hits["videos"]=hits["keys"]+"/"+ hits["chunk"].apply(lambda x: str(x).zfill(6)) + ".mp4"
     return hits
 
