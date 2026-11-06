@@ -296,6 +296,70 @@ def join_task_data(task1, task2):
     ], axis=0)
     return annotations_df, contours
 
+def _format_chunk_range(frames, chunksize):
+    chunks=sorted({int(frame)//chunksize for frame in frames})
+    if chunks[0]==chunks[-1]:
+        return f"chunk {chunks[0]}"
+    return f"chunks {chunks[0]}-{chunks[-1]}"
+
+
+def drop_frames_annotated_by_newer_tasks(out, tasks, chunksize):
+    """
+    Keep a single task's annotations in every frame
+
+    When several tasks contain the same frame (e.g. a task re-made to correct an older one),
+    concatenating them gives each fly two human masks in that frame. Both masks overlap the
+    same machine fragment, which is then discarded as a duplicate, and the human identity
+    is not propagated through it. Each frame is therefore taken from the most recently
+    updated task that shows it (the highest task id breaks ties), and the annotations of
+    the other tasks in that frame are ignored, with a warning.
+
+    Arguments
+        * out (list): (annotations_df, contours, mtime, image_frames) of each task, in the order of tasks
+        * tasks (list): task ids
+        * chunksize (int)
+
+    Returns
+        * out: same list with the annotations of the duplicated frames removed
+          (contours are kept so the idx column of each annotations_df stays valid)
+    """
+    priority=sorted(range(len(tasks)), key=lambda i: (out[i][2], tasks[i]), reverse=True)
+
+    # frame_number -> task whose annotations are used in it
+    owner={}
+    filtered=list(out)
+    for i in priority:
+        annotations_df, contours, mtime, image_frames=out[i]
+
+        duplicated={}
+        for frame in image_frames:
+            if frame in owner:
+                duplicated.setdefault(owner[frame], set()).add(frame)
+            else:
+                owner[frame]=tasks[i]
+
+        if not duplicated:
+            continue
+
+        all_duplicated=set().union(*duplicated.values())
+        for newer_task, frames in sorted(duplicated.items()):
+            logger.warning(
+                "Task %s contains %s frames (%s) that are also in task %s, updated more recently. "
+                "Ignoring the annotations of task %s in those frames and using the ones of task %s. "
+                "Remove the duplicated frames from one of the two tasks to silence this warning",
+                tasks[i], len(frames), _format_chunk_range(frames, chunksize), newer_task,
+                tasks[i], newer_task,
+            )
+        dropped=annotations_df["frame_number"].isin(all_duplicated)
+        logger.warning(
+            "Task %s: %s of its %s frames are duplicated, %s annotations ignored",
+            tasks[i], len(all_duplicated), len(image_frames), int(dropped.sum())
+        )
+        filtered[i]=(annotations_df.loc[~dropped].copy(), contours, mtime, image_frames)
+
+    return filtered
+
+
 def get_annotations(experiment, basedir, tasks, n_jobs=2, **kwargs):
 
     n_jobs=min(len(tasks), n_jobs)
@@ -303,10 +367,13 @@ def get_annotations(experiment, basedir, tasks, n_jobs=2, **kwargs):
         joblib.delayed(
             get_annotation
         )(
-            experiment, basedir, task_number, **kwargs
+            experiment, basedir, task_number, return_image_frames=True, **kwargs
         )
         for task_number in tasks
     )
+
+    out=drop_frames_annotated_by_newer_tasks(out, list(tasks), get_chunksize(experiment))
+    out=[(annotations_df, contours, mtime) for annotations_df, contours, mtime, _ in out]
 
     annotations_df, contours, mtime=out[0]
     max_mtime=mtime
@@ -329,7 +396,26 @@ def get_annotations(experiment, basedir, tasks, n_jobs=2, **kwargs):
     return annotations_df, contours, max_mtime
 
 
-def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of_rows=1, image_format="v1", **kwargs):
+def get_image_frames(images, number_of_rows=1, number_of_cols=1, image_format="v1"):
+    """
+    Frame numbers shown by the images of a task (whether annotated or not),
+    using the same filename convention as load_task_annotations
+    """
+    block_size=number_of_rows*number_of_cols
+    frames=set()
+    for image_filename in images["file_name"]:
+        tokens=os.path.splitext(os.path.basename(image_filename))[0].split("_")
+        if image_format=="v1":
+            block=int(tokens[-1])
+            frame_number0=int(tokens[-2])
+            start=frame_number0+block*block_size
+            frames.update(range(start, start+block_size))
+        else:
+            frames.add(int(tokens[0]))
+    return frames
+
+
+def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of_rows=1, image_format="v1", return_image_frames=False, **kwargs):
     mtime=get_task_mtime(task_number)
     annotations, images, categories=download_task_annotations(task_number, **kwargs)
     chunksize=get_chunksize(experiment)
@@ -350,6 +436,9 @@ def get_annotation(experiment, basedir, task_number, number_of_cols=1, number_of
         image_format=image_format
     )
     annotations_df["task"]=task_number
+    if return_image_frames:
+        image_frames=get_image_frames(images, number_of_rows=number_of_rows, number_of_cols=number_of_cols, image_format=image_format)
+        return annotations_df, contours, mtime, image_frames
     return annotations_df, contours, mtime
 
 

@@ -29,7 +29,40 @@ def make_local_identity_table(data, chunksize):
     lid_table["frame_idx"]=lid_table["frame_number"]%chunksize
     return lid_table
             
-def annotate_identity(data, number_of_animals, chunksize, debug=False,
+def add_last_chunk(identity_table, last_chunk):
+    """
+    Add rows for the local identities of the last chunk
+
+    The identity table has one row per link leaving a chunk, so the last chunk only
+    appears as chunk_after and its data would be lost when merging on (chunk, local_identity).
+    Each fly keeps in the last chunk the identity it carries into it.
+    """
+    if (identity_table["chunk"]==last_chunk).any():
+        return identity_table
+
+    arriving=identity_table.loc[
+        (identity_table["chunk_after"]==last_chunk)
+        & ~identity_table["local_identity_after"].isna()
+        & (identity_table["local_identity_after"]!=0)
+        & ~identity_table["identity"].isna()
+    ]
+    last_rows=pd.DataFrame({
+        "chunk": last_chunk,
+        "local_identity": arriving["local_identity_after"].astype(int).values,
+        "identity": arriving["identity"].values,
+    })
+    duplicated=last_rows["local_identity"].duplicated(keep=False)
+    if duplicated.any():
+        logger.warning(
+            "Local identities %s of chunk %s are reached by more than one fly. They are left without identity",
+            sorted(last_rows.loc[duplicated, "local_identity"].unique()), last_chunk
+        )
+        last_rows=last_rows.loc[~duplicated]
+
+    return pd.concat([identity_table, last_rows], axis=0, ignore_index=True)
+
+
+def annotate_identity(data,number_of_animals, chunksize, debug=False,
                      annotated_table=None, verbose=True,
                      all_intervals_engaged_labels=None, **kwargs):
     """
@@ -90,6 +123,8 @@ def annotate_identity(data, number_of_animals, chunksize, debug=False,
         number_of_animals=number_of_animals, strict=True
     )
     logger.debug("Done")
+
+    identity_table=add_last_chunk(identity_table, chunks[-1])
 
     logger.debug("Merge identity annotation")
     data=data.to_pandas().merge(
