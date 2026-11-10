@@ -714,14 +714,25 @@ def get_first_frame(dbfile):
     return frame_number
 
 def get_last_frame(dbfile):
+    """
+    First frame number after the end of the recording (the end of its last chunk)
+
+    The last chunk is the last one in CONCATENATION, or the last one with tracking data in ROI_0 if that is later:
+    the CONCATENATION table can miss the last chunk of the recording, whose flies are tracked all the same
+    """
 
     chunksize=get_chunksize(dbfile=dbfile)
     with sqlite3.connect(dbfile) as conn:
         cursor=conn.cursor()
         cursor.execute("SELECT chunk FROM CONCATENATION ORDER BY chunk DESC LIMIT 1;")
-        chunk=int(cursor.fetchone()[0])+1
+        chunk=int(cursor.fetchone()[0])
+        cursor.execute("SELECT MAX(frame_number) FROM ROI_0;")
+        last_tracked=cursor.fetchone()[0]
 
-    frame_number=chunk*chunksize
+    if last_tracked is not None:
+        chunk=max(chunk, int(last_tracked)//chunksize)
+
+    frame_number=(chunk+1)*chunksize
     return frame_number
 
 
