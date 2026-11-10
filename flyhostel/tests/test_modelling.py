@@ -7,11 +7,27 @@ import pytest
 
 from flyhostel.data.interactions.sociability.behavior_integration import annotate_behavior_database_id
 from flyhostel.modelling.modelling.compile.interactions_table import classify, contact_rates, contacts_of_group, interaction_rates, seconds_by_moving
-from flyhostel.modelling.modelling.fly_agent_models.fly_agent import ArousalTable, ContactRates, FlyAgent
+from flyhostel.modelling.modelling.fly_agent_models.fly_agent import ArousalTable, ContactRates, FlyAgent, RecoveringFly
 from flyhostel.modelling.modelling.fly_agent_models.multi_fly_simulator import MultiFlySimulator
 from flyhostel.modelling.modelling.run import simulate
 from flyhostel.modelling.modelling.single_fly import bouts_of, spontaneous_moving
 from flyhostel.modelling.modelling.utils.fly_traces_handlers import sleep_of_activity
+from flyhostel.modelling.modelling.variants import CONSTANT_AROUSAL, VARIANTS, constant_arousal, contact_rates_from_pairs, contact_rates_independent_of_moving, flat_contact_rates
+
+
+@pytest.mark.parametrize("probability,woken", [(1.0, True), (0.0, False)])
+def test_constant_arousal_wakes_always_or_never_at_any_time_inactive(probability, woken):
+    for seconds_inactive in (10, 100000):
+        fly = asleep_fly(constant_arousal(probability))
+        fly.time_in_bout = seconds_inactive
+        fly.inform_interaction()
+        fly.step()
+        assert fly.is_active == woken
+
+
+def test_every_level_of_constant_arousal_is_a_variant():
+    assert sorted(CONSTANT_AROUSAL.values()) == [0, 0.2, 0.4, 0.5, 0.6, 0.8, 1]
+    assert all(variant in VARIANTS for variant in CONSTANT_AROUSAL)
 
 
 NIGHT = pd.DataFrame({"moving": [True, False] * 3, "length": [30, 300, 90, 10, 60, 3000]})
@@ -154,7 +170,7 @@ def test_contacts_are_per_inactive_fly_and_time_inactive():
         "id": ["a", "b", "a", "b"], "nn": ["b", "a", "b", "a"], "frame_number": [1, 1, 2, 2], "first_t": [70.0, 70.0, 80.0, 80.0],
         "pre_longImmobile": [True, False, True, False],
     })
-    out = contacts_of_group(sleep, interactions).query("n_moving == 1").set_index("inactive_bin")
+    out = contacts_of_group(sleep, interactions).query("n_moving == 1 and id == 'a'").set_index("inactive_bin")
     assert out.loc[1, "n_events"] == 2  # 60-300 s
     assert out.loc[0, "seconds"] == 50 and out.loc[1, "seconds"] == 41
     assert contact_rates(out.reset_index()).set_index("inactive_bin").loc[1, "frequency"] == pytest.approx(2 / 41)
@@ -192,3 +208,232 @@ def test_interactions_keep_their_behavior_when_the_frames_are_on_other_grids():
     # beyond the behavior there is nothing to annotate
     far = pd.DataFrame({"frame_number_start": [5000], "frame_number_end": [5030]})
     assert annotate_behavior_database_id(far, behavior).shape[0] == 0
+
+
+def rates_table():
+    return pd.DataFrame({
+        "number_of_animals": [2, 2, 3, 3, 3, 3], "n_moving": [1, 1, 1, 1, 2, 2], "inactive_bin": [0, 1, 0, 1, 0, 1],
+        "n_events": [10, 10, 30, 10, 40, 0], "seconds": [100, 300, 100, 300, 100, 100], "frequency": [.1, .03, .3, .03, .4, 0.],
+    })
+
+
+def test_flat_contacts_keep_the_contacts_of_a_state_at_every_time_inactive():
+    flat=flat_contact_rates(rates_table())
+    assert flat.groupby(["number_of_animals", "n_moving"]).frequency.nunique().eq(1).all()
+    assert flat.query("number_of_animals==2").frequency.iloc[0] == pytest.approx(19 / 400)
+    assert flat.query("number_of_animals==3 and n_moving==2").frequency.iloc[0] == pytest.approx(.2)
+
+
+def test_contacts_from_pairs_add_up_with_the_flies_moving():
+    table = contact_rates_from_pairs(rates_table()).query("number_of_animals==3 and n_moving==2").set_index("inactive_bin").frequency
+    assert table[0] == pytest.approx(.2)
+    assert table[1] == pytest.approx(.06)
+
+
+def test_random_contacts_happen_with_no_fly_active():
+    any_moving = pd.DataFrame({"number_of_animals": [2, 2], "inactive_bin": [0, 1], "frequency": [1.0, 1.0]})
+    table = contact_rates_independent_of_moving(any_moving, rates_table().query("number_of_animals==2"))
+    assert set(table.n_moving) == {0, 1}
+    night = pd.DataFrame({"moving": [False, True], "length": [50, 50]})
+    empty = pd.DataFrame(columns=["number_of_animals", "interaction_type", "n_moving", "frequency"])
+    for need, contacted in ((True, False), (False, True)):
+        model = MultiFlySimulator([night, night], empty, table, lambda seconds: 0.0, contacts_need_active=need)
+        model.run(10)
+        assert (model.contact_count > 0) == contacted
+
+
+def test_flat_arousal_is_the_mean_over_the_interactions(tmp_path):
+    path = tmp_path / "arousal.csv"
+    pd.DataFrame({"window": [1, 300], "y": [0.5, 0.1], "n": [3, 1]}).to_csv(path)
+    flat = ArousalTable(path).flat()
+    assert flat(1) == flat(10000) == pytest.approx(.4)
+
+
+def test_a_recovering_fly_makes_up_what_a_contact_interrupted():
+    fly = RecoveringFly(0, pd.DataFrame({"moving": [False, True, False], "length": [100, 5, 50]}), lambda seconds: 1.0)
+    for _ in range(10):
+        fly.step()
+    fly.inform_interaction()
+    fly.step()
+    assert fly.is_active and fly.lengths[2] == 50 + 89
+    assert fly.contact_wakes == 1
+
+
+def test_contacts_of_a_group_are_per_fly_and_bins_can_change():
+    sleep = pd.DataFrame({
+        "t": list(range(100)) * 2, "id": ["a"] * 100 + ["b"] * 100, "moving": [False] * 100 + [True] * 100, "number_of_animals": 2,
+    })
+    interactions = pd.DataFrame({
+        "id": ["a", "b"], "nn": ["b", "a"], "frame_number": [1, 1], "pre_longImmobile": [True, False], "first_t": [50, 50],
+    })
+    table = contacts_of_group(sleep, interactions, bins=[10, 60])
+    a = table.query("id=='a' and n_moving==1").set_index("inactive_bin")
+    assert a.n_events.to_dict() == {0: 1, 1: 0}
+    assert a.seconds.to_dict() == {0: 50, 1: 41}
+
+
+# the spatial model: flies walk in the dish and interact when they come within the contact distance
+from flyhostel.modelling.modelling.compile.walk import SPEED_CLASSES, entries, speed_class, state_of, steps_of
+from flyhostel.modelling.modelling.fly_agent_models.spatial_simulator import PositionedWalk, RandomWalk, SpatialSimulator, segment_distance
+
+
+def straight_walk(step_mm=3.0):
+    """A walk of steps of the same length that never turns"""
+    return RandomWalk(pd.DataFrame({"step_mm": [step_mm] * 10, "turn_rad": [0.0] * 10, "speed_class": [int(speed_class(step_mm))] * 10}), SPEED_CLASSES)
+
+
+def state(previous_step_mm=0.0, d_wall_mm=10.0, d_food_mm=10.0, wall_angle_rad=np.nan, food_angle_rad=np.nan):
+    """The state of one fly, as the walks take it"""
+    return {k: np.array([v], dtype=float) for k, v in locals().items()}
+
+
+def real_steps(rows):
+    """Real seconds for a PositionedWalk: rows of (d_wall, d_food, wall_angle, food_angle, previous_step, step, turn, new_wall_angle)"""
+    columns = ["d_wall_mm", "d_food_mm", "wall_angle_rad", "food_angle_rad", "previous_step_mm", "step_mm", "turn_rad", "new_wall_angle_rad"]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def test_steps_are_the_distance_and_turn_between_seconds():
+    positions = pd.DataFrame({"t": [0, 1, 2, 3, 5], "x_mm": [0, 3, 3, 0, 0], "y_mm": [0, 0, 4, 4, 4]})
+    steps = steps_of(positions)
+    assert np.allclose(steps["step_mm"].to_numpy()[1:4], [3, 4, 3])
+    assert np.isnan(steps["step_mm"].iloc[0]) and np.isnan(steps["step_mm"].iloc[4])  # no previous second, or a gap
+    assert np.isnan(steps["turn_rad"].iloc[1])  # the first step has no previous heading
+    assert np.allclose(steps["turn_rad"].to_numpy()[2:4], [np.pi / 2, np.pi / 2])
+    assert np.allclose(steps["previous_step_mm"].to_numpy()[2:4], [3, 4])
+    assert np.allclose(steps["radius_mm"].to_numpy(), [0, 3, 5, 4, 4])
+
+
+def test_speed_classes_cover_every_step_and_nan_is_unknown():
+    assert list(speed_class([0, 0.4, 0.5, 3, 7, 100, np.nan])) == [0, 0, 1, 2, 3, 4, -1]
+
+
+def test_entries_count_crossings_into_the_distance():
+    assert entries([10, 3, 2, 10, 10, 4, 10], 4) == 2
+    assert entries([3, 3, 3], 4) == 0
+
+
+def test_segment_distance_is_the_closest_approach_within_the_second():
+    still = np.array([0.0, 0.0])
+    # a fly passing by a still one at 1 mm, from one side to the other: the closest approach is in the middle of the second
+    assert np.isclose(segment_distance(np.array([-10.0, 1.0]), np.array([10.0, 1.0]), still, still), 1.0)
+    # the end points are 10 mm away, the fly never jumps over
+    assert segment_distance(np.array([-10.0, 0.0]), np.array([10.0, 0.0]), still, still) == 0.0
+    # two flies moving in parallel keep their distance
+    assert np.isclose(segment_distance(np.array([0.0, 0.0]), np.array([5.0, 0.0]), np.array([0.0, 2.0]), np.array([5.0, 2.0])), 2.0)
+
+
+def test_the_walk_samples_steps_of_the_class_of_the_previous_step():
+    steps = pd.DataFrame({"step_mm": [0.1, 8.0], "turn_rad": [0.0, 1.0], "speed_class": speed_class([0.0, 7.0])})
+    walk = RandomWalk(steps, SPEED_CLASSES)
+    assert walk.sample(state(0.0))[:2] == (0.1, 0.0)
+    assert walk.sample(state(6.0))[:2] == (8.0, 1.0)
+    # a class without data takes the closest one, and the plain walk never gives a direction from the wall
+    step, turn, new_wall_angle = walk.sample(state(100.0))
+    assert (step, turn) == (8.0, 1.0) and np.isnan(new_wall_angle)
+
+
+def test_flies_stay_in_the_dish_and_an_inactive_fly_does_not_move():
+    random.seed(0)
+    nights = [pd.DataFrame({"moving": [True], "length": [10**6]}), pd.DataFrame({"moving": [False], "length": [10**6]})]
+    model = SpatialSimulator(nights, straight_walk(step_mm=12.0), lambda seconds: 0.0, radius_mm=30.0, contact_distance_mm=0.0)
+    resting = model.positions[1].copy()
+    model.run(2000)
+    assert np.hypot(*model.positions[0]) <= 30.0 + 1e-9
+    assert np.array_equal(model.positions[1], resting)
+    assert model.distance_walked[0] == 2000 * 12.0 and model.distance_walked[1] == 0
+
+
+def test_a_walker_passing_by_a_resting_fly_contacts_it_once_and_may_wake_it():
+    random.seed(0)
+    nights = [pd.DataFrame({"moving": [True], "length": [10**6]}), pd.DataFrame({"moving": [False, True], "length": [10**6, 10**6]})]
+    model = SpatialSimulator(nights, straight_walk(step_mm=3.0), lambda seconds: 1.0, radius_mm=100.0, contact_distance_mm=4.0)
+    model.positions[:] = [[-20.0, 1.0], [0.0, 0.0]]
+    model.headings[0] = 0.0
+    activity = model.run(7)
+    # the segment of the sixth second, from -5 to -2, is the first within 4 mm of the resting fly (2.2 mm at its end)
+    assert model.interaction_count == 1 and model.contact_count == 1
+    assert activity[6, 1] and not activity[:6, 1].any()
+
+
+def test_two_active_flies_interact_without_contact():
+    random.seed(0)
+    nights = [pd.DataFrame({"moving": [True], "length": [10**6]})] * 2
+    model = SpatialSimulator(nights, straight_walk(step_mm=3.0), lambda seconds: 1.0, radius_mm=100.0, contact_distance_mm=4.0)
+    model.positions[:] = [[-20.0, 0.0], [20.0, 0.0]]
+    model.headings[:] = [0.0, np.pi]
+    model.run(10)
+    assert model.interaction_count == 1 and model.contact_count == 0
+
+
+def test_no_fly_active_no_interactions():
+    random.seed(0)
+    nights = [pd.DataFrame({"moving": [False], "length": [10**6]})] * 3
+    model = SpatialSimulator(nights, straight_walk(), lambda seconds: 1.0, radius_mm=10.0, contact_distance_mm=50.0)
+    model.run(100)
+    assert model.interaction_count == 0 and model.contact_count == 0
+
+
+def test_spatial_simulations_are_reproducible(tmp_path):
+    from flyhostel.modelling.modelling.spatial import simulate_spatial
+    arguments = (2, 0, [NIGHT, NIGHT.iloc[1:], NIGHT], straight_walk(), lambda seconds: 0.5, 30.0, 4.0)
+    (row, (occupancy, distances)), (row_again, (occupancy_again, distances_again)) = simulate_spatial(*arguments), simulate_spatial(*arguments)
+    assert row == row_again and occupancy.equals(occupancy_again) and distances.equals(distances_again)
+
+
+def test_a_fly_waking_up_next_to_its_neighbour_is_not_a_new_interaction():
+    random.seed(0)
+    # the second fly rests 2 mm from the first, wakes up after 5 s and walks away: they were already within the contact distance
+    nights = [pd.DataFrame({"moving": [False], "length": [10**6]}), pd.DataFrame({"moving": [False, True], "length": [5, 10**6]})]
+    model = SpatialSimulator(nights, straight_walk(step_mm=3.0), lambda seconds: 0.0, radius_mm=100.0, contact_distance_mm=4.0)
+    model.positions[:] = [[0.0, 0.0], [2.0, 0.0]]
+    model.headings[1] = 0.0
+    model.close[0, 1] = True
+    model.run(10)
+    assert model.interaction_count == 0 and model.contact_count == 0
+
+
+def test_the_state_is_relative_to_the_wall_and_the_nearest_food():
+    # a fly 2 mm left of the centre of a dish of radius 10, heading right (+x), with food patches at (5, 0) and (-20, 0)
+    s = state_of([-2.0], [0.0], [0.0], 10.0, [[5.0, 0.0], [-20.0, 0.0]])
+    assert np.isclose(s["d_wall_mm"][0], 8.0) and np.isclose(s["d_food_mm"][0], 7.0)
+    # the outward normal points left (-x): the fly heads straight away from the wall, and straight to the food
+    assert np.isclose(abs(s["wall_angle_rad"][0]), np.pi) and np.isclose(s["food_angle_rad"][0], 0.0)
+    # without a heading the angles are not known
+    assert np.isnan(state_of([-2.0], [0.0], [np.nan], 10.0, [[5.0, 0.0]])["wall_angle_rad"][0])
+
+
+def test_the_positioned_walk_takes_the_steps_of_the_closest_state():
+    # near the wall heading into it, real flies turned around; far from it they went straight
+    at_wall = [(1.0, 20.0, 0.0, np.pi, 3.0, 3.0, np.pi, np.nan)] * 5
+    far = [(15.0, 5.0, np.pi, 0.0, 3.0, 3.0, 0.0, np.nan)] * 5
+    walk = PositionedWalk(real_steps(at_wall + far), k=5)
+    assert np.isclose(walk.sample(state(3.0, d_wall_mm=1.5, d_food_mm=19.0, wall_angle_rad=0.1, food_angle_rad=np.pi))[1][0], np.pi)
+    assert np.isclose(walk.sample(state(3.0, d_wall_mm=14.0, d_food_mm=6.0, wall_angle_rad=np.pi, food_angle_rad=0.0))[1][0], 0.0)
+
+
+def test_a_fly_without_a_heading_takes_the_direction_from_the_wall_of_the_data():
+    random.seed(0)
+    # the only real second starts without a heading and heads straight away from the wall (new_wall_angle pi), 3 mm
+    walk = PositionedWalk(real_steps([(5.0, 5.0, np.nan, np.nan, 0.0, 3.0, np.nan, np.pi)] * 5), k=5)
+    nights = [pd.DataFrame({"moving": [True], "length": [10**6]})]
+    model = SpatialSimulator(nights, walk, lambda seconds: 0.0, radius_mm=20.0, contact_distance_mm=0.0)
+    model.positions[:] = [[15.0, 0.0]]
+    model.headings[:] = [np.pi / 2]  # stale: the fly has not moved (last_step 0)
+    model.run(1)
+    assert np.allclose(model.positions[0], [12.0, 0.0])
+    # now it has a heading (-x) and the data has no turn for it: it keeps it
+    model.run(1)
+    assert np.allclose(model.positions[0], [9.0, 0.0]) and model.wall_hits == 0
+
+
+def test_the_occupancy_map_counts_every_fly_every_second_by_state():
+    random.seed(0)
+    nights = [pd.DataFrame({"moving": [False], "length": [10**6]})] * 2
+    model = SpatialSimulator(nights, straight_walk(), lambda seconds: 0.0, radius_mm=10.0, contact_distance_mm=0.0)
+    model.positions[:] = [[0.0, 0.0], [9.0, 9.0]]
+    model.run(5)
+    assert model.occupancy[0].sum() == 10 and model.occupancy[1].sum() == 0
+    assert model.occupancy[0, 5, 5] == 5 and model.occupancy[0, 9, 9] == 5
+    # the fly at the centre is 10 mm from the wall and on the food (at the centre); the other is 10 - 12.7 < 0 -> bin 0 from the wall
+    assert model.wall_distances[0, 10] == 5 and model.wall_distances[0, 0] == 5 and model.food_distances[0, 0] == 5 and model.food_distances[0, 12] == 5
