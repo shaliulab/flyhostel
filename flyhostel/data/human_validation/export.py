@@ -15,6 +15,7 @@ from .constants import (
     NUMBER_OF_ROWS,
     RESOLUTION,
     IMAGES_FOLDER,
+    MAX_SCENE_LENGTH,
 )
 
 logger=logging.getLogger(__name__)
@@ -28,45 +29,47 @@ def list_video(scene_number, folder):
         raise error
     return path
 
+def write_block(frames, number_of_rows, number_of_columns, path):
+    img=np.vstack([
+        np.hstack(frames[i*number_of_columns:(i+1)*number_of_columns])
+        for i in range(number_of_rows)
+    ])
+    cv2.imwrite(path, img)
+
+
 def generate_image(scene_number, folder, number_of_rows=4, number_of_columns=4):
+    """
+    One image per block of number_of_rows x number_of_columns frames of the scene's movie, written as soon as
+    the block is read (memory does not grow with the length of the scene). The last block is completed with
+    empty frames, so the images (and their names) are the same as when all frames were read first.
+    """
     video=list_video(scene_number, folder)
     scene_name=os.path.splitext(os.path.basename(video))[0]
+    output_folder=os.path.join(folder, IMAGES_FOLDER, scene_name)
+    os.makedirs(output_folder, exist_ok=True)
+    block_size=number_of_rows*number_of_columns
 
-    frames=[]
     empty_frame=np.zeros((*RESOLUTION[::-1], 3), dtype=np.uint8)
     assert os.path.exists(video)
     logger.debug("Opening %s", video)
     cap=cv2.VideoCapture(video)
+    frames=[]
     count=0
+    block=0
     while True:
         ret, frame=cap.read()
         if count==0:
             logger.debug("Reading %s", video)
-        if ret:
-            frame=cv2.resize(frame, RESOLUTION)
-            frames.append(frame)
-        else:
-            frames.append(empty_frame.copy())
+        frames.append(cv2.resize(frame, RESOLUTION) if ret else empty_frame.copy())
         count+=1
-        if not ret and count % (number_of_rows*number_of_columns) == 0:
+        if len(frames)==block_size:
+            write_block(frames, number_of_rows, number_of_columns,
+                        f"{output_folder}/{scene_name}_{str(block).zfill(6)}.png")
+            frames=[]
+            block+=1
+        if not ret and count % block_size == 0:
             break
     cap.release()
-
-    output_folder=os.path.join(folder, IMAGES_FOLDER, scene_name)
-    os.makedirs(output_folder, exist_ok=True)
-    block_size=number_of_rows*number_of_columns
-    
-    for block in range(0, len(frames)//block_size, 1):
-        img=[]
-        for i in range(number_of_rows):
-            start=i*number_of_columns + block*block_size
-            end=i*number_of_columns+number_of_columns + block*block_size
-            
-            img.append(
-                np.hstack(frames[start:end])
-            )
-        img=np.vstack(img)
-        cv2.imwrite(f"{output_folder}/{scene_name}_{str(block).zfill(6)}.png", img)
 
 
 def generate_images_all(scenes, folder, n_jobs):
@@ -118,5 +121,17 @@ def export_images(folder, experiment, n_jobs):
 
     # NOTE This is where we produce the subset of frames with problem
     complex_qc=qc.loc[qc["pass"]==False]
+
+    # Scenes this long are not errors to annotate frame by frame (e.g. hours where YOLOv7 found the flies
+    # because idtrackerai did not): they are listed in long_scenes.txt and not exported
+    long=complex_qc["length"] > MAX_SCENE_LENGTH
+    with open(os.path.join(folder, "long_scenes.txt"), "w") as handle:
+        handle.write("scene\tlength\tlast_frame_number\n")
+        for scene, length in complex_qc.loc[long, ["scene", "length"]].values:
+            handle.write(f"{int(scene)}\t{int(length)}\t{int(scene + length - 1)}\n")
+    if long.any():
+        logger.warning("%s scene(s) longer than %s frames not exported (see long_scenes.txt): %s",
+                       long.sum(), MAX_SCENE_LENGTH, complex_qc.loc[long, "scene"].tolist())
+    complex_qc=complex_qc.loc[~long]
     logger.info("Generating space time images for %s scenes", complex_qc.shape[0])
     generate_images_all(complex_qc["scene"].values.tolist(), folder=folder, n_jobs=n_jobs)
