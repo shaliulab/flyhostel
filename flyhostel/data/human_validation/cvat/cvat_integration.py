@@ -310,9 +310,14 @@ def drop_frames_annotated_by_newer_tasks(out, tasks, chunksize):
     When several tasks contain the same frame (e.g. a task re-made to correct an older one),
     concatenating them gives each fly two human masks in that frame. Both masks overlap the
     same machine fragment, which is then discarded as a duplicate, and the human identity
-    is not propagated through it. Each frame is therefore taken from the most recently
-    updated task that shows it (the highest task id breaks ties), and the annotations of
-    the other tasks in that frame are ignored, with a warning.
+    is not propagated through it. Each frame is therefore taken from a single task:
+
+    1. a task with annotations in the frame beats a task that shows the frame without
+       annotating it (an unannotated frame never overrides annotations of another task)
+    2. among tasks that all (or none) annotate the frame, the most recently updated wins,
+       and the highest task id breaks ties
+
+    The annotations of the other tasks in that frame are ignored, with a warning.
 
     Arguments
         * out (list): (annotations_df, contours, mtime, image_frames) of each task, in the order of tasks
@@ -326,29 +331,39 @@ def drop_frames_annotated_by_newer_tasks(out, tasks, chunksize):
     priority=sorted(range(len(tasks)), key=lambda i: (out[i][2], tasks[i]), reverse=True)
 
     # frame_number -> task whose annotations are used in it
+    # first pass: frames annotated by at least one task go to the highest priority annotating task
+    # second pass: frames nobody annotated go to the highest priority task showing them
     owner={}
+    for i in priority:
+        annotations_df, _, _, image_frames=out[i]
+        annotated=set(annotations_df["frame_number"].tolist()) & set(image_frames)
+        for frame in annotated:
+            owner.setdefault(frame, tasks[i])
+    for i in priority:
+        for frame in out[i][3]:
+            owner.setdefault(frame, tasks[i])
+
     filtered=list(out)
     for i in priority:
         annotations_df, contours, mtime, image_frames=out[i]
 
         duplicated={}
         for frame in image_frames:
-            if frame in owner:
+            if owner[frame]!=tasks[i]:
                 duplicated.setdefault(owner[frame], set()).add(frame)
-            else:
-                owner[frame]=tasks[i]
 
         if not duplicated:
             continue
 
         all_duplicated=set().union(*duplicated.values())
-        for newer_task, frames in sorted(duplicated.items()):
+        for other_task, frames in sorted(duplicated.items()):
             logger.warning(
-                "Task %s contains %s frames (%s) that are also in task %s, updated more recently. "
+                "Task %s contains %s frames (%s) that are also in task %s, which takes precedence "
+                "(it annotates them and/or was updated more recently). "
                 "Ignoring the annotations of task %s in those frames and using the ones of task %s. "
                 "Remove the duplicated frames from one of the two tasks to silence this warning",
-                tasks[i], len(frames), _format_chunk_range(frames, chunksize), newer_task,
-                tasks[i], newer_task,
+                tasks[i], len(frames), _format_chunk_range(frames, chunksize), other_task,
+                tasks[i], other_task,
             )
         dropped=annotations_df["frame_number"].isin(all_duplicated)
         logger.warning(

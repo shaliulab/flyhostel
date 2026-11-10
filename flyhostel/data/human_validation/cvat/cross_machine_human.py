@@ -13,6 +13,7 @@ import os.path
 from dataclasses import dataclass, field
 from typing import Iterable
 
+import cv2
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
@@ -126,12 +127,49 @@ def process_text_annotations(rec, annotation, metadata, annot_idx, state: Crossi
     return roi0_row, ident_row
 
 
-def parse_overlapping_annotation(df, match_idx, used_indices, next_idx):
+# A candidate contour is matched to the machine blob whose centroid it contains;
+# if none, to the closest centroid within this many pixels of the contour
+MAX_CANDIDATE_TO_BLOB_DISTANCE = 20
+
+
+def match_candidate_to_machine_row(df, candidate, max_distance=MAX_CANDIDATE_TO_BLOB_DISTANCE):
+    """
+    Positional row of df (machine blobs of one frame) that corresponds to a candidate contour.
+
+    The candidates are produced by segmenting the frame again, so they are neither
+    in the same order as df nor necessarily the same number (the segmentation can find
+    blobs that are not in the machine data). They must be matched by position.
+
+    Returns None if no machine blob is inside (or within max_distance of) the candidate
+    """
+    contour = np.asarray(candidate, dtype=np.float32).reshape((-1, 1, 2))
+    signed_distance = np.array([
+        cv2.pointPolygonTest(contour, (float(x), float(y)), True)
+        for x, y in df[["x", "y"]].values
+    ])
+    if len(signed_distance) == 0:
+        return None
+    row = int(np.argmax(signed_distance))
+    if signed_distance[row] < -max_distance:
+        return None
+    return row
+
+
+def parse_overlapping_annotation(df, match_idx, used_indices, next_idx, candidate=None):
     """
     Look up the machine-assigned in_frame_index and fragment for a matched
     contour, falling back to `next_idx` if the slot is already taken.
     Appends to `used_indices` in place.
+
+    If candidate (the matched contour) is passed, the machine row is found by position
+    and None is returned when no machine blob corresponds to it.
+    Otherwise match_idx is assumed to be a positional row of df
     """
+    if candidate is not None:
+        match_idx = match_candidate_to_machine_row(df, candidate)
+        if match_idx is None:
+            return None
+
     fragment = df["fragment"].iloc[match_idx]
     in_frame_index = df["in_frame_index"].iloc[match_idx]
     if in_frame_index in used_indices:
@@ -296,10 +334,17 @@ def _resolve_index_and_fragment(df, human_contour, candidates, used_indices,
     """
     match_idx, n = select_by_contour(human_contour, candidates, debug=False, frame=frame)
     if match_idx is not None:
-        in_frame_index, fragment = parse_overlapping_annotation(
+        parsed = parse_overlapping_annotation(
             df, match_idx, used_indices, next_idx=annot_idx + last_machine_id,
+            candidate=candidates[match_idx],
         )
-        return in_frame_index, fragment, n
+        if parsed is not None:
+            in_frame_index, fragment = parsed
+            return in_frame_index, fragment, n
+        logger.debug(
+            "Contour selected in frame %s has no machine blob, treating the annotation as de novo",
+            frame_number,
+        )
 
     logger.debug("Could not select by contour in frame %s", frame_number)
     in_frame_index = annot_idx + last_machine_id
