@@ -28,6 +28,7 @@ from flyhostel.data.human_validation.cvat.cvat_integration import (
     get_task_mtime
 )
 from flyhostel.data.human_validation.cvat.cross_machine_human import cross_machine_human
+from flyhostel.data.human_validation.cvat.validator_annotations import load_validator_annotations, validator_mtime, validator_problem_report
 from flyhostel.data.human_validation.cvat.utils import load_machine_data, get_dbfile, assign_in_frame_indices
 from flyhostel.data.human_validation.cvat.fragments import make_identity_singletons, make_identity_tracks
 from flyhostel.data.human_validation.cvat.identity import annotate_identity
@@ -81,6 +82,8 @@ def _load_data_cached(
     last_frame_number=None,
     image_format="v1",
     mtime=0,
+    source="cvat",
+    folder=None,
 ):
     return load_data(
         experiment=experiment,
@@ -93,6 +96,8 @@ def _load_data_cached(
         last_frame_number=last_frame_number,
         image_format=image_format,
         mtime=mtime,
+        source=source,
+        folder=folder,
     )
 
 
@@ -118,19 +123,28 @@ def load_data(
     last_frame_number=None,
     image_format="v1",
     mtime=0,
+    source="cvat",
+    folder=None,
 ):
+    """
+    source: "cvat" (the tasks' annotations) or "validator" (boxes of idtrackerai-validator's Annotate tab,
+    in <folder>/validator_annotations.db; tasks are ignored)
+    """
     basedir=get_basedir(experiment)
     number_of_animals=get_number_of_animals(experiment)
     chunksize=get_chunksize(experiment)
 
 
-    annotations_df, contours, mtime=get_annotations(
-        experiment, basedir, tasks,
-        redownload=redownload,
-        number_of_rows=number_of_rows,
-        number_of_cols=number_of_cols,
-        image_format=image_format
-    )
+    if source=="validator":
+        annotations_df, contours, mtime=load_validator_annotations(experiment, basedir, folder)
+    else:
+        annotations_df, contours, mtime=get_annotations(
+            experiment, basedir, tasks,
+            redownload=redownload,
+            number_of_rows=number_of_rows,
+            number_of_cols=number_of_cols,
+            image_format=image_format
+        )
     annotations_df["chunk"]=annotations_df["frame_number"]//chunksize
 
     first_frame_number, last_frame_number=select_frame_interval(annotations_df, frames_from_annotation, first_frame_number, last_frame_number)
@@ -171,8 +185,10 @@ def integrate_data(
         **kwargs,
     ):
 
-    
-    mtime = max([get_task_mtime(task) for task in tasks])
+    if kwargs.get("source", "cvat")=="validator":
+        mtime = validator_mtime(kwargs["folder"])
+    else:
+        mtime = max([get_task_mtime(task) for task in tasks])
     print(f"Last updated: {mtime.isoformat()}")
 
 
@@ -453,6 +469,7 @@ def integrate_human_annotations(
         tasks=None,
         multisex = False,
         redownload=REDOWNLOAD_FROM_CVAT,
+        source="cvat",
         **kwargs
     ):
     """
@@ -494,6 +511,8 @@ def integrate_human_annotations(
         * tasks (list): Task IDs corresponding to this experiment
         * first_frame_number (int): First frame number of the validation tables
         * last_frame_number (int): Last frame number of the validation tables
+        * source (str): "cvat" (annotations of the CVAT tasks) or "validator" (boxes saved in idtrackerai-validator's
+            Annotate tab, <folder>/validator_annotations.db; tasks are not used)
     """
 
     if multisex:
@@ -504,7 +523,9 @@ def integrate_human_annotations(
         images_subfolder=None
 
 
-    if tasks is None:
+    if source=="validator":
+        tasks=()
+    elif tasks is None:
         tasks=get_tasks_for_project(get_project_id_from_name(experiment))
     number_of_animals=get_number_of_animals(experiment)
     chunksize=get_chunksize(experiment)
@@ -515,6 +536,8 @@ def integrate_human_annotations(
         last_frame_number=last_frame_number,
         image_format=image_format,
         redownload=redownload,
+        source=source,
+        folder=folder,
         **kwargs
     )
 
@@ -594,7 +617,10 @@ def integrate_human_annotations(
     # reports
     pixels_per_mm=get_pixels_per_mm(experiment)
     jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm, images_subfolder=images_subfolder)
-    cvat_problem_report(out, folder, experiment, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm)
+    if source=="validator":
+        validator_problem_report(out, folder, number_of_animals, pixels_per_mm=pixels_per_mm)
+    else:
+        cvat_problem_report(out, folder, experiment, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm)
     df_identity=out[["frame_number", "in_frame_index", "local_identity", "identity", "validated"]].reset_index(drop=True)
 
     groupby=df_identity.groupby("local_identity")

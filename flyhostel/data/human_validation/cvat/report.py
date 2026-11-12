@@ -383,6 +383,9 @@ def find_problem_blocks(problems, cvat_frames):
         [(int(fn), *location) for fn, location in cvat_frames.items()],
         columns=["frame_number", "task", "job", "task_frame"]
     )
+    if index.shape[0]==0 or problems.shape[0]==0:
+        return pd.DataFrame(columns=columns)
+    index["frame_number"]=index["frame_number"].astype(np.int64)
     frames=index.merge(problems, on="frame_number", how="inner")
     if frames.shape[0]==0:
         return pd.DataFrame(columns=columns)
