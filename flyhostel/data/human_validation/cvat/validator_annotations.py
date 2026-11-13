@@ -110,12 +110,44 @@ def load_validator_annotations(experiment, basedir, folder):
     return annotations_df, contours, validator_mtime(folder)
 
 
-def validator_problem_report(out, folder, number_of_animals, pixels_per_mm, max_jump_mm=None):
+def validator_annotate_url(experiment, frame_number):
+    """Link opening the frame in the validator's Annotate tab (None without idtrackerai_validator_server
+    or experiment). Base url: $VALIDATOR_PUBLIC_URL (set by the validator for the jobs it starts), else this host."""
+    if experiment is None:
+        return None
+    try:
+        from idtrackerai_validator_server.links import annotate_url
+    except ImportError:
+        return None
+    return annotate_url(experiment, frame_number)
+
+
+def validator_problem_blocks(problems):
+    """Runs of consecutive frames with problems: first_frame_number, last_frame_number, n_frames, problems
+    (each problem with its number of frames), as report.find_problem_blocks for CVAT frames"""
+    columns = ["first_frame_number", "last_frame_number", "n_frames", "problems"]
+    if problems.shape[0] == 0:
+        return pd.DataFrame(columns=columns)
+    frames = problems.groupby("frame_number")["problem"].apply(list).reset_index()
+    block_id = (frames["frame_number"].diff() != 1).cumsum()
+    blocks = []
+    for _, block in frames.groupby(block_id):
+        summary = pd.Series([p for ps in block["problem"] for p in ps]).value_counts(sort=False)
+        blocks.append((
+            int(block["frame_number"].iloc[0]), int(block["frame_number"].iloc[-1]), block.shape[0],
+            ", ".join(f"{problem} ({count} frame{'' if count == 1 else 's'})" for problem, count in summary.items()),
+        ))
+    return pd.DataFrame.from_records(blocks, columns=columns)
+
+
+def validator_problem_report(out, folder, number_of_animals, pixels_per_mm, max_jump_mm=None, experiment=None, chunksize=None):
     """
     Frames annotated in the validator that still have a problem after the integration
     (an identity missing or duplicated, a blob without identity, optionally a jump),
     saved to <folder>/validator_problem_frames.csv (frame_number, problem), which the Annotate tab lists.
     Same checks as report.cvat_problem_report, on the annotated frames instead of the CVAT frames.
+    With experiment, prints each run of consecutive frames with problems with the link opening
+    its first frame in the validator's Annotate tab (also in <folder>/validator_problem_blocks.csv).
     """
     from flyhostel.data.human_validation.cvat.report import find_problem_frames
 
@@ -141,4 +173,13 @@ def validator_problem_report(out, folder, number_of_animals, pixels_per_mm, max_
     problems.to_csv(os.path.join(folder, "validator_problem_frames.csv"), index=False)
     print(f"{problems['frame_number'].nunique()} of the {len(annotated)} frames annotated in the validator still have problems "
           f"(validator_problem_frames.csv)")
+
+    blocks = validator_problem_blocks(problems)
+    blocks["url"] = [validator_annotate_url(experiment, fn) for fn in blocks["first_frame_number"]]
+    blocks.to_csv(os.path.join(folder, "validator_problem_blocks.csv"), index=False)
+    for _, row in blocks.iterrows():
+        chunk = "" if chunksize is None else f"chunk {row['first_frame_number'] // chunksize}, "
+        print(f"Frames {row['first_frame_number']}-{row['last_frame_number']} "
+              f"({chunk}{row['n_frames']} frames): {row['problems']}"
+              + (f"\n    {row['url']}" if row["url"] else ""))
     return problems

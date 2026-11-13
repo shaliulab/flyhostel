@@ -618,7 +618,8 @@ def integrate_human_annotations(
     pixels_per_mm=get_pixels_per_mm(experiment)
     jump_report(out, folder, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm, images_subfolder=images_subfolder)
     if source=="validator":
-        validator_problem_report(out, folder, number_of_animals, pixels_per_mm=pixels_per_mm)
+        validator_problem_report(out, folder, number_of_animals, pixels_per_mm=pixels_per_mm,
+                                 experiment=experiment, chunksize=chunksize)
     else:
         cvat_problem_report(out, folder, experiment, number_of_animals, chunksize, pixels_per_mm=pixels_per_mm)
     df_identity=out[["frame_number", "in_frame_index", "local_identity", "identity", "validated"]].reset_index(drop=True)
