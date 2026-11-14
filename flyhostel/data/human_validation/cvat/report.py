@@ -116,7 +116,7 @@ def nearest_cvat_frame_urls(experiment, frame_numbers):
     )
 
 
-def make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize, experiment=None):
+def make_report(folder, identity_tracks, roi0_annotations, identity_annotations, new_data, number_of_animals, chunksize, experiment=None, source="cvat"):
 
     fragment_crossing_fraction=qc1(roi0_annotations, identity_annotations, chunksize)
     fragment_crossing_fraction.to_csv(
@@ -133,10 +133,15 @@ def make_report(folder, identity_tracks, roi0_annotations, identity_annotations,
         loser_lids=counts.groupby(["chunk", "fragment"], group_keys=False).apply(lambda df: df.loc[df["count"]==df["count"].min()]).reset_index(drop=True)
         loser_lids=loser_lids.merge(impure_tracks[["chunk", "fragment", "frame_idx", "local_identity"]], on=["chunk", "fragment", "local_identity"])
 
-        # link every row to the first CVAT frame where its (least frequent) local identity occurs in the fragment
+        # link every row to the first annotated frame where its (least frequent) local identity occurs in the fragment:
+        # in CVAT, or in idtrackerai-validator's Annotate tab with source="validator"
         first_frames=loser_lids.groupby(["chunk", "fragment", "local_identity"])["frame_idx"].min().reset_index()
         frame_numbers=(first_frames["chunk"]*chunksize + first_frames["frame_idx"]).astype(np.int64)
-        first_frames["url"]=cvat_frame_urls(experiment, frame_numbers)
+        if source=="validator":
+            from flyhostel.data.human_validation.cvat.validator_annotations import validator_annotate_url
+            first_frames["url"]=[validator_annotate_url(experiment, fn) for fn in frame_numbers]
+        else:
+            first_frames["url"]=cvat_frame_urls(experiment, frame_numbers)
         loser_lids=loser_lids.merge(first_frames.drop("frame_idx", axis=1), on=["chunk", "fragment", "local_identity"], how="left")
         loser_lids.to_csv(os.path.join(folder, "impure_tracks_loser_lids.csv"))
         logger.error("\n%s", loser_lids.to_string())

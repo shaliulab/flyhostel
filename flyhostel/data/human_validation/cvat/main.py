@@ -374,7 +374,7 @@ def integrate_data(
 
 
 
-def manual_validations(experiment, updated_data, machine_data, first_frame_number, last_frame_number, folder, **report_data):
+def manual_validations(experiment, updated_data, machine_data, first_frame_number, last_frame_number, folder, source="cvat", **report_data):
 
     number_of_animals=get_number_of_animals(experiment)
     chunksize=get_chunksize(experiment)
@@ -432,7 +432,8 @@ def manual_validations(experiment, updated_data, machine_data, first_frame_numbe
     new_data["frame_idx"]=new_data["frame_number"]%chunksize
     new_data=assign_in_frame_indices(new_data, number_of_animals, experiment=experiment)
 
-    make_report(folder, new_data=new_data, number_of_animals=number_of_animals, chunksize=chunksize, experiment=experiment, **report_data)
+    make_report(folder, new_data=new_data, number_of_animals=number_of_animals, chunksize=chunksize, experiment=experiment,
+                source=source, **report_data)
 
     if first_frame_number is not None:
         new_data=new_data.loc[(new_data["frame_number"]>=first_frame_number)]
@@ -545,7 +546,7 @@ def integrate_human_annotations(
     assert last_frame_number is not None
         
     
-    new_data=manual_validations(experiment, updated_data, machine_data, first_frame_number=first_frame_number, last_frame_number=last_frame_number, **report_data, folder=folder)
+    new_data=manual_validations(experiment, updated_data, machine_data, first_frame_number=first_frame_number, last_frame_number=last_frame_number, **report_data, folder=folder, source=source)
 
     # required when a fly does not overlap between 2 chunks due to a lag to high between chunks
     annotated_table_file=os.path.join(folder, "validation_lags.csv")
