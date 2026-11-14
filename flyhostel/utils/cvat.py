@@ -205,22 +205,26 @@ def get_basedir(experiment):
     return basedir
 
 
+def has_validated_tables(dbfile):
+    """True when the database holds the validated tables (ROI_0_VAL and IDENTITY_VAL), written by
+    save-human-annotations from CVAT's or the validator app's annotations (ROI_VAL: older name)."""
+    with sqlite3.connect(f"file:{dbfile}?mode=ro", uri=True) as conn:
+        tables={row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table';")}
+    return "IDENTITY_VAL" in tables and ("ROI_0_VAL" in tables or "ROI_VAL" in tables)
+
+
 def experiment_is_validated(experiment, errors="ignore"):
+    """An experiment is validated when its identities were checked by a person, in CVAT
+    (annotations zip downloaded, or a CVAT project named after it) or in the validator app's
+    Annotate tab (no CVAT project; "Write validated tables" writes the _VAL tables).
+    The validated tables are checked before CVAT, so those need no CVAT server."""
     basedir=get_basedir(experiment)
     dbfile=get_dbfile(basedir)
-    
+
     annotation_files=glob.glob(f"{basedir}/flyhostel/validation/*_annotations.zip")
     if len(annotation_files)>0:
         return True
-    else:
-
-        with sqlite3.connect(dbfile) as conn:
-            cur=conn.cursor()
-            cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tables=cur.fetchall()
-            tables=[e[0] for e in tables]
-        if "ROI_VAL" in tables and "IDENTITY_VAL" in tables:
-            return True
-        else:
-            project_id=get_project_id_from_name(experiment, errors=errors)
-            return project_id is not None
+    if has_validated_tables(dbfile):
+        return True
+    project_id=get_project_id_from_name(experiment, errors=errors)
+    return project_id is not None

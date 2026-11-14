@@ -375,19 +375,27 @@ class FlyHostelGroup(InteractionDetector):
             files=[metadata_file]
         else:
             validation_files=[]
+            # boxes drawn in the validator app's Annotate tab (instead of CVAT)
+            validator_db=os.path.join(validation_folder, "validator_annotations.db")
             if self.number_of_animals > 1 and experiment_is_validated(self.experiment):
                 try:
                     validation_files=self.download_annotations_from_cvat(validation_folder, dry_run=False)
                 except Exception as error:
-                    logger.error(error)
                     # CVAT unreachable or the project is gone:
                     # still back up the annotations downloaded before
                     validation_files=sorted(glob.glob(os.path.join(validation_folder, "*_annotations.zip")))
-                    logger.warning(
-                        "Could not download the CVAT annotations of %s, backing up the %s zip files already in %s",
-                        self.experiment, len(validation_files), validation_folder
-                    )
-                    status="NO_CVAT_VALIDATION_FOUND"
+                    if os.path.exists(validator_db) and not validation_files:
+                        # validated in the validator app, never in CVAT
+                        logger.info("%s was validated in the validator app, not in CVAT (%s)", self.experiment, error)
+                    else:
+                        logger.error(error)
+                        logger.warning(
+                            "Could not download the CVAT annotations of %s, backing up the %s zip files already in %s",
+                            self.experiment, len(validation_files), validation_folder
+                        )
+                        status="NO_CVAT_VALIDATION_FOUND"
+            if os.path.exists(validator_db):
+                validation_files.append(validator_db)
 
             # handmade
             validation_csvs=[

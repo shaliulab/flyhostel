@@ -121,11 +121,12 @@ def test_unvalidated_multi_animal_experiments_are_refused(unvalidated_experiment
     assert (loader.identity_table, loader.roi_0_table) == ("IDENTITY", "ROI_0")
 
 
-@pytest.mark.xfail(strict=True, reason="experiment_is_validated looks for a ROI_VAL table, but validation writes ROI_0_VAL, "
-                                       "so without the annotations zip it falls back to querying CVAT")
 def test_validation_is_detected_from_the_validated_tables(experiment_copy, no_cvat):
+    # validated in the validator app: _VAL tables, no annotations zip, no CVAT project
     shutil.rmtree(os.path.join(experiment_copy, "flyhostel", "validation"))
     assert cvat.experiment_is_validated(synthetic.EXPERIMENT)
+    loader = FlyHostelLoader(synthetic.EXPERIMENT, identity=1)
+    assert (loader.identity_table, loader.roi_0_table) == ("IDENTITY_VAL", "ROI_0_VAL")
 
 
 @pytest.mark.parametrize("identity", [1, 2])
