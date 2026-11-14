@@ -403,23 +403,100 @@ def _process_single_annotation(rec, annotation, annot_idx, df, frame, candidates
     _log_winner_count(n, frame_number, local_identity)
 
 
+# Processes walking the annotated frames at the same time (one chunk per task, each with its own VideoCapture).
+# Override with the environment variable INTEGRATE_N_JOBS (1 = no pool, as before)
+DEFAULT_N_JOBS = min(16, os.cpu_count() or 1)
+
+# per worker process: the VideoCapture of the experiment, opened by the first task it runs
+_WORKER = {}
+
+
+def _walk_chunk(task):
+    """
+    Walk the annotated frames of one chunk in a worker process: the same as _walk_frames on that chunk.
+    Returns (CrossingState, frames walked)
+    """
+    machine_data, annotations_df, annotated_contours = task
+    basedir, config, last_machine_id = _WORKER["args"]
+    if "cap" not in _WORKER:
+        _WORKER["cap"] = VideoCapture(os.path.join(basedir, "metadata.yaml"), DEFAULT_FIRST_CHUNK)
+    state = _walk_frames(
+        _WORKER["cap"], machine_data, annotations_df, annotated_contours,
+        config, last_machine_id, progress=False,
+    )
+    return state, machine_data["frame_number"].nunique()
+
+
+def _init_worker(basedir, config, last_machine_id):
+    _WORKER.clear()
+    _WORKER["args"] = (basedir, config, last_machine_id)
+
+
+def _merge_states(states):
+    """Concatenate the CrossingState of consecutive chunks, in chunk order"""
+    merged = CrossingState()
+    for state in states:
+        for name in ("roi0_rows", "identity_rows", "fragments_must_break", "fragment_reassignments", "crossings"):
+            getattr(merged, name).extend(getattr(state, name))
+        merged.annotations_to_copy.update(state.annotations_to_copy)
+        merged.annotations_to_spatial_copy.update(state.annotations_to_spatial_copy)
+    return merged
+
+
 def _walk_frames_pickable(basedir, machine_data, annotations_df, annotated_contours,
-                        config, last_machine_id):
+                        config, last_machine_id, n_jobs=None):
     """
     wrapper around _walk_frames that creates its own VideoCapture object
-    """
-    # Open the cap here (not in the caller) so the cached path doesn't pay
-    # for VideoCapture init either — which the profile showed was ~1s by itself.
-    cap = VideoCapture(os.path.join(basedir, "metadata.yaml"), DEFAULT_FIRST_CHUNK)
-    try:
-        state = _walk_frames(
-            cap, machine_data, annotations_df, annotated_contours,
-            config, last_machine_id,
-        )
-    finally:
-        cap.release()
 
-    return state
+    With n_jobs > 1 the chunks are walked in a pool of processes. Each frame is walked on its own
+    (the state only accumulates rows and tags), so concatenating the states of the chunks in order
+    gives the same result as walking all frames in one process.
+    """
+    if n_jobs is None:
+        n_jobs = int(os.environ.get("INTEGRATE_N_JOBS", DEFAULT_N_JOBS))
+
+    chunks = sorted(machine_data["chunk"].unique())
+    if n_jobs <= 1 or len(chunks) <= 1:
+        # Open the cap here (not in the caller) so the cached path doesn't pay
+        # for VideoCapture init either — which the profile showed was ~1s by itself.
+        cap = VideoCapture(os.path.join(basedir, "metadata.yaml"), DEFAULT_FIRST_CHUNK)
+        try:
+            state = _walk_frames(
+                cap, machine_data, annotations_df, annotated_contours,
+                config, last_machine_id,
+            )
+        finally:
+            cap.release()
+        return state
+
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    annotation_chunk = annotations_df["frame_number"] // get_chunksize(dbfile=get_dbfile(basedir))
+    machine_by_chunk = dict(tuple(machine_data.groupby("chunk")))
+    annotations_by_chunk = dict(tuple(annotations_df.groupby(annotation_chunk)))
+
+    def tasks():
+        # only the contours of the chunk's boxes travel to the worker (indexed by annotations_df["idx"])
+        for chunk in chunks:
+            annotation = annotations_by_chunk.get(chunk, annotations_df.iloc[:0])
+            contours = {int(i): annotated_contours[int(i)] for i in annotation["idx"]}
+            yield machine_by_chunk[chunk], annotation, contours
+
+    n_jobs = min(n_jobs, len(chunks))
+    logger.info("Walking %s chunks with %s processes", len(chunks), n_jobs)
+    pb = tqdm(total=machine_data["frame_number"].nunique(), desc=f"Crossing human annotations and machine data ({n_jobs} processes)")
+    states = []
+    # fork: the workers inherit the imports; they only read video and draw contours (no GPU)
+    with ProcessPoolExecutor(
+        max_workers=n_jobs, mp_context=multiprocessing.get_context("fork"),
+        initializer=_init_worker, initargs=(basedir, config, last_machine_id),
+    ) as executor:
+        for state, n_frames in executor.map(_walk_chunk, tasks()):
+            states.append(state)
+            pb.update(n_frames)
+    pb.close()
+    return _merge_states(states)
 
 
 
@@ -431,7 +508,7 @@ _ANNOT_COLS = ["idx", "local_identity", "x", "y", "text",
 
 
 def _walk_frames(cap, machine_data, annotations_df, annotated_contours,
-                 config, last_machine_id):
+                 config, last_machine_id, progress=True):
     """Run the per-frame crossing loop and return the accumulated state.
 
     Two optimizations beyond the original:
@@ -449,7 +526,7 @@ def _walk_frames(cap, machine_data, annotations_df, annotated_contours,
     # groupby iterates in ascending key order by default; that ordering is
     # what makes the seek-skipping below worthwhile.
     groups = list(machine_data.groupby("frame_number", sort=True))
-    pb = tqdm(total=len(groups), desc="Crossing human annotations and machine data")
+    pb = tqdm(total=len(groups), desc="Crossing human annotations and machine data", disable=not progress)
 
     # #2: cap_state["next_frame"] = the frame index cap.read() would return
     # next. Sentinel -1 forces a seek on the first real read.
