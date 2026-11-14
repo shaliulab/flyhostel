@@ -304,7 +304,16 @@ def pipeline(experiment_name, identity, concatenation, chunks=None, output=".", 
             if strict:
                 raise Exception(f"Chunks missing in concatenation table for identity {identity}: {set(chunks).difference(set(concatenation_i['chunk'].tolist()))}")
             else:
-                first_chunk_missing=concatenation_i.iloc[1:].loc[concatenation_i["chunk"].diff().iloc[1:]!=1]["chunk"].iloc[0]
+                # keep the chunks before the first requested chunk with no data
+                missing=sorted(set(chunks).difference(concatenation_i["chunk"].tolist()))
+                first_chunk_missing=missing[0]
+                if first_chunk_missing <= min(chunks):
+                    available=concatenation_i["chunk"]
+                    raise ValueError(
+                        f"First requested chunk {first_chunk_missing} is missing in the concatenation table for identity {identity}"
+                        f" ({len(missing)} of {len(chunks)} requested chunks missing; available chunks: "
+                        f"{available.min() if len(available) else None}-{available.max() if len(available) else None})"
+                    )
                 concatenation_i=concatenation_i.query(f"chunk < {first_chunk_missing}")
 
     else:
