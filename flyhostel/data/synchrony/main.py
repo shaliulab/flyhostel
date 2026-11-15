@@ -74,7 +74,8 @@ LAG_MIN=-1800*3
 LAG_MAX=+1800*3
 
 def coupling_analysis(
-        dt_bin, number_of_animals, metadata, n_mins, figure_name, coupling_FUNs=COUPLING_FUNS, group_FUNs=GROUP_FUNS, bin_size=300, feature="inactive_rule", summary_FUN="mean", lag_min=LAG_MIN, lag_max=LAG_MAX
+        dt_bin, number_of_animals, metadata, n_mins, figure_name, coupling_FUNs=COUPLING_FUNS, group_FUNs=GROUP_FUNS, bin_size=300, feature="inactive_rule", summary_FUN="mean", lag_min=LAG_MIN, lag_max=LAG_MAX,
+        max_virtual_pairs=None, seed=0
     ):
     """
     Quantify coupling of sleep rhythms in groups of animals
@@ -88,6 +89,8 @@ def coupling_analysis(
     
     All quantifications are performed in pairs (pairwise), even if a group has 6 animals.
     In that case, 5+4+3+2+1=15 pairs are analyzed
+    max_virtual_pairs: analyze every real pair and a reproducible sample (seed) of this many virtual pairs (None, default: all).
+    Virtual pairs grow with the square of the number of groups
     The sleep/wake trajectory is smoothed from the original frequency (1 Hz)
     to 1/300 (1 point every 5 mins) using the mean, for every animal independently
 
@@ -138,6 +141,8 @@ def coupling_analysis(
         FUNs=coupling_FUNs,
         group_FUNs=group_FUNs,
         auto=False,
+        max_virtual_pairs=max_virtual_pairs,
+        seed=seed,
         nan=0,
         # nan=np.nan
     )

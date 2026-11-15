@@ -220,7 +220,27 @@ def mean_squared_difference(df, col1, col2, lag=0, nan=0):
     return msq_diff, n_points
 
 
-def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, summary_FUN="mean", **kwargs):
+def sample_virtual_pairs(pairs, max_virtual_pairs, seed=0):
+    """
+    Keep every real pair (both flies in the same group: same experiment, the id before |) and a sample of
+    max_virtual_pairs of the virtual pairs. The sample is reproducible: the same pairs and seed give the same sample.
+    None keeps every pair
+    """
+    if max_virtual_pairs is None:
+        return pairs
+    real=[pair for pair in pairs if pair[0].split("|")[0]==pair[1].split("|")[0]]
+    virtual=[pair for pair in pairs if pair[0].split("|")[0]!=pair[1].split("|")[0]]
+    if len(virtual)<=max_virtual_pairs:
+        return pairs
+    logger.info("Sampling %s of %s virtual pairs (seed %s)", max_virtual_pairs, len(virtual), seed)
+    virtual=random.Random(seed).sample(sorted(virtual), max_virtual_pairs)
+    return real + sorted(virtual)
+
+
+def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, summary_FUN="mean", max_virtual_pairs=None, seed=0, **kwargs):
+    """
+    max_virtual_pairs: analyze every real pair and a reproducible sample (seed) of this many virtual pairs (None: all)
+    """
 
     assert df.shape[0]>0
     wide_table=df.reset_index().pivot_table(index=['t'], columns='id', values=feature)
@@ -242,7 +262,8 @@ def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, su
 
 
     ids=X.columns.tolist()
-    pairs=list(itertools.combinations(ids, 2))
+    pairs=sample_virtual_pairs(list(itertools.combinations(ids, 2)), max_virtual_pairs, seed=seed)
+    experiment_of_id=dict(zip(experiment_index["id"], experiment_index["experiment"]))
     if auto:
         for id in ids:
             pairs.append((id, id))
@@ -253,7 +274,7 @@ def annotator(df, lags, feature="asleep", FUNs={}, group_FUNs={}, auto=False, su
         for id1, id2 in pairs:
 
             if id1.split("|")[0]==id2.split("|")[0]:
-                experiment=experiment_index.loc[experiment_index["id"]==id1, "experiment"].iloc[0]
+                experiment=experiment_of_id[id1]
                 comparison="real"
             else:
                 experiment="virtual"
