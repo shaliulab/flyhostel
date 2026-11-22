@@ -18,6 +18,7 @@ def detect_touch_pairs(
     APP:  Sequence[Union[Hashable, int]] = ("LF_tarsus","LM_tarsus","LH_tarsus",
                                             "RF_tarsus","RM_tarsus","RH_tarsus","proboscis"),
     persist_N: int     = 6,
+    persist_sec: float | None = None,  # minimum touch duration in seconds; overrides persist_N (frames)
     median_kernel: int = 5,
     merge_gap_sec: float = 0.0,     # merge gaps <= this duration (seconds)
     parallel_tol: float = 1e-9,
@@ -65,6 +66,10 @@ def detect_touch_pairs(
     persist_N : int, optional
         Minimum number of **consecutive frames** required to keep a touch bout
         (after raw crossing). Shorter runs are suppressed. Default is 6.
+    persist_sec : float, optional
+        Minimum duration of a touch bout in **seconds**, the same at any frame rate: converted to
+        ceil(persist_sec * fps) frames (fps from `ds.time`), so that a kept bout lasts at least
+        persist_sec. Overrides persist_N when given.
     median_kernel : int, optional
         Temporal median filter window (in frames) applied to poses before analysis.
         Must be odd; set to 1 to disable. Default is 5.
@@ -390,6 +395,17 @@ def detect_touch_pairs(
             if (e - s) >= N: out[s:e] = True
         return out
 
+    if persist_sec is not None:
+        tv = ds["time"].values
+        if np.issubdtype(tv.dtype, np.timedelta64):
+            tv = tv.astype("timedelta64[ns]").astype(np.int64) / 1e9
+        elif np.issubdtype(tv.dtype, np.datetime64):
+            tv = (tv - tv[0]).astype("timedelta64[ns]").astype(np.int64) / 1e9
+        else:
+            tv = tv.astype(float)
+        step = np.median(np.diff(tv)) if len(tv) > 1 else 0.0
+        persist_N = int(np.ceil(persist_sec / step - 1e-9)) if step > 0 else persist_N
+        logger.info("Minimum touch %s s = %s frames at %.1f fps", persist_sec, persist_N, 1/step if step > 0 else np.nan)
     touch = persist_mask(raw_touch, persist_N)
 
     if merge_gap_sec and merge_gap_sec > 0:
@@ -429,6 +445,7 @@ def detect_touch_pairs(
         attrs=dict(
             definition="segment_cross_body_to_appendage",
             persist_frames=persist_N,
+            persist_sec=persist_sec,
             merge_gap_sec=merge_gap_sec,
             individuals=str(individuals),
             skip_rule="thorax missing OR no appendage present in either fly -> metric=np.nan, touch=False",
