@@ -128,3 +128,98 @@ def draw_sleep_state(img, data, org, radius, color, step_count):
             logger.warning("asleep information not provided. Ignoring")
     return img
     
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Time label for videos meant for talks and papers: the ZT in a rounded translucent panel, over a light-dark bar of the day (ZT0-12
+# light, ZT12-24 dark) with a marker at the time of the frame. It replaces the frame number / ZT box (add_info_box_gpt).
+# ---------------------------------------------------------------------------------------------------------------------------------
+import functools
+import os
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+TIME_LABEL_FONTS={
+    "regular": ["/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"],
+    "bold": ["/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+}
+TIME_LABEL_MARKER=(230, 159, 0)  # RGB, amber (Okabe-Ito orange)
+
+
+@functools.lru_cache(maxsize=None)
+def _time_label_font(weight, size):
+    for path in TIME_LABEL_FONTS[weight]:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
+
+
+def add_time_label(frame, t, caption=None, corner="top-right", scale=None, light_hours=12):
+    """
+    Draws the ZT of the frame in a corner: "ZT 14:32" over a 24 h light-dark bar with a marker at that time, and an optional caption
+    under it (e.g. "360x"). Sizes follow the width of the frame (scale 1 = 2100 px, the flyhostel recordings).
+
+    frame (np.array): H x W x 3, in the colour order of the caller (the panel is white, grey and black, the marker amber in RGB)
+    t (float): seconds since ZT0 (may exceed 24 h; the clock wraps)
+    """
+    if t is None or (isinstance(t, float) and np.isnan(t)):
+        return frame
+    h, w=frame.shape[:2]
+    s=w/2100 if scale is None else scale
+    zt=(float(t)/3600) % 24
+    text=f"ZT {int(zt):02d}:{int(round((zt % 1)*60)) % 60:02d}"
+
+    font_big=_time_label_font("bold", max(int(56*s), 10))
+    font_small=_time_label_font("regular", max(int(26*s), 8))
+    pad=int(22*s)
+    margin=int(28*s)
+    bar_w, bar_h=int(320*s), int(16*s)
+    gap=int(14*s)
+    gap_bar=int(30*s)  # room for the marker's triangle between the ZT and the bar
+
+    text_box=font_big.getbbox(text)
+    text_h=text_box[3]
+    tick_h=font_small.getbbox("24")[3]
+    caption_h=font_small.getbbox(caption)[3] if caption else 0
+    panel_w=max(bar_w, text_box[2], font_small.getbbox(caption)[2] if caption else 0)+2*pad
+    panel_h=pad+text_h+gap_bar+bar_h+int(6*s)+tick_h+(gap+caption_h if caption else 0)+pad
+
+    x0=w-panel_w-margin if corner.endswith("right") else margin
+    y0=margin if corner.startswith("top") else h-panel_h-margin
+
+    image=Image.fromarray(frame).convert("RGBA")
+    overlay=Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw=ImageDraw.Draw(overlay)
+    draw.rounded_rectangle((x0, y0, x0+panel_w, y0+panel_h), radius=int(18*s), fill=(20, 20, 20, 170))
+
+    # ZT
+    x=x0+pad
+    y=y0+pad
+    draw.text((x, y), text, font=font_big, fill=(255, 255, 255, 255))
+    y+=text_h+gap_bar
+
+    # light-dark bar: light from ZT0 to light_hours, dark after; white outline
+    light_w=int(bar_w*light_hours/24)
+    draw.rectangle((x, y, x+light_w, y+bar_h), fill=(245, 245, 245, 255))
+    draw.rectangle((x+light_w, y, x+bar_w, y+bar_h), fill=(0, 0, 0, 255))
+    draw.rectangle((x, y, x+bar_w, y+bar_h), outline=(255, 255, 255, 255), width=max(int(2*s), 1))
+    # marker at the current ZT: a line across the bar and a triangle above it
+    mx=x+int(bar_w*zt/24)
+    half=int(9*s)
+    draw.line((mx, y-int(3*s), mx, y+bar_h+int(3*s)), fill=TIME_LABEL_MARKER+(255,), width=max(int(4*s), 2))
+    draw.polygon([(mx-half, y-int(3*s)-half*1.4), (mx+half, y-int(3*s)-half*1.4), (mx, y-int(3*s))], fill=TIME_LABEL_MARKER+(255,))
+    # ticks 0, 12, 24
+    y_ticks=y+bar_h+int(6*s)
+    for zt_tick in (0, 12, 24):
+        label=str(zt_tick)
+        lw=font_small.getbbox(label)[2]
+        tx=x+int(bar_w*zt_tick/24)-lw//2
+        tx=min(max(tx, x), x+bar_w-lw)
+        draw.text((tx, y_ticks), label, font=font_small, fill=(210, 210, 210, 255))
+    y=y_ticks+tick_h
+
+    if caption:
+        draw.text((x, y+gap), caption, font=font_small, fill=(210, 210, 210, 255))
+
+    return np.array(Image.alpha_composite(image, overlay).convert("RGB"))

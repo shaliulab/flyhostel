@@ -28,7 +28,7 @@ from flyhostel.utils import (
     get_experiment_identifier,
 )
 from flyhostel.data.video.utils import (
-    add_info_box_gpt
+    add_time_label
 )
 
 from flyhostel.data.sleep import annotate_sleep
@@ -64,8 +64,6 @@ def draw_trace(video_data, img, fn, identities, step, n_steps, roi_width=None, p
     # annotate frame number
     
     frame_is_annotated=False
-    video_data["fn"]=video_data["frame_number"].copy()
-    properties=["fn", "zt"]
     animal_frame=None
 
     # img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
@@ -131,7 +129,8 @@ def draw_trace(video_data, img, fn, identities, step, n_steps, roi_width=None, p
             last_y = y
 
             if animal_frame is not None and not frame_is_annotated and step_count==0:
-                img=add_info_box_gpt(img, properties, animal_frame)
+                # the ZT over a light-dark bar of the day (add_time_label), instead of the frame number / ZT text box
+                img=add_time_label(img, animal_frame["t"])
                 frame_is_annotated=True
 
     return img
