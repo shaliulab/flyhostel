@@ -442,11 +442,13 @@ def detect_putative_rejections(experiment, number_of_animals, touch_mask_duratio
             t_endp1=t_end+1
             t_after=t_end+300
 
-            tm1=make_chunk_change_safe(tm1, row, sleep_df, direction="backward", chunksize=chunksize, framerate=framerate)
-            t_endp1=make_chunk_change_safe(t_endp1, row, sleep_df, direction="forward", chunksize=chunksize, framerate=framerate)
-
+            # before make_chunk_change_safe: an event that ends < 1 s before the end of the recording has no next frame to move
+            # t_endp1 to (NaN, crash); such events are skipped anyway
             if t_before < min_t or t_after > max_t:
                 continue
+
+            tm1=make_chunk_change_safe(tm1, row, sleep_df, direction="backward", chunksize=chunksize, framerate=framerate)
+            t_endp1=make_chunk_change_safe(t_endp1, row, sleep_df, direction="forward", chunksize=chunksize, framerate=framerate)
 
             inactive_before=sleep_df.query("(animal == @animal) & (t >= @t_before) & (t < @t)")["inactive"].sum()
             inactive_after=sleep_df.query("(animal == @animal) & (t >= @t_end) & (t < @t_after)")["inactive"].sum()
