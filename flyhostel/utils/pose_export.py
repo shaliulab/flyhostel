@@ -362,10 +362,9 @@ def load_concatenation_table(cur, basedir, concatenation_table="CONCATENATION_VA
     
     if errors == "raise":
         if not (diff==1).all():
-            rows=np.where(diff!=1)[0].tolist()
-            rows=sorted(rows + (np.array(rows)+1).tolist())
-            print(concatenation.iloc[1:].loc[sorted(rows)])
-            raise ValueError("Missing chunks in concatenation")
+            chunks=concatenation["chunk"].drop_duplicates().values
+            gaps=[(int(chunks[i]), int(chunks[i+1])) for i in np.where(np.diff(chunks)!=1)[0]]
+            raise ValueError(f"Missing chunks in {concatenation_table}: gaps between consecutive chunks {gaps}")
 
     concatenation["dfile"] = [
         infer_analysis_path(basedir, int(row["local_identity"]), str(int(row["chunk"])).zfill(6), number_of_animals=number_of_animals)
