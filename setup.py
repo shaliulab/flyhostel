@@ -1,4 +1,6 @@
+import os
 import pathlib
+import subprocess
 import warnings
 
 from setuptools import setup, find_packages
@@ -39,32 +41,65 @@ install_requires = [
 ]
 
 
-def vendored(dist_name, subdir, extras=None):
-    """Build a PEP 508 direct reference to a submodule under libraries/.
+GITHUB = "https://github.com/shaliulab"
 
-    The path must be absolute: pip resolves relative paths against the working
-    directory, not against this file. `dist_name` must be the name declared in
-    that package's own setup.py, or pip rejects the install as a name mismatch.
-    """
-    path = HERE / "libraries" / subdir
-    if not ((path / "setup.py").exists() or (path / "pyproject.toml").exists()):
-        warnings.warn(
-            "libraries/{} is empty, so {} will not be installed. "
-            "Run: git submodule update --init --recursive".format(subdir, dist_name)
-        )
+# Commits of the libraries/ submodules that are installed as dependencies. Used only when the submodule
+# is not checked out (a GitHub archive, an sdist, a clone without --recursive): the dependency is then
+# fetched as a GitHub archive of that commit (public repositories, no ssh key needed). In a git checkout
+# the gitlink (`git ls-tree HEAD libraries/<name>`) takes precedence and a warning is printed when it
+# differs from the pin below: bump the pin together with the submodule (flyhostel/tests/test_setup.py
+# checks that they agree).
+PINS = {
+    "libraries/ethoscopy": "e04fe1b02ea9459e3d7329bda99f0eb02c3f8045",
+    "libraries/idtrackerai": "759b518c3bd40ad3ec8b05779b0f84a5861f7b18",
+}
+
+
+def _gitlink(subdir):
+    """Commit the submodule `subdir` points at in this checkout (None outside a git checkout)."""
+    parent, name = os.path.split(subdir)
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(HERE / parent), "ls-tree", "HEAD", name],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True, timeout=30,
+        ).stdout.split()
+    except (OSError, subprocess.SubprocessError):
         return None
+    return out[2] if len(out) >= 3 and out[1] == "commit" else None
 
+
+def pinned(subdir):
+    commit = _gitlink(subdir)
+    if commit is None:
+        return PINS[subdir]
+    if commit != PINS[subdir]:
+        warnings.warn(
+            "{} points at {} but setup.py pins {}: using the submodule's commit "
+            "(update PINS)".format(subdir, commit, PINS[subdir])
+        )
+    return commit
+
+
+def vendored(dist_name, repo, extras=None):
+    """Build a PEP 508 direct reference to the submodule libraries/<repo>.
+
+    When the submodule is checked out (a recursive git clone, which is also what pip does for a git+
+    URL) the local checkout is installed, so local changes are picked up. Otherwise (a GitHub archive or
+    an sdist: no .git, no submodules) the pinned commit is fetched from GitHub as an archive.
+
+    The path must be absolute: pip resolves relative paths against the working directory, not against
+    this file. `dist_name` must be the name declared in that package's own setup.py, or pip rejects the
+    install as a name mismatch.
+    """
+    subdir = "libraries/" + repo
+    path = HERE / subdir
     name = "{}[{}]".format(dist_name, ",".join(extras)) if extras else dist_name
-    return "{} @ {}".format(name, path.resolve().as_uri())
+    if (path / "setup.py").exists() or (path / "pyproject.toml").exists():
+        return "{} @ {}".format(name, path.resolve().as_uri())
+    return "{} @ {}/{}/archive/{}.tar.gz".format(name, GITHUB, repo, pinned(subdir))
 
 
-for requirement in (
-    vendored("ethoscopy", "ethoscopy"),
-    # The distribution is named idtrackerai-shaliulab, not idtrackerai.
-    # [gpu] pulls in torch and torchvision.
-):
-    if requirement is not None:
-        install_requires.append(requirement)
+install_requires.append(vendored("ethoscopy", "ethoscopy"))
 
 
 setup(
@@ -78,6 +113,7 @@ setup(
             "trajectorytools-shaliulab==0.3.5"
         ],
         "detection": ["yolov7tools==1.1"],
+        # The distribution is named idtrackerai-shaliulab, not idtrackerai. [gpu] pulls in torch and torchvision.
         "idtrackerai": [vendored("idtrackerai-shaliulab", "idtrackerai", extras=["gpu"])],
         # needs opencv>=4: install in its own environment, see flyhostel/roi_proposer/README.md
         "roi_proposer": ["ultralytics==8.3.40", "numpy<2", "tomli"],

@@ -4,6 +4,7 @@ import os
 import logging
 import datetime
 import json
+import tempfile
 import requests
 from flyhostel.data.human_validation.cvat.constants import CVAT_BASE, _require_cvat
 from .experiment import get_experiment_identifier, experiment_to_relpath
@@ -122,7 +123,10 @@ def get_task_mtime(task_number):
     dt = datetime.datetime.fromisoformat(updated_date_without_ms)
     return dt 
 
-PROJECTS_JSON="/flyhostel_data/videos/index_cvat_projects.json"
+def projects_json():
+    """Cache of CVAT's project list: index_cvat_projects.json in $FLYHOSTEL_VIDEOS
+    (/flyhostel_data/videos when unset). Resolved on each call, so the variable can be set after import."""
+    return os.path.join(os.environ.get("FLYHOSTEL_VIDEOS", "/flyhostel_data/videos"), "index_cvat_projects.json")
 
 def file_is_older_than_seconds(path, seconds):
     dt = datetime.datetime.fromtimestamp(
@@ -130,10 +134,30 @@ def file_is_older_than_seconds(path, seconds):
     )
     return (dt + datetime.timedelta(seconds=seconds)) < datetime.datetime.now()
 
-def update_project_list():
-    _require_cvat()
+def _write_json_atomic(path, data):
+    """Write `data` to `path` via a temporary file in the same folder and os.replace, so a concurrent
+    reader never sees a partial file."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".index_cvat_projects.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            json.dump(data, handle)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
-    if not os.path.exists(PROJECTS_JSON) or file_is_older_than_seconds(PROJECTS_JSON, 60):
+def _cache_is_stale(path, seconds=60):
+    return not os.path.exists(path) or file_is_older_than_seconds(path, seconds)
+
+def update_project_list():
+    """CVAT's project list, fetched at most once every 60 s (cached in projects_json())."""
+    _require_cvat()
+    path=projects_json()
+
+    if _cache_is_stale(path):
         url=f"{CVAT_BASE}/api/projects?page_size=9999&scheme=json"
         print(f"Fetching {url}")
 
@@ -146,11 +170,14 @@ def update_project_list():
             r.raise_for_status()
             out = r.json()
 
-            if not os.path.exists(PROJECTS_JSON) or file_is_older_than_seconds(PROJECTS_JSON, 60):
-                with open(PROJECTS_JSON, 'w') as handle:
-                    json.dump(out, handle)
+        if _cache_is_stale(path):
+            try:
+                _write_json_atomic(path, out)
+            except OSError as error:
+                # only a cache: the fetched list is still returned
+                logger.warning("Cannot write the CVAT project cache %s: %s", path, error)
     else:
-        with open(PROJECTS_JSON, 'r') as handle:
+        with open(path, 'r') as handle:
             out=json.load(handle)
 
     return out
@@ -161,10 +188,7 @@ def get_project_id_from_name(experiment, errors="raise"):
 
     _require_cvat()
 
-    update_project_list()
-
-    with open(PROJECTS_JSON, "r") as handle:
-        index_cvat_projects=json.load(handle)
+    index_cvat_projects=update_project_list()
     
     assert index_cvat_projects.get("next", None) is None
     assert index_cvat_projects.get("previous", None) is None

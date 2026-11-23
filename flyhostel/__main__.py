@@ -18,8 +18,16 @@ except Exception as error:
 
 import flyhostel.quantification.bin.angle
 import flyhostel.computer_vision.bin
-import flyhostel.modelling.bin.parser
-import flyhostel.modelling.bin.run
+try:
+    # a git submodule (shaliulab/flyhostel-modelling, private): missing when flyhostel is installed from
+    # an archive or sdist, or cloned without --recursive
+    import flyhostel.modelling.bin.parser
+    import flyhostel.modelling.bin.run
+    MODELLING_AVAILABLE=True
+except ModuleNotFoundError as error:
+    if not (error.name or "").startswith("flyhostel.modelling"):
+        raise
+    MODELLING_AVAILABLE=False
 import flyhostel.data.bin.download
 import flyhostel.data.bin.df
 import flyhostel.data.bin.copy
@@ -73,17 +81,18 @@ def get_parser():
     )
     cv_parser.set_defaults(func=flyhostel.computer_vision.bin.run.main)
 
-    modelling_parser = subparsers.add_parser(
-        "modelling",
-        parents=[flyhostel.modelling.bin.parser.get_parser()],
-        add_help=False,
-        help="""
-        Simulate virtual flies that can be either awake or asleep and transition between both states
-        spontaneously or by means of the interaction with another animal (flyhostel.modelling).
-        Their sleep is quantified with the velocity based sleep of flyhostel.data.sleep
-        """,
-    )
-    modelling_parser.set_defaults(func=lambda args: flyhostel.modelling.bin.run.main(args=args))
+    if MODELLING_AVAILABLE:
+        modelling_parser = subparsers.add_parser(
+            "modelling",
+            parents=[flyhostel.modelling.bin.parser.get_parser()],
+            add_help=False,
+            help="""
+            Simulate virtual flies that can be either awake or asleep and transition between both states
+            spontaneously or by means of the interaction with another animal (flyhostel.modelling).
+            Their sleep is quantified with the velocity based sleep of flyhostel.data.sleep
+            """,
+        )
+        modelling_parser.set_defaults(func=lambda args: flyhostel.modelling.bin.run.main(args=args))
     
 
     # Data module (to manage and administer flyhostel datasets)
