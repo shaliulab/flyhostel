@@ -9,7 +9,7 @@ import subprocess
 import shlex
 # import imgstore.stores.multi as imgstore
 
-LOGGING_FILE=os.path.join(os.environ["HOME"], ".config", "qab2022.yaml")
+LOGGING_FILE=os.path.join(os.path.expanduser("~"), ".config", "qab2022.yaml")
 
 from library import generate_dataset
 import utils

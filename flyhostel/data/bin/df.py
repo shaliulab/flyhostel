@@ -7,9 +7,11 @@ from flyhostel.configuration import load_config
 logger = logging.getLogger(__name__)
 config = load_config()
 
-VIDEOS_FOLDER = config["videos"]["folder"]
-EMAIL_ADDRESS = config["email"]["destination"]
-THRESHOLD = config["email"]["threshold"]
+# read with defaults: a new installation (empty config) must still be able to import flyhostel.data.bin
+# (`flyhostel` CLI); main() fails with a clear message when they are needed and missing
+VIDEOS_FOLDER = config.get("videos", {}).get("folder")
+EMAIL_ADDRESS = config.get("email", {}).get("destination")
+THRESHOLD = config.get("email", {}).get("threshold")
 
 def get_parser(ap=None):
     if ap is None:

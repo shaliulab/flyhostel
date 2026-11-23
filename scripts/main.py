@@ -16,7 +16,7 @@ logger=logging.getLogger(__name__)
 chunks=list(range(0, 400))
 
 METADATA_FILE=os.path.join(
-    os.environ["HOME"],
+    os.path.expanduser("~"),
     "opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
 )
 

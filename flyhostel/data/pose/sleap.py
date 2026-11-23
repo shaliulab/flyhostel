@@ -278,7 +278,7 @@ try:
             * colors (list): List of 3-long tuples with the RGB code for the color of an identity
         """
         assert len(identities)==len(colors)
-        temp_file="~/sleap.png"
+        temp_file=os.path.expanduser("~/sleap.png")
         video=Video.from_filename(temp_file)
         lf=LabeledFrame(video=video, frame_idx=0)
        

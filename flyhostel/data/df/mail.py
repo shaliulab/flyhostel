@@ -7,7 +7,8 @@ from flyhostel.configuration import load_config
 
 logger = logging.getLogger(__name__)
 
-source_address = load_config()["email"]["source"]
+# a config without "email" (a new installation, Windows) must not break `import flyhostel.data.df`
+source_address = load_config().get("email", {}).get("source", "")
 HEADERS = f"""Subject: flyhostel file system disk space usage
 From: {source_address}
 Content-Type: text/html; charset="utf8"
