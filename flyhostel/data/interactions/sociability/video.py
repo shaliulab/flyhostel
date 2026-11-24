@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import itertools
 import os.path
 import logging
@@ -324,7 +325,7 @@ def annotate_interaction_database(experiment, database):
         FlyHostelLoader(experiment=experiment, identity=identity) for identity in identities
     ]
     for loader in tqdm(loaders, desc="Loading centroid data"):
-        loader.load_centroid_data(cache="/flyhostel_data/cache")
+        loader.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
 
     dt=pd.concat([loader.dt for loader in loaders], axis=0).reset_index(drop=True)
     # get coordinates of centroid
@@ -409,7 +410,7 @@ def load_deg_data(experiment, metadata={}):
         print(f"Skip {experiment}")
         return [], None
 
-    entries=glob.glob(f"/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA/{experiment}*")
+    entries=glob.glob(f"{lab_paths.DEG_REJECTIONS_PROJECT}DATA/{experiment}*")
     prediction_files=[entry + "/" + os.path.basename(entry) + "_outputs.h5" for entry in entries]
     prediction_files=[file for file in prediction_files if os.path.exists(file)]
     all_df=joblib.Parallel(n_jobs=10)(

@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import datetime
 import json
 import logging
@@ -106,13 +107,13 @@ def load_one_animal(experiment, identity, feature_types, pose_key="pose", behavi
     if pose_key=="pose":
         loader.load_data(
             stride=1,
-            cache="/flyhostel_data/cache",
+            cache=lab_paths.FLYHOSTEL_CACHE,
             load_behavior=False,
         )
     elif pose_key=="pose_boxcar":
         loader.load_and_process_data(
             stride=1,
-            cache="/flyhostel_data/cache",
+            cache=lab_paths.FLYHOSTEL_CACHE,
             filters=None,
             useGPU=0
         )

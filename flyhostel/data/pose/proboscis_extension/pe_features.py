@@ -24,6 +24,7 @@ DESIGN — why two feature levels, and how solitary PEs are handled:
   still labelled from shape + movement. Every bout — solitary or not — gets a row.
 """
 
+from flyhostel import lab_paths
 import ast
 import os
 import logging
@@ -304,7 +305,7 @@ def project_thorax_to_arena(loader, thorax, frame_numbers):
 
 def signals_from_h5(loader, params, track=TRACK):
     """Per-frame signals, built from the SAME gate classify_detections uses."""
-    loader.load_centroid_data(cache="/flyhostel_data/cache")
+    loader.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
     assert loader.dt is not None
     loader.load_landmarks()
     path = loader.get_pose_file_h5py("raw")
@@ -974,7 +975,7 @@ def pe_features_for_fly(fly):
     loader=FlyHostelLoader(experiment, identity)
     pose_file=loader.get_pose_file_path("raw")
     if not os.path.exists(pose_file):
-        loader.load_centroid_data(cache="/flyhostel_data/cache")
+        loader.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
         pose_file=loader.get_pose_file_h5py("raw", dt=loader.dt)
 
     else:
@@ -982,7 +983,7 @@ def pe_features_for_fly(fly):
             keys=f.keys()
         if "t" not in keys:
             os.remove(pose_file)
-            loader.load_centroid_data(cache="/flyhostel_data/cache")
+            loader.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
             
             pose_file=loader.get_pose_file_h5py("raw", dt=loader.dt)
         else:

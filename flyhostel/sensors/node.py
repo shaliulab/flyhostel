@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import argparse
 import urllib.request
 import logging
@@ -75,9 +76,9 @@ def download_logs(ip, filename):
     password = "root"
     ssh = createSSHClient(server, port, user, password)
     scp = SCPClient(ssh.get_transport())
-    scp.get("/sensor_log.txt", f"/ethoscope_data/sensors/{filename}")
+    scp.get("/sensor_log.txt", f"{lab_paths.ETHOSCOPE_SENSORS}/{filename}")
     df = pd.read_csv(
-        f"/ethoscope_data/sensors/{filename}",
+        f"{lab_paths.ETHOSCOPE_SENSORS}/{filename}",
         sep="\t",
         header=None,
         names=[
@@ -121,7 +122,7 @@ def plot(ip, incubator, timeout=10):
             ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d_%H:%M"))
 
             i += 1
-        plot_abspath = f"/ethoscope_data/sensors/{plotname}"
+        plot_abspath = f"{lab_paths.ETHOSCOPE_SENSORS}/{plotname}"
         plt.savefig(plot_abspath)
 
         data = get_data(ip)

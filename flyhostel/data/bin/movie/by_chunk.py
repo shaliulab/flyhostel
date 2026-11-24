@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import argparse
 from tqdm.auto import tqdm
 
@@ -23,7 +24,7 @@ def get_parser():
 
 def annotate_by_chunk():
 
-    cache="/flyhostel_data/cache"
+    cache=lab_paths.FLYHOSTEL_CACHE
 
     ap = get_parser()
     args=ap.parse_args()

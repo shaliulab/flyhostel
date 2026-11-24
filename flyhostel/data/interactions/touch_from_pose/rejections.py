@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import itertools
 import logging
 import os
@@ -40,7 +41,7 @@ from flyhostel.utils import (
     get_single_animal_video,
 )
 logger=logging.getLogger(__name__)
-os.environ["DEEPETHOGRAM_PROJECT_PATH"]="/flyhostel_data/fiftyone/FlyBehaviors/DEG/FlyHostel_deepethogram_47fps/"
+os.environ["DEEPETHOGRAM_PROJECT_PATH"]=lab_paths.DEG_PROJECT_47FPS
 TOUCH_MASK_DURATION=10
 
 def make_index_for_videos(experiment, interactions, centroids):

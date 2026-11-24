@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import json
 import os.path
 import tempfile
@@ -12,7 +13,7 @@ import joblib
 from flyhostel.data.pose.constants import framerate
 
 SIZE=640
-ROOT_DIR="/opt/behavior-viewer/static/datasets"
+ROOT_DIR=lab_paths.BEHAVIOR_VIEWER_DATASETS
 
 def thread(video_url, fig, index, scenes, i):
     scene=scenes[i]

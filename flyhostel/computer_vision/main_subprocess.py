@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import argparse
 import logging
 import logging.config
@@ -9,7 +10,7 @@ import subprocess
 import shlex
 # import imgstore.stores.multi as imgstore
 
-LOGGING_FILE=os.path.join(os.path.expanduser("~"), ".config", "qab2022.yaml")
+LOGGING_FILE=lab_paths.QAB2022_LOGGING_FILE
 
 from library import generate_dataset
 import utils

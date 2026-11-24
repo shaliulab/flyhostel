@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import argparse
 import logging
 import os
@@ -21,7 +22,7 @@ def filter_experiment(experiment, identity, stride, min_time=MIN_TIME, max_time=
     loader.load_and_process_data(
         min_time=min_time, max_time=max_time,
         stride=stride,
-        cache="/flyhostel_data/cache",
+        cache=lab_paths.FLYHOSTEL_CACHE,
         useGPU=0,
         speed=False,
         sleep=False,

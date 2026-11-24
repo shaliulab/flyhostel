@@ -1,9 +1,10 @@
+from flyhostel import lab_paths
 import subprocess
 import shlex
 
 def annotate_behavior_in_video_ffmpeg(input_video, frame_idx, behaviors, output_video, fps, gui_progress=False):
     filter_str=""
-    fontfile="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    fontfile=lab_paths.DEJAVU_SANS
     font_option=f"fontfile='{fontfile}':"
     # font_option=""
     

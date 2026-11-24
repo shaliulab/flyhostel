@@ -4,6 +4,7 @@ Build a YOLO segmentation dataset from all experiments that already have DATE_TI
 One image per experiment: the chunk snapshot (.png) the landmarks were annotated on.
 The most recent experiments (by date) are held out for validation, to mimic proposing ROIs for new experiments.
 """
+from flyhostel import lab_paths
 import argparse
 import glob
 import os
@@ -20,7 +21,7 @@ from .rois import CLASSES, chunk_of, load_experiment_rois
 def get_parser(ap=None):
     if ap is None:
         ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--videos", default="/flyhostel_data/videos")
+    ap.add_argument("--videos", default=lab_paths.FLYHOSTEL_VIDEOS_DEFAULT)
     ap.add_argument("--output", default=os.path.join(ROI_PROPOSER_DIR, "data"))
     ap.add_argument("--n-val", type=int, default=60)
     return ap

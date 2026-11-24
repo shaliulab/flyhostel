@@ -1,8 +1,9 @@
+from flyhostel import lab_paths
 import os
 import glob
 import pandas as pd
 pd.set_option("display.max_colwidth", 80)
-PROJECT_PATH="/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/"
+PROJECT_PATH=lab_paths.DEG_REJECTIONS_PROJECT
 
 from flyhostel.data.pose.main import FlyHostelLoader
 from flyhostel.utils import (
@@ -35,7 +36,7 @@ def analysis(experiment):
             has_labels(key)
             for key in loader.interactions_index["key"]
         ]
-        loader.load_centroid_data(cache="/flyhostel_data/cache")
+        loader.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
         loader.sleep=load_sleep_data(loader, bout_annotation="asleep")
         sleep.append(loader.sleep)
         interactions.append(loader.interactions_index)

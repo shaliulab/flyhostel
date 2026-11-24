@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import logging
 import subprocess
 import re
@@ -24,7 +25,7 @@ def send_mail_subprocess(message, address):
     subprocess.run(cmd, input = bytes(message, "utf-8"))
 
 
-def get_email_password(config_file="/etc/ssmtp/ssmtp.conf"):
+def get_email_password(config_file=lab_paths.SSMTP_CONF):
     with open(config_file, "r") as filehandle:
         while True:
             try:

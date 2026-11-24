@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import os.path
 import itertools
 import logging
@@ -64,7 +65,7 @@ def get_dataset_version(deg_folder):
 
 
 def get_pose_model_version():
-    config_file="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/pose_estimation/nextflow.config"
+    config_file=lab_paths.POSE_NEXTFLOW_CONFIG
     with open(config_file, "r") as handle:
         config=handle.readlines()
     model_name=[line for line in config if "sleap_model" in line][-1].strip("\n").split("/models/")[-1].rstrip('"')
@@ -332,7 +333,7 @@ def load_centroids(loader, frame_numbers=None, load_centroid_speed=True):
     loader.load_centroid_data(
         identity_table=loader.identity_table,
         roi_0_table=loader.roi_0_table,
-        cache="/flyhostel_data/cache"
+        cache=lab_paths.FLYHOSTEL_CACHE
     )
     if frame_numbers is not None:
         logger.debug("Filtering centroid data to include only %s frames", len(frame_numbers))

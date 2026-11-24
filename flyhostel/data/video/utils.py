@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import cv2
 import logging
 logger=logging.getLogger(__name__)
@@ -141,8 +142,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 TIME_LABEL_FONTS={
-    "regular": ["/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"],
-    "bold": ["/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+    "regular": [lab_paths.LIBERATION_SANS, lab_paths.DEJAVU_SANS],
+    "bold": [lab_paths.LIBERATION_SANS_BOLD, lab_paths.DEJAVU_SANS_BOLD],
 }
 TIME_LABEL_MARKER=(230, 159, 0)  # RGB, amber (Okabe-Ito orange)
 

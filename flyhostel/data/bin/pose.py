@@ -2,6 +2,7 @@
 Interface between SLEAP and downstream behavior pipelines
 """
 
+from flyhostel import lab_paths
 import argparse
 from flyhostel.utils.pose_export import recreate_pose_file
 from flyhostel.data.pose.main import FlyHostelLoader
@@ -36,6 +37,6 @@ def compile(experiment, chunks, output, identity, n_jobs=1):
 
     identity=int(identity)
     loader=FlyHostelLoader(experiment, identity)
-    loader.load_centroid_data(cache="/flyhostel_data/cache")
+    loader.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
 
     recreate_pose_file(experiment, chunks=chunks, output=output, identity=identity, n_jobs=n_jobs, dt=loader.dt)

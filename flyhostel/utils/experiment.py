@@ -17,6 +17,7 @@ where each arena is cropped into its own imgstore under arenas/N
 Arena 0 means the recording is not split into arenas, i.e. it lives in the
 standard basedir (never in arenas/0), and its experiment name has no _arena suffix
 """
+from flyhostel import lab_paths
 import glob
 import logging
 import os
@@ -186,7 +187,7 @@ def experiment_from_id(id, videos_folder=None):
 
 def _experiment_from_single_arena_id(f, videos_folder=None):
     if videos_folder is None:
-        videos_folder=os.environ.get("FLYHOSTEL_VIDEOS", "/flyhostel_data/videos")
+        videos_folder=lab_paths.flyhostel_videos()
 
     pattern=os.path.join(
         videos_folder, f["flyhostel"], f["number_of_animals"],

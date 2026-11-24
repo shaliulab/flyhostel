@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import datetime
 import os
 import sys
@@ -13,7 +14,7 @@ import numpy as np
 import pandas as pd
 # logging.getLogger("bsoid_app.cli.video_creator.video_creator_chain").setLevel(logging.INFO)
 
-sys.path.append("/home/vibflysleep/opt/B-SOID/")
+sys.path.append(lab_paths.BSOID_DIR)
 from bsoid_app.cli import data_preprocess
 from bsoid_app.cli.utils import (
     interpolate_between_contiguous_predictions,

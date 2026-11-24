@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import os.path
 
 from flyhostel.quantification.modelling.constants import *
@@ -19,12 +20,12 @@ ANNOTATION_PARAMETERS = {
 }
 
 
-CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".config", "flyhostel", "config.conf")
-LOGGING_CONFIG = os.path.join(os.path.expanduser("~"), ".config", "flyhostel", "logging.yaml")
+CONFIG_FILE = lab_paths.CONFIG_FILE
+LOGGING_CONFIG = lab_paths.LOGGING_CONFIG
 # training data and weights of the roi-proposer
-ROI_PROPOSER_DIR = os.environ.get("FLYHOSTEL_ROI_PROPOSER_DIR", os.path.join(os.path.expanduser("~"), ".local", "share", "flyhostel", "roi_proposer"))
+ROI_PROPOSER_DIR = lab_paths.ROI_PROPOSER_DIR
 
-DEFAULT_CONFIG = {"videos": {"folder": "/flyhostel_data/videos"}, "logging": {"sensors": "WARNING", "arduino": "WARNING"}}
+DEFAULT_CONFIG = {"videos": {"folder": lab_paths.FLYHOSTEL_VIDEOS_DEFAULT}, "logging": {"sensors": "WARNING", "arduino": "WARNING"}}
 N_JOBS = 1
 ETHOGRAM_FREQUENCY = 300
 INDEX_FORMAT=".npz"

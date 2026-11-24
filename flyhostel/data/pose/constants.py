@@ -9,7 +9,6 @@ logger=logging.getLogger(__name__)
 chunksize=None
 framerate=None
 centroid_framerate=2
-# "/Users/FlySleepLab Dropbox/Antonio/FSLLab/Projects/FlyHostel4/notebooks/datasets/"
 
 palette="rainbow"
 prefix="2023-07-19"

@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import pickle
 import os
 import subprocess
@@ -262,7 +263,7 @@ try:
     from sleap.io.visuals import save_labeled_video
     from sleap.gui.color import ColorManager
     cwd=os.getcwd()
-    ref_labels_file="/Users/FlySleepLab_Dropbox/Data/flyhostel_data/fiftyone/FlyBehaviors/labels_train.slp"
+    ref_labels_file=lab_paths.SLEAP_REF_LABELS
     os.chdir(os.path.dirname(ref_labels_file))
     skeleton=Labels.load_file(ref_labels_file).skeleton
     os.chdir(cwd)
@@ -278,7 +279,7 @@ try:
             * colors (list): List of 3-long tuples with the RGB code for the color of an identity
         """
         assert len(identities)==len(colors)
-        temp_file=os.path.expanduser("~/sleap.png")
+        temp_file=lab_paths.SLEAP_PNG
         video=Video.from_filename(temp_file)
         lf=LabeledFrame(video=video, frame_idx=0)
        

@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import os.path
 import logging
 import pickle
@@ -39,7 +40,7 @@ def predict_behavior(experiment, model_path, identity=None, wavelets=None, outpu
     loader = FlyHostelLoader(experiment, identity=identity, chunks=range(0, 400))
     loader.load_and_process_data(
         stride=STRIDE,
-        cache="/flyhostel_data/cache",
+        cache=lab_paths.FLYHOSTEL_CACHE,
         filters=None,
         useGPU=0,
         **kwargs,

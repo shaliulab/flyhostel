@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import os.path
 import warnings
 
@@ -5,7 +6,7 @@ from vidio.read import VideoReader
 import cv2
 
 def build_key(flyhostel_id, number_of_animals, date_time, chunk, local_identity=None):
-    with open("/home/vibflysleep/watch_build_key.txt", "r") as handle:
+    with open(lab_paths.WATCH_BUILD_KEY, "r") as handle:
         handle.write("Needed")
 
     key = f"FlyHostel{flyhostel_id}_{number_of_animals}X_{date_time}_{str(chunk).zfill(6)}"

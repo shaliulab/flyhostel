@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import h5py
 import logging
 import os.path
@@ -121,7 +122,7 @@ class SleepLoader:
         x, y are in mm relative to the top left corner of the frame
         Sampling rate given by sleep dataset. Typically 1Hz (i.e. every second new data point)
         """
-        self.load_centroid_data(cache="/flyhostel_data/cache")
+        self.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
         try:
             self.load_sleep_data(bin_size=None)
         except FileNotFoundError:

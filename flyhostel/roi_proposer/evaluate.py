@@ -2,6 +2,7 @@
 Compare proposed ROIs with the hand-made ones on the validation experiments (the most recent ones)
 Saves side by side previews (hand-made in white, proposal in color) under runs/eval/
 """
+from flyhostel import lab_paths
 import argparse
 import glob
 import os
@@ -18,7 +19,7 @@ def get_parser(ap=None):
     if ap is None:
         ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--images", default=os.path.join(ROI_PROPOSER_DIR, "data", "images", "val"))
-    ap.add_argument("--videos", default="/flyhostel_data/videos")
+    ap.add_argument("--videos", default=lab_paths.FLYHOSTEL_VIDEOS_DEFAULT)
     ap.add_argument("--weights", default=DEFAULT_WEIGHTS)
     ap.add_argument("--output", default=os.path.join(ROI_PROPOSER_DIR, "runs", "eval"))
     return ap

@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import argparse
 import os.path
 import logging
@@ -15,10 +16,7 @@ logger=logging.getLogger(__name__)
 
 chunks=list(range(0, 400))
 
-METADATA_FILE=os.path.join(
-    os.path.expanduser("~"),
-    "opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
-)
+METADATA_FILE=lab_paths.BACKUP_ANIMALS_CSV
 
 def get_parser():
     ap = argparse.ArgumentParser()

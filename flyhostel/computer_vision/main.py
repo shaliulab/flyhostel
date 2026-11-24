@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import logging
 import logging.config
 import os.path
@@ -7,7 +8,7 @@ import numpy as np
 import shlex
 
 
-LOGGING_FILE=os.path.join(os.path.expanduser("~"), ".config", "qab2022.yaml")
+LOGGING_FILE=lab_paths.QAB2022_LOGGING_FILE
 
 from flyhostel.computer_vision.get_files import get_experiments
 from flyhostel.computer_vision.library import generate_dataset

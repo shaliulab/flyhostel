@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import time
 import json
 import logging
@@ -1181,8 +1182,8 @@ def copy_file(src, dest, verbose=True, dry_run=False):
 
 
 
-ANIMALS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
-GROUPS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/interaction_detection/index.csv"
+ANIMALS_CSV=lab_paths.ANIMALS_CSV
+GROUPS_CSV=lab_paths.INTERACTION_INDEX_CSV
 
 def load_experiments(
         number_of_animals=6, interactions=False,

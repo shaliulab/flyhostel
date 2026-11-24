@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import logging
 import time
 import logging
@@ -181,7 +182,7 @@ def join_strings_by_repeated_integers(integers, strings, joiner="+"):
     return list(grouped_strings.values())
 
 
-def load_dataset(experiment, identity, wavelets=None, cache="/flyhostel_data/cache", **kwargs):
+def load_dataset(experiment, identity, wavelets=None, cache=lab_paths.FLYHOSTEL_CACHE, **kwargs):
 
     loader = FlyHostelLoader(experiment=experiment, identity=identity, chunks=range(0, 400))
     out=load_one_animal(experiment, identity, feature_types=["speed", "distance", "centroid_speed", "wavelets"], pose_key="pose_boxcar", behavior_key="behavior", segregate=False)

@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import logging
 import glob
 import functools
@@ -75,7 +76,7 @@ def load_experiment_features(experiment, identity=None, extra_bodyparts=[], min_
         )
 
         loader=FlyHostelLoader(experiment=experiment, identity=identity)
-        loader.load_centroid_data(cache="/flyhostel_data/cache")
+        loader.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
 
         pose_file=loader.get_pose_file_h5py(pose_name="raw")
         frames=get_frames(pose_file, chunksize)
@@ -228,7 +229,7 @@ def load_experiment_features(experiment, identity=None, extra_bodyparts=[], min_
 #         )
 
 #         loader=FlyHostelLoader(experiment=experiment, identity=identity)
-#         loader.load_centroid_data(cache="/flyhostel_data/cache")
+#         loader.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
 
 #         pose_file=loader.get_pose_file_h5py(pose_name="raw")
 #         frames=get_frames(pose_file, chunksize)

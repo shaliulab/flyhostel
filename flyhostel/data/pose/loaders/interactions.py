@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import logging
 import os.path
 import numpy as np
@@ -104,9 +105,9 @@ class InteractionsLoader:
 
     def get_interactions_data_dir(self):
         if self.framerate == 150:
-            return "/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA_150fps"
+            return lab_paths.DEG_REJECTIONS_PROJECT + "DATA_150fps"
         else:
-            return "/flyhostel_data/fiftyone/FlyBehaviors/DEG-REJECTIONS/rejections_deepethogram/DATA"
+            return lab_paths.DEG_REJECTIONS_PROJECT + "DATA"
     
     def load_interaction_database(self, interaction_database=None):
 

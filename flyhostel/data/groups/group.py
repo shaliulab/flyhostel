@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import shutil
 import glob
 import os.path
@@ -67,7 +68,7 @@ class FlyHostelGroup(InteractionDetector):
                 if fly.pose is None:
                     fly.load_and_process_data(
                         stride=stride,
-                        cache="/flyhostel_data/cache",
+                        cache=lab_paths.FLYHOSTEL_CACHE,
                         min_time=min_time,
                         max_time=max_time,
                         filters=None,
@@ -244,7 +245,7 @@ class FlyHostelGroup(InteractionDetector):
             filtered_pose=fly.get_pose_file_h5py(pose_name=pose_name)
             raw_pose=fly.get_pose_file_h5py(pose_name="raw")
             files=[(filtered_pose, raw_pose)]
-            fly.load_pose_data(identity=fly.identity, min_time=min_time, max_time=max_time, verbose=False, cache="/flyhostel_data/cache", files=files, write_only=False, stride=skip)
+            fly.load_pose_data(identity=fly.identity, min_time=min_time, max_time=max_time, verbose=False, cache=lab_paths.FLYHOSTEL_CACHE, files=files, write_only=False, stride=skip)
             pose_cpu=fly.pose
 
             after_cpu=time.time()

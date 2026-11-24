@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 from pathlib import Path
 import logging
 import os
@@ -13,8 +14,8 @@ from flyhostel.utils import load_experiments
 raise DeprecationWarning
 import numpy as np
 
-ANIMALS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/behavior_prediction/animals.csv"
-GROUPS_CSV="/home/vibflysleep/opt/vsc-scripts/nextflow/pipelines/interaction_detection/fly_groups.csv"
+ANIMALS_CSV=lab_paths.ANIMALS_CSV
+GROUPS_CSV=lab_paths.FLY_GROUPS_CSV
 
 N_CLUSTERS=5
 WINDOW_S=1

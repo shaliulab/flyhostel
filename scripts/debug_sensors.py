@@ -1,12 +1,13 @@
 import logging
 import serial
 import time
+from flyhostel import lab_paths
 from flyhostel.arduino import utils
 
 log = logging.getLogger("flyhostel.arduino.utils")
 log.setLevel(logging.DEBUG)
 
-port = "/dev/ttyACM0"
+port = lab_paths.SENSOR_SERIAL_PORT
 TIMEOUT=2
 
 def main_v1():

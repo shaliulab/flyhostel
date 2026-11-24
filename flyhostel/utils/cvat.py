@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import sqlite3
 import glob
 import os
@@ -126,7 +127,7 @@ def get_task_mtime(task_number):
 def projects_json():
     """Cache of CVAT's project list: index_cvat_projects.json in $FLYHOSTEL_VIDEOS
     (/flyhostel_data/videos when unset). Resolved on each call, so the variable can be set after import."""
-    return os.path.join(os.environ.get("FLYHOSTEL_VIDEOS", "/flyhostel_data/videos"), "index_cvat_projects.json")
+    return os.path.join(lab_paths.flyhostel_videos(), "index_cvat_projects.json")
 
 def file_is_older_than_seconds(path, seconds):
     dt = datetime.datetime.fromtimestamp(

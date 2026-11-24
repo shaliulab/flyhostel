@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import time
 import pickle
 import io
@@ -610,7 +611,7 @@ class FlyHostelLoader(
 
             self.load_and_process_data(
                 stride=1,
-                cache="/flyhostel_data/cache",
+                cache=lab_paths.FLYHOSTEL_CACHE,
                 filters=None,
                 useGPU=0,
             )

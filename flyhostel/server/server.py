@@ -1,5 +1,6 @@
 #! /usr/bin/python
 
+from flyhostel import lab_paths
 import argparse
 import warnings
 import os.path
@@ -11,7 +12,7 @@ import os
 import signal
 import sys
 PORT = 8000
-VIDEO_DATABASE="/flyhostel_data/videos"
+VIDEO_DATABASE=lab_paths.FLYHOSTEL_VIDEOS_DEFAULT
 
 import joblib
 from imgstore.interface import VideoCapture

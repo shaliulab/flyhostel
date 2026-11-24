@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import itertools
 import os.path
 import pandas as pd
@@ -21,7 +22,7 @@ BODY_LENGTH=2
 ARENA_WIDTH=60
 ARENA_HEIGHT=60
 target_fps=30
-dsna_folder="/home/vibflysleep/opt/drosophila-social-network-analysis"
+dsna_folder=lab_paths.DSNA_FOLDER
 
 
 # Function to calculate angle in radians
@@ -100,7 +101,7 @@ def export_to_dsna(experiment, min_time=7*3600, max_time=17*3600):
         loader.load_and_process_data(
             min_time=min_time, max_time=max_time,                
             stride=stride,
-            cache="/flyhostel_data/cache",
+            cache=lab_paths.FLYHOSTEL_CACHE,
             filters=None,
             useGPU=0
         )

@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 from abc import ABC, abstractmethod
 import os.path
 import hdf5storage
@@ -16,7 +17,7 @@ px.defaults.width = 1000
 px.defaults.height = 1000
 px.defaults.size_max = 15
 
-MMPY_PROJECT="/home/vibflysleep/opt/long_timescale_analysis/slurm/FlyHostel_long_timescale_analysis/"
+MMPY_PROJECT=lab_paths.MMPY_PROJECT
 
 
 class UMAPLoader(ABC):

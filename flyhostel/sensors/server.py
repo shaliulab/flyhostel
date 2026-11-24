@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import threading
 import logging
 import socket
@@ -133,7 +134,7 @@ class Server(threading.Thread):
 
 if __name__ == "__main__":
 
-    sensor = Sensor("/dev/ttyACM0")
+    sensor = Sensor(lab_paths.SENSOR_SERIAL_PORT)
     sensor.start()
     html_server = Server(sensor, server_type="html", port=HTML_PORT)
     json_server = Server(sensor, server_type="json", port=JSON_PORT)

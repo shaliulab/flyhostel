@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import logging
 import time
 import tempfile
@@ -13,10 +14,10 @@ from flyhostel.utils.utils import load_meta_info
 logger=logging.getLogger(__name__)
 
 
-metadata_folder='/flyhostel_data/metadata'
-remote = '/flyhostel_data/videos'
-local = '/flyhostel_data/videos'
-flyhostel_cache='/flyhostel_data/cache'
+metadata_folder=lab_paths.FLYHOSTEL_METADATA
+remote = lab_paths.FLYHOSTEL_VIDEOS_DEFAULT
+local = lab_paths.FLYHOSTEL_VIDEOS_DEFAULT
+flyhostel_cache=lab_paths.FLYHOSTEL_CACHE
 time_window_length=10
 
 def t_after_ref_from_dbfile(dbfile, reference_hour):

@@ -3,6 +3,7 @@ Generate timelapse videos from a flyhostel experiment
 for visualization purposes
 """
 
+from flyhostel import lab_paths
 import os
 import traceback
 import logging
@@ -415,7 +416,7 @@ def main(experiment, back_in_time_min=15, n_jobs=20, cache=False, min_time=MIN_T
         loader.load_centroid_data(
             min_time=min_time,
             max_time=max_time,
-            cache="/flyhostel_data/cache/",
+            cache=lab_paths.FLYHOSTEL_CACHE + "/",
             identity_table=identity_table,
             roi_0_table=roi_0_table
         )

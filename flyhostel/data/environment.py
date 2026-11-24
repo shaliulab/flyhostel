@@ -17,6 +17,7 @@ in `clock`, it is not applied to the timestamps.
     python -m flyhostel.data.environment show FlyHostel1_4X_2026-10-13_17-00-00
 """
 
+from flyhostel import lab_paths
 import argparse
 import datetime
 import email.utils
@@ -31,7 +32,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-ENVIRONMENT_DB = os.environ.get("FLYHOSTEL_ENVIRONMENT", "/flyhostel_data/environment/environment.db")
+ENVIRONMENT_DB = lab_paths.ENVIRONMENT_DB
 INCUBATOR_URL = os.environ.get("INCUBATOR_URL", "http://10.43.205.5:30000")
 # Readings further apart than this are not interpolated (incubator off, logger down)
 MAX_GAP_S = 300

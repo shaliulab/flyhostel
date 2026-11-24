@@ -13,6 +13,7 @@ the bout in the pe_bouts feather, so verdicts are matched to bouts like the over
 The verdict of the user has the last word: read_pe_bouts applies the overrides, apply_annotations then applies the
 verdicts on top.
 """
+from flyhostel import lab_paths
 import logging
 import os
 import sqlite3
@@ -25,7 +26,7 @@ from flyhostel.utils.experiment import experiment_to_relpath
 logger = logging.getLogger(__name__)
 
 # the GUI reads PE_ANNOTATIONS_DB, segmentation.py PE_DB
-ANNOTATIONS_DB = os.environ.get("PE_ANNOTATIONS_DB") or os.environ.get("PE_DB", "/flyhostel_data/videos/pe_annotations.db")
+ANNOTATIONS_DB = lab_paths.PE_ANNOTATIONS_DB
 # verdicts that relabel the bout; merge and unsure keep the label it had
 RELABELLING_VERDICTS = ("pe", "feed", "groom", "walk", "other")
 

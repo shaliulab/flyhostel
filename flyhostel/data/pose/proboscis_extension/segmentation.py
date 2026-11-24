@@ -32,6 +32,7 @@ CLI
   python -m segmentation write --experiments A B --method pipeline
   python -m segmentation benchmark
 """
+from flyhostel import lab_paths
 import os
 import json
 import sqlite3
@@ -41,8 +42,7 @@ import itertools
 import numpy as np
 import pandas as pd
  
-DB_PATH = os.environ.get("RESEG_DB",
-                         os.environ.get("PE_DB", "/flyhostel_data/videos/pe_annotations.db"))
+DB_PATH = lab_paths.RESEG_DB
 PROBOSCIS_EXTENSIONS_FOLDER = "proboscis_extensions"
  
 VISIBLE_DEFAULTS = dict(hi=0.50, lo=0.30, nanfill_s=0.10, bridge_s=0.40, min_s=0.05)

@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import time
 from abc import abstractmethod
 import logging
@@ -157,7 +158,7 @@ class DEGLoader:
         raise NotImplementedError()
 
     def get_deg_data_dir(self):
-        ROOT="/flyhostel_data/fiftyone/FlyBehaviors/DEG"
+        ROOT=lab_paths.DEG_ROOT
         if self.framerate==150:
             return f"{ROOT}/FlyHostel_deepethogram/DATA"
         else:

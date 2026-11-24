@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import os.path
 import logging
 import h5py
@@ -76,7 +77,7 @@ else:
 
         def load_movement_data(self):
 
-            self.load_centroid_data(cache="/flyhostel_data/cache")
+            self.load_centroid_data(cache=lab_paths.FLYHOSTEL_CACHE)
             pose_file=self.get_pose_file_h5py(pose_name="raw")
             ds=load_poses.from_file(pose_file, source_software="SLEAP", fps=self.framerate)
             ds=self.annotate_pose_frame_number(ds, pose_file)

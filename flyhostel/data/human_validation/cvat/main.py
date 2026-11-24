@@ -1,5 +1,6 @@
 # cvat.main.py
 
+from flyhostel import lab_paths
 import time
 import os.path
 import traceback
@@ -44,7 +45,7 @@ except:
     raise ImportError(f"cudf is broken. Maybe a compatibility problem between this version of cudf {cudf.__version__} and the CUDA driver version")
 
 REDOWNLOAD_FROM_CVAT=True
-MEMORY = Memory("/tmp/joblib_cache", verbose=0)
+MEMORY = Memory(lab_paths.JOBLIB_CACHE, verbose=0)
 
 
 def select_frame_interval(data, frames_from_annotation, first_frame_number, last_frame_number):

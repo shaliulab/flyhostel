@@ -1,3 +1,4 @@
+from flyhostel import lab_paths
 import datetime
 import json
 import logging
@@ -84,7 +85,7 @@ def train_umap(input="experiments.txt", run_on_unknown=False, output=OUTPUT_FOLD
 
         loader.load_and_process_data(
             stride=loader.wavelet_downsample,
-            cache="/flyhostel_data/cache",
+            cache=lab_paths.FLYHOSTEL_CACHE,
             filters=None,
             useGPU=0
         )
